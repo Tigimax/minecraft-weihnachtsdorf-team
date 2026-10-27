@@ -9,11 +9,19 @@ PNODE01_IP="192.168.1.199"
 PNODE02_IP="192.168.1.200"
 IMAGE_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 IMAGE_NAME="noble-server-cloudimg-amd64.img"
+SSH_PUB_KEY="${HOME}/.ssh/id_ed25519.pub"
 
-echo "=== 1. Preparing Cloud-Init Image ==="
+if [[ ! -f "${SSH_PUB_KEY}" ]]; then
+  echo "Error: SSH public key ${SSH_PUB_KEY} not found!" >&2
+  exit 1
+fi
+
+echo "=== 1. Preparing Cloud-Init Image & SSH Keys ==="
 for node in "${PNODE01_IP}" "${PNODE02_IP}"; do
   echo "Checking cloud image on ${node}..."
   ssh "root@${node}" "test -f /var/lib/vz/template/iso/${IMAGE_NAME} || wget -c '${IMAGE_URL}' -O /var/lib/vz/template/iso/${IMAGE_NAME}"
+  echo "Syncing SSH public key to ${node}:/tmp/deploy_keys.pub..."
+  scp "${SSH_PUB_KEY}" "root@${node}:/tmp/deploy_keys.pub"
 done
 
 echo "=== 2. Creating VM 119 (pterodactyl-node1) on pnode01 ==="
@@ -45,7 +53,8 @@ if ! qm status 119 >/dev/null 2>&1; then
     --agent enabled=1
 
   qm disk resize 119 scsi0 40G
-  echo 'VM 119 created.'
+  qm start 119
+  echo 'VM 119 created and started.'
 else
   echo 'VM 119 already exists.'
 fi
@@ -83,10 +92,21 @@ if ! qm status 120 >/dev/null 2>&1; then
     --agent enabled=1
 
   qm disk resize 120 scsi0 80G
-  echo 'VM 120 created.'
+  qm start 120
+  echo 'VM 120 created and started.'
 else
   echo 'VM 120 already exists.'
 fi
 "
+
+echo "=== 4. Ensuring QEMU Guest Agent on guests ==="
+for guest_ip in "192.168.1.148" "192.168.1.149"; do
+  echo "Checking guest agent on ${guest_ip}..."
+  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "tigimax@${guest_ip}" "
+    if ! systemctl is-active --quiet qemu-guest-agent; then
+      sudo apt-get update && sudo apt-get install -y qemu-guest-agent && sudo systemctl start qemu-guest-agent
+    fi
+  " || echo "Warning: Could not connect to ${guest_ip} yet (still booting?)."
+done
 
 echo "=== Provisioning complete ==="

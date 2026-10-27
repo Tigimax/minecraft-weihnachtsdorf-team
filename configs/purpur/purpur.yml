@@ -1,0 +1,78 @@
+settings:
+  dont-send-useless-entity-packets: true
+  use-alternate-keepalive: true
+  tps-catchup:
+    enabled: false
+  lagging-threshold: 16.0
+  network:
+    max-joins-per-tick: 3
+
+world-settings:
+  default:
+    blocks:
+      bed:
+        explode: false
+        explode-effect: NONE
+      respawn-anchor:
+        explode: false
+        explode-effect: NONE
+      barrel:
+        rows: 3
+      ender-chest:
+        six-rows: true
+
+    mobs:
+      villager:
+        lobotomize:
+          enabled: true
+          check-interval: 100
+        search-radius:
+          acquire-poi: 16
+          nearest-bed-sensor: 16
+        brain-ticks: 4
+        spawn-iron-golem:
+          radius: 0
+        can-breed: false
+        clerics-farm-warts: false
+        cleric-wart-farmers-throw-warts-at-villagers: false
+      zombie:
+        aggressive-towards-villager-when-lagging: false
+      phantom:
+        spawn:
+          min-sky-darkness: 15
+          only-above-sea-level: true
+          min-time-since-slept: 96000
+      pillager:
+        bypass-mob-griefing: true
+      iron-golem:
+        can-swim: false
+      dolphin:
+        disable-treasure-searching: true
+      ender-dragon:
+        always-drop-full-exp: true
+
+    gameplay-mechanics:
+      entities-can-use-portals: false
+      player:
+        idle-timeout:
+          kick-if-idle: true
+          tick-nearby-entities: false
+          count-as-sleeping: true
+          update-tab-list: true
+        teleport-if-outside-border: true
+      item:
+        immune:
+          cactus: []
+          explosion: []
+          fire: []
+          lightning: []
+      armorstand-step-height: 0.0
+      disable-drops-on-cramming-death: true
+      use-better-mending: true
+      impose-teleport-restrictions-on-gateways: true
+
+    entity-per-chunk-save-limit:
+      experience_orb: 16
+      arrow: 8
+      ender_pearl: 8
+      snowball: 4

@@ -1,0 +1,28 @@
+config-version = "2.7"
+bind = "0.0.0.0:25565"
+motd = "<aqua>Weihnachtsdorf SMP</aqua>"
+show-max-players = 80
+online-mode = true
+force-key-authentication = false
+player-info-forwarding-mode = "modern"
+forwarding-secret-file = "forwarding.secret"
+
+[servers]
+hauptwelt = "192.168.1.149:25574"
+try = ["hauptwelt"]
+
+[forced-hosts]
+"play.tigimax.mooo.com" = ["hauptwelt"]
+
+[advanced]
+compression-threshold = 256
+compression-level = 6
+login-ratelimit = 3000
+connection-timeout = 5000
+read-timeout = 30000
+tcp-fast-open = true
+bungee-plugin-message-channel = true
+show-ping-requests = false
+failover-on-unexpected-server-disconnect = true
+announce-proxy-commands = true
+log-command-executions = false

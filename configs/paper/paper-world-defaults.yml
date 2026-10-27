@@ -1,0 +1,121 @@
+entities:
+  armor-stands:
+    do-collision-entity-lookups: false
+    tick: false
+  markers:
+    tick: false
+  spawning:
+    despawn-ranges:
+      ambient:
+        hard: 56
+        soft: 28
+      axolotls:
+        hard: 56
+        soft: 28
+      creature:
+        hard: 56
+        soft: 28
+      misc:
+        hard: 56
+        soft: 28
+      monster:
+        hard: 56
+        soft: 28
+      underground_water_creature:
+        hard: 40
+        soft: 20
+      water_ambient:
+        hard: 40
+        soft: 20
+      water_creature:
+        hard: 48
+        soft: 24
+    per-player-mob-spawns: true
+    global-max-concurrent-loads: 500
+    player-max-concurrent-loads: 20
+    count-all-mobs-for-spawning: true
+  behavior:
+    ender-dragons-death-always-places-dragon-egg: true
+    disable-mob-spawner-spawn-egg-transformation: true
+    pillager-patrols:
+      disable: true
+      spawn-chance: 0.0
+      spawn-delay:
+        per-player: true
+        ticks: 24000
+    phantoms:
+      do-not-spawn-on-creative-players: true
+      only-attack-insomniacs: true
+
+environment:
+  treasure-maps:
+    enabled: false
+    find-already-discovered:
+      loot-tables: true
+      villager-trade: true
+  optimize-explosions: true
+  disable-teleportation-suffocation-check: true
+  water-over-lava-flow-speed: 5
+  nether-ceiling-void-damage-height: 127
+
+hopper:
+  cooldown-when-full: true
+  disable-move-event: true
+  ignore-occluding-blocks: true
+
+chunks:
+  auto-save-interval: 6000
+  delay-chunk-unloads-by: 10s
+  entity-per-chunk-save-limit:
+    arrow: 8
+    ender_pearl: 8
+    experience_orb: 16
+    fireball: 4
+    small_fireball: 4
+    snowball: 4
+  max-auto-save-chunks-per-tick: 8
+  prevent-moving-into-unloaded-chunks: true
+  fixed-chunk-inhabited-time: -1
+
+collisions:
+  fix-climbing-bypassing-cramming-rule: true
+  max-entity-collisions: 2
+  only-players-collide: true
+
+tick-rates:
+  behavior:
+    villager:
+      validatenearbypoi: -1
+      acquirepoi: 120
+  container-update: 3
+  grass-spread: 4
+  mob-spawner: 4
+  sensor:
+    villager:
+      secondarypoisensor: 200
+      nearestbedsensor: 200
+      villagerbabiessensor: 200
+      playersensor: 200
+      nearestlivingentitysensor: 200
+
+spawn-limits:
+  ambient: 1
+  axolotls: 2
+  creature: 3
+  monster: 20
+  underground_water_creature: 2
+  water_ambient: 2
+  water_creature: 2
+
+misc:
+  redstone-implementation: ALTERNATE_CURRENT
+  update-pathfinding-on-block-update: false
+  disable-chest-cat-detection: true
+  armor-stands-tick: false
+
+maps:
+  item-frame-cursor-limit: 2
+  item-frame-cursor-update-interval: 20
+
+scoreboards:
+  save-empty-scoreboard-teams: false

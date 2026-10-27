@@ -1,0 +1,27 @@
+---
+- name: Kernel and Performance Tuning for Minecraft Nodes
+  hosts: minecraft_nodes
+  become: true
+  tasks:
+    - name: Disable swap immediately
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+
+    - name: Remove swap from fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '(?i)^\s*[^#\n].*\sswap\s'
+        state: absent
+
+    - name: Configure kernel sysctl parameters for Minecraft high throughput
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-minecraft.conf
+        reload: true
+      loop:
+        - { key: 'net.core.rmem_max', value: '2500000' }
+        - { key: 'net.core.wmem_max', value: '2500000' }
+        - { key: 'vm.swappiness', value: '1' }
+        - { key: 'vm.max_map_count', value: '262144' }

@@ -1,0 +1,44 @@
+settings:
+  save-user-cache-on-stop-only: true
+  moved-wrongly-threshold: 0.0625
+  moved-too-quickly-multiplier: 10.0
+  netty-threads: 4
+  bungeecord: true
+
+world-settings:
+  default:
+    entity-activation-range:
+      animals: 16
+      monsters: 24
+      raiders: 32
+      misc: 8
+      water: 8
+      villagers: 16
+      flying-monsters: 32
+      tick-inactive-villagers: false
+      wake-up-inactive:
+        animals-max-per-tick: 2
+        animals-every: 1200
+        animals-for: 100
+        monsters-max-per-tick: 4
+        monsters-every: 400
+        monsters-for: 100
+        villagers-max-per-tick: 1
+        villagers-every: 2400
+        villagers-for: 100
+    merge-radius:
+      item: 4.0
+      exp: 6.0
+    item-despawn-rate: 4000
+    mob-spawn-range: 4
+    nerf-spawner-mobs: true
+    entity-tracking-range:
+      players: 96
+      animals: 48
+      monsters: 48
+      misc: 32
+      display: 96
+      other: 48
+    hopper-transfer: 8
+    hopper-check: 8
+    hopper-amount: 3

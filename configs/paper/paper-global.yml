@@ -1,0 +1,88 @@
+chunk-loading-basic:
+  autoconfig-send-distance: true
+  player-max-chunk-generate-rate: 5.0
+  player-max-chunk-load-rate: 50.0
+  player-max-chunk-send-rate: 40.0
+
+chunk-loading-advanced:
+  auto-config-send-distance: true
+  player-max-concurrent-chunk-generates: 2
+  player-max-concurrent-chunk-loads: 4
+
+chunk-system:
+  gen-parallelism: default
+  io-threads: 2
+  worker-threads: 2
+
+packet-limiter:
+  all-packets:
+    action: DROP
+    interval: 7.0
+    max-packet-rate: 500.0
+  overrides:
+    ServerboundPlaceRecipePacket:
+      action: DROP
+      interval: 4.0
+      max-packet-rate: 5.0
+
+proxies:
+  velocity:
+    enabled: true
+    online-mode: true
+    secret: ""
+
+anticheat:
+  anti-xray:
+    enabled: true
+    engine-mode: 2
+    hidden-blocks:
+      - copper_ore
+      - deepslate_copper_ore
+      - raw_copper_block
+      - gold_ore
+      - deepslate_gold_ore
+      - iron_ore
+      - deepslate_iron_ore
+      - raw_iron_block
+      - coal_ore
+      - deepslate_coal_ore
+      - lapis_ore
+      - deepslate_lapis_ore
+      - mossy_cobblestone
+      - obsidian
+      - chest
+      - diamond_ore
+      - deepslate_diamond_ore
+      - redstone_ore
+      - deepslate_redstone_ore
+      - clay
+      - emerald_ore
+      - deepslate_emerald_ore
+      - ender_chest
+    lava-obscures: false
+    max-block-height: 64
+    replacement-blocks:
+      - amethyst_block
+      - andesite
+      - budding_amethyst
+      - calcite
+      - coal_ore
+      - deepslate_coal_ore
+      - deepslate
+      - diorite
+      - dirt
+      - emerald_ore
+      - deepslate_emerald_ore
+      - granite
+      - gravel
+      - iron_ore
+      - deepslate_iron_ore
+      - oak_planks
+      - smooth_basalt
+      - stone
+      - tuff
+    update-radius: 2
+    use-permission: false
+
+async-chunks:
+  threads: 2

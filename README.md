@@ -1,6 +1,6 @@
-# Minecraft SMP Weihnachtsdorf 6
+# Minecraft SMP Weihnachtsdorf 7
 
-Infrastructure-as-Code, Serverkonfigurationen, Tuning und Migrations-Playbooks für das **Minecraft SMP Weihnachtsdorf 6** (80-Spieler Event am Spawn).
+Infrastructure-as-Code, Serverkonfigurationen, Tuning und Migrations-Playbooks für das **Minecraft SMP Weihnachtsdorf 7** (80-Spieler Event am Spawn).
 
 ---
 

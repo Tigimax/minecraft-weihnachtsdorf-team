@@ -227,7 +227,7 @@ scp /home/tigimax/weihnachtsdorf5_full_backup.tar.gz \
 ### 4.2 Pterodactyl-Server erstellen + Daten importieren
 
 Im Panel → Server → Create:
-- Name: **Weihnachtsdorf 6**, Node: **Node 2**, Egg: **Purpur**
+- Name: **Weihnachtsdorf 7**, Node: **Node 2**, Egg: **Purpur**
 - Memory: **11264 MB**, Disk: **60000 MB**, CPU: **600%**
 - Startup: `java -Xms11G -Xmx11G ... -jar server.jar`
 
@@ -236,7 +236,7 @@ Im Panel → Server → Create:
 tar -xzf /tmp/weihnachtsdorf5_full_backup.tar.gz -C /tmp/mc-import/
 
 CONTAINER_UUID=$(mysql -u pterodactyl -p panel \
-  -e "SELECT uuid FROM servers WHERE name='Weihnachtsdorf 6'" -sN)
+  -e "SELECT uuid FROM servers WHERE name='Weihnachtsdorf 7'" -sN)
 TARGET="/var/lib/pterodactyl/volumes/${CONTAINER_UUID}"
 
 cp -a /tmp/mc-import/d1edce29-*/* "${TARGET}/"

@@ -1,0 +1,21 @@
+[Unit]
+Description=Weihnachtsdorf 7 Identity Webhook Service
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=tigimax
+Group=tigimax
+WorkingDirectory=/opt/wd-identity
+EnvironmentFile=-/etc/default/wd-identity
+ExecStart=/opt/wd-identity/venv/bin/uvicorn wd_identity.webhook:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5s
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

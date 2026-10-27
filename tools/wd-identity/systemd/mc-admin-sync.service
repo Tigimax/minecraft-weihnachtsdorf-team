@@ -1,0 +1,14 @@
+[Unit]
+Description=Weihnachtsdorf 7 Minecraft Admin & Mod Privilege Sync Task
+After=network.target
+
+[Service]
+Type=oneshot
+User=tigimax
+Group=tigimax
+WorkingDirectory=/opt/wd-identity
+EnvironmentFile=-/etc/default/wd-identity
+ExecStart=/opt/wd-identity/bin/mc-admin-sync
+
+[Install]
+WantedBy=multi-user.target

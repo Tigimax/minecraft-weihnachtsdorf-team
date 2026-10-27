@@ -3,6 +3,14 @@
 > **Ziel**: Maximale TPS bei 80 Spielern (invite-only) am Spawn auf i5-9400F (6C/6T, 16 GB RAM).
 > Keine Farmwelten. Ein Purpur-Server, ein Velocity-Proxy.
 
+> [!IMPORTANT]
+> **Weihnachtsdorf 7 – 100% Neueste Versionen (Upstream Fresh):**
+> Keine Alt-Plugins oder alte Server-JARs aus Crafty (Weihnachtsdorf 5) übernehmen.
+> Alle Komponenten werden direkt aus den neuesten Upstream-Quellen geladen:
+> - **Server**: Neueste Minecraft / Purpur Version (Java 21 LTS)
+> - **Proxy**: Neueste Velocity Version
+> - **Plugins**: Alle Plugins (LuckPerms, ViaVersion, ViaBackwards, Simple Voice Chat, Chunky, CoreProtect, Plan, EssentialsX, BlueMap, TAB) als frische Releases direkt von Hangar/Modrinth/GitHub.
+
 ---
 
 ## 1. Architektur

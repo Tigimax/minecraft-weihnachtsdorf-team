@@ -252,28 +252,51 @@ def send_dm_rest(discord_name_or_id: str, message: str) -> bool:
     if target_clean.isdigit():
         user_id = target_clean
     else:
-        guild_id = settings.DISCORD_GUILD_ID or "784805552504438794"
-        query_enc = urllib.parse.quote(target_clean)
-        search_url = (
-            f"https://discord.com/api/v10/guilds/{guild_id}/members/search?query={query_enc}&limit=10"
-        )
+        # Fetch all guilds the bot is connected to, so users in any server are found
+        guild_ids = []
         try:
-            req = urllib.request.Request(search_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                members = json.loads(resp.read().decode())
-                target_lower = target_clean.lower()
-                for m in members:
-                    u = m.get("user", {})
-                    username = (u.get("username") or "").lower()
-                    global_name = (u.get("global_name") or "").lower()
-                    nick = (m.get("nick") or "").lower()
-                    if target_lower in (username, global_name, nick):
-                        user_id = str(u.get("id"))
-                        break
-                if not user_id and members:
-                    user_id = str(members[0].get("user", {}).get("id"))
-        except Exception as e:
-            logger.warning(f"Failed to search member '{target_clean}' in guild {guild_id}: {e}")
+            guilds_req = urllib.request.Request(
+                "https://discord.com/api/v10/users/@me/guilds", headers=headers
+            )
+            with urllib.request.urlopen(guilds_req, timeout=5) as g_resp:
+                all_guilds = json.loads(g_resp.read().decode())
+                guild_ids = [g["id"] for g in all_guilds]
+        except Exception:
+            pass
+
+        if not guild_ids:
+            fallback = settings.DISCORD_GUILD_ID or "784805552504438794"
+            guild_ids = [fallback, "909437200125538364"]
+
+        query_enc = urllib.parse.quote(target_clean)
+        target_lower = target_clean.lower()
+        for gid in guild_ids:
+            search_url = (
+                f"https://discord.com/api/v10/guilds/{gid}/members/search?query={query_enc}&limit=10"
+            )
+            try:
+                req = urllib.request.Request(search_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    members = json.loads(resp.read().decode())
+                    for m in members:
+                        u = m.get("user", {})
+                        username = (u.get("username") or "").lower()
+                        global_name = (u.get("global_name") or "").lower()
+                        nick = (m.get("nick") or "").lower()
+                        if target_lower in (username, global_name, nick):
+                            user_id = str(u.get("id"))
+                            break
+                    if not user_id and members:
+                        # Fallback: check if query starts with or is contained
+                        for m in members:
+                            u = m.get("user", {})
+                            if target_lower in (u.get("username") or "").lower():
+                                user_id = str(u.get("id"))
+                                break
+                if user_id:
+                    break
+            except Exception as e:
+                logger.warning(f"Failed to search member '{target_clean}' in guild {gid}: {e}")
 
     if not user_id:
         logger.error(f"Could not resolve Discord user ID for '{discord_name_or_id}'")

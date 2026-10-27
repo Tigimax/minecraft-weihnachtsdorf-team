@@ -1,7 +1,7 @@
 config-version = "2.8"
 bind = "0.0.0.0:25565"
 motd = "<aqua><bold>Weihnachtsdorf 7</bold></aqua> <gray>| Event Server</gray>"
-show-max-players = 80
+show-max-players = 120
 online-mode = true
 force-key-authentication = true
 prevent-client-proxy-connections = false
@@ -18,13 +18,14 @@ enable-player-address-logging = true
 
 [forced-hosts]
 	"play.tigimax.mooo.com" = ["hauptwelt"]
+	"tigimax.mooo.com" = ["hauptwelt"]
 
 [advanced]
 	compression-threshold = 256
 	compression-level = 6
 	login-ratelimit = 3000
-	connection-timeout = 5000
-	read-timeout = 30000
+	connection-timeout = 60000
+	read-timeout = 600000
 	haproxy-protocol = false
 	tcp-fast-open = true
 	bungee-plugin-message-channel = true

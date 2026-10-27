@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Minecraft server runtime & worlds
+world/
+world_nether/
+world_the_end/
+*.jar
+*.tar.gz
+*.zip
+*.log
+logs/
+crash-reports/
+plugins/.paper-remapped/
+
+# BlueMap / Dynmap tiles cache
+**/tiles/
+**/web/tiles/
+
+# Pterodactyl runtime data
+/var/lib/pterodactyl/
+volumes/
+*.secret
+forwarding.secret
+
+# Environment & credentials
+.env
+.vault_pass
+*.pem
+*.key
+*.crt
+
+# OS / Editor files
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

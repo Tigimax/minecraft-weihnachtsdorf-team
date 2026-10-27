@@ -1,0 +1,203 @@
+---
+- name: Configure UFW and Docker Firewall on Node 1 (pterodactyl-node1)
+  hosts: mc-node1
+  become: true
+  tasks:
+    - name: Set UFW default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: Configure DOCKER-USER chain in /etc/ufw/after.rules for Node 1
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/after.rules
+        block: |
+          # Restrict BlueMap (port 8123) container access to usrv01 only
+          *filter
+          :DOCKER-USER - [0:0]
+          -A DOCKER-USER -i eth0 -p tcp --dport 8123 -s 192.168.1.174 -j ACCEPT
+          -A DOCKER-USER -i eth0 -p tcp --dport 8123 -j DROP
+          -A DOCKER-USER -j RETURN
+          COMMIT
+        marker: "# {mark} ANSIBLE MANAGED DOCKER-USER BLOCK"
+        insertbefore: BOF
+
+    - name: Allow SSH from Homelab LAN
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        src: '192.168.1.0/24'
+        comment: 'SSH from Homelab LAN'
+
+    - name: Allow SSH from Homelab VPN
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        src: '10.8.0.0/24'
+        comment: 'SSH from Homelab VPN'
+
+    - name: Allow Velocity Proxy (25565/tcp)
+      community.general.ufw:
+        rule: allow
+        port: '25565'
+        proto: tcp
+        comment: 'Velocity Proxy Minecraft TCP'
+
+    - name: Allow Simple Voice Chat (24454/udp)
+      community.general.ufw:
+        rule: allow
+        port: '24454'
+        proto: udp
+        comment: 'Simple Voice Chat UDP'
+
+    - name: Allow HTTP port 80 from usrv01
+      community.general.ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+        src: '192.168.1.174'
+        comment: 'Pterodactyl Panel HTTP from usrv01'
+
+    - name: Allow BlueMap port 8123 from usrv01
+      community.general.ufw:
+        rule: allow
+        port: '8123'
+        proto: tcp
+        src: '192.168.1.174'
+        comment: 'BlueMap HTTP from usrv01'
+
+    - name: Allow Wings API port 8080 from usrv01
+      community.general.ufw:
+        rule: allow
+        port: '8080'
+        proto: tcp
+        src: '192.168.1.174'
+        comment: 'Wings API from usrv01 TLS reverse proxy'
+
+    - name: Allow Wings API port 8080 from localhost
+      community.general.ufw:
+        rule: allow
+        port: '8080'
+        proto: tcp
+        src: '127.0.0.1'
+        comment: 'Wings API from local Pterodactyl Panel'
+
+    - name: Allow MariaDB port 3306 from Node 2 (mc-main)
+      community.general.ufw:
+        rule: allow
+        port: '3306'
+        proto: tcp
+        src: '192.168.1.149'
+        comment: 'MariaDB for Plan/CoreProtect/LuckPerms from Node 2'
+
+    - name: Allow Wings SFTP port 2022 from LAN
+      community.general.ufw:
+        rule: allow
+        port: '2022'
+        proto: tcp
+        src: '192.168.1.0/24'
+        comment: 'Wings SFTP from Homelab LAN'
+
+    - name: Allow Wings SFTP port 2022 from VPN
+      community.general.ufw:
+        rule: allow
+        port: '2022'
+        proto: tcp
+        src: '10.8.0.0/24'
+        comment: 'Wings SFTP from Homelab VPN'
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+- name: Configure UFW and Docker Firewall on Node 2 (mc-main)
+  hosts: mc-main
+  become: true
+  tasks:
+    - name: Set UFW default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: Configure DOCKER-USER chain in /etc/ufw/after.rules for Node 2
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/after.rules
+        block: |
+          # Restrict Minecraft Purpur (port 25574) container access strictly to Node 1 Velocity
+          *filter
+          :DOCKER-USER - [0:0]
+          -A DOCKER-USER -i eth0 -p tcp --dport 25574 -s 192.168.1.148 -j ACCEPT
+          -A DOCKER-USER -i eth0 -p udp --dport 25574 -s 192.168.1.148 -j ACCEPT
+          -A DOCKER-USER -i eth0 -p tcp --dport 25574 -j DROP
+          -A DOCKER-USER -i eth0 -p udp --dport 25574 -j DROP
+          -A DOCKER-USER -j RETURN
+          COMMIT
+        marker: "# {mark} ANSIBLE MANAGED DOCKER-USER BLOCK"
+        insertbefore: BOF
+
+    - name: Allow SSH from Homelab LAN
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        src: '192.168.1.0/24'
+        comment: 'SSH from Homelab LAN'
+
+    - name: Allow SSH from Homelab VPN
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        src: '10.8.0.0/24'
+        comment: 'SSH from Homelab VPN'
+
+    - name: Allow Minecraft Purpur port 25574 from Node 1 Velocity only
+      community.general.ufw:
+        rule: allow
+        port: '25574'
+        src: '192.168.1.148'
+        comment: 'Purpur 1.21.4 from Node 1 Velocity Proxy'
+
+    - name: Allow Wings API port 8080 from Node 1 Panel
+      community.general.ufw:
+        rule: allow
+        port: '8080'
+        proto: tcp
+        src: '192.168.1.148'
+        comment: 'Wings API from Node 1 Pterodactyl Panel'
+
+    - name: Allow Wings API port 8080 from usrv01 TLS reverse proxy
+      community.general.ufw:
+        rule: allow
+        port: '8080'
+        proto: tcp
+        src: '192.168.1.174'
+        comment: 'Wings API from usrv01 Nginx TLS proxy'
+
+    - name: Allow Wings SFTP port 2022 from LAN
+      community.general.ufw:
+        rule: allow
+        port: '2022'
+        proto: tcp
+        src: '192.168.1.0/24'
+        comment: 'Wings SFTP from Homelab LAN'
+
+    - name: Allow Wings SFTP port 2022 from VPN
+      community.general.ufw:
+        rule: allow
+        port: '2022'
+        proto: tcp
+        src: '10.8.0.0/24'
+        comment: 'Wings SFTP from Homelab VPN'
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled

@@ -2,11 +2,14 @@
 Mojang API client for resolving Minecraft player names and UUIDs.
 """
 
+from functools import lru_cache
 import hashlib
 import logging
 from typing import Optional, Tuple
 import uuid
 import requests
+
+from wd_identity.utils import validate_minecraft_ign
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +35,19 @@ def offline_player_uuid(username: str) -> str:
     return str(uuid.UUID(bytes=bytes(md5_hash)))
 
 
+@lru_cache(maxsize=256)
 def get_player_profile(ign: str) -> Tuple[str, str]:
     """
     Resolves canonical Minecraft name and UUID.
     Returns (canonical_name, formatted_uuid).
-    Falls back to offline UUID if Mojang API is unavailable or user does not exist.
+    Validates IGN format, uses LRU cache to prevent Mojang rate-limiting,
+    and falls back to offline UUID if Mojang API is unavailable or user does not exist.
     """
-    clean_ign = ign.strip()
+    clean_ign = (ign or "").strip()
+    if not validate_minecraft_ign(clean_ign):
+        logger.warning(f"Invalid Minecraft IGN rejected: '{clean_ign}'")
+        raise ValueError(f"Invalid Minecraft IGN: '{clean_ign}' (must be 1-16 alphanumeric characters or underscores)")
+
     url = f"https://api.mojang.com/users/profiles/minecraft/{clean_ign}"
     try:
         res = requests.get(url, timeout=5)
@@ -47,6 +56,8 @@ def get_player_profile(ign: str) -> Tuple[str, str]:
             canonical_name = data.get("name", clean_ign)
             raw_uuid = data.get("id", "")
             return canonical_name, format_uuid(raw_uuid)
+        elif res.status_code == 429:
+            logger.warning(f"Mojang API rate limited (429) for '{clean_ign}'; falling back to offline UUID.")
     except Exception as e:
         logger.warning(f"Mojang API lookup failed for {clean_ign}: {e}")
 

@@ -22,8 +22,10 @@ from ldap3.core.exceptions import (
     LDAPNoSuchAttributeResult,
     LDAPNoSuchObjectResult,
 )
+from ldap3.utils.conv import escape_filter_chars
 
 from wd_identity.config import settings
+from wd_identity.utils import sanitize_email, sanitize_username, validate_minecraft_ign
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +79,13 @@ class LDAPClient:
 
     def get_user(self, username: str) -> Optional[Dict[str, Any]]:
         """Retrieve user by UID."""
+        if not username or not username.strip():
+            return None
+        clean_user = sanitize_username(username)
+        esc_user = escape_filter_chars(clean_user)
         conn = self._get_connection()
         try:
-            user_filter = f"(&(objectClass=person)(uid={username}))"
+            user_filter = f"(&(objectClass=person)(uid={esc_user}))"
             conn.search(
                 self.user_ou,
                 user_filter,
@@ -103,12 +109,19 @@ class LDAPClient:
 
     def search_by_discord(self, discord_name_or_id: str) -> Optional[Dict[str, Any]]:
         """Search user by discordName or discordId or UID."""
+        if not discord_name_or_id or not discord_name_or_id.strip():
+            return None
+        target = discord_name_or_id.strip()
+        esc_val = escape_filter_chars(target)
+        clean_uid = sanitize_username(target)
+        esc_uid = escape_filter_chars(clean_uid)
+
         conn = self._get_connection()
         try:
-            # First try exact discordName or discordId
+            # Exact match filter with escaped values
             user_filter = (
-                f"(&(objectClass=person)(|(discordName={discord_name_or_id})"
-                f"(discordId={discord_name_or_id})(uid={discord_name_or_id})))"
+                f"(&(objectClass=person)(|(discordName={esc_val})"
+                f"(discordId={esc_val})(uid={esc_val})(uid={esc_uid})))"
             )
             conn.search(
                 self.user_ou,
@@ -144,11 +157,14 @@ class LDAPClient:
                     "minecraftUuid",
                 ],
             )
+            target_lower = target.lower()
             for entry in conn.entries:
                 data = self._format_entry(entry)
                 if (
-                    data["discordName"].lower() == discord_name_or_id.lower()
-                    or data["uid"].lower() == discord_name_or_id.lower()
+                    data["discordName"].lower() == target_lower
+                    or data["discordId"] == target
+                    or data["uid"].lower() == target_lower
+                    or data["uid"].lower() == clean_uid
                 ):
                     return data
             return None
@@ -157,9 +173,17 @@ class LDAPClient:
 
     def search_by_minecraft(self, mc_name: str) -> Optional[Dict[str, Any]]:
         """Search user by Minecraft IGN."""
+        if not mc_name or not mc_name.strip():
+            return None
+        target_ign = mc_name.strip()
+        if not validate_minecraft_ign(target_ign):
+            logger.warning(f"Invalid Minecraft IGN in search_by_minecraft: '{target_ign}'")
+            return None
+
+        esc_ign = escape_filter_chars(target_ign)
         conn = self._get_connection()
         try:
-            user_filter = f"(&(objectClass=person)(minecraftName={mc_name}))"
+            user_filter = f"(&(objectClass=person)(minecraftName={esc_ign}))"
             conn.search(
                 self.user_ou,
                 user_filter,
@@ -194,9 +218,10 @@ class LDAPClient:
                     "minecraftUuid",
                 ],
             )
+            target_lower = target_ign.lower()
             for entry in conn.entries:
                 data = self._format_entry(entry)
-                if data["minecraftName"].lower() == mc_name.lower():
+                if data["minecraftName"].lower() == target_lower:
                     return data
             return None
         finally:
@@ -313,13 +338,17 @@ class LDAPClient:
         Creates or updates user with custom wdAccount attributes and group membership.
         Returns the user entry dict.
         """
-        conn = self._get_connection()
-        clean_user = username.lower().strip()
+        clean_user = sanitize_username(username)
         user_dn = f"uid={clean_user},{self.user_ou}"
         existing = self.get_user(clean_user)
+        user_email = sanitize_email(clean_user, raw_email=email)
 
-        user_email = email or f"{clean_user}@tigimax.mooo.com"
+        clean_ign = minecraft_name.strip() if minecraft_name else None
+        if clean_ign and not validate_minecraft_ign(clean_ign):
+            logger.warning(f"Invalid Minecraft IGN '{clean_ign}' passed to create_or_update_user; omitting.")
+            clean_ign = None
 
+        conn = self._get_connection()
         try:
             if not existing:
                 # Generate random temporary password
@@ -339,14 +368,14 @@ class LDAPClient:
                     "uid": clean_user,
                     "mail": user_email,
                     "userPassword": tmp_pass,
-                    "discordName": discord_name,
+                    "discordName": discord_name.strip(),
                 }
-                if discord_id:
-                    attributes["discordId"] = discord_id
-                if minecraft_name:
-                    attributes["minecraftName"] = minecraft_name
-                if minecraft_uuid:
-                    attributes["minecraftUuid"] = minecraft_uuid
+                if discord_id and discord_id.strip():
+                    attributes["discordId"] = discord_id.strip()
+                if clean_ign:
+                    attributes["minecraftName"] = clean_ign
+                if minecraft_uuid and minecraft_uuid.strip():
+                    attributes["minecraftUuid"] = minecraft_uuid.strip()
 
                 success = conn.add(user_dn, attributes=attributes)
                 if not success:
@@ -359,23 +388,25 @@ class LDAPClient:
                 if "wdAccount" not in obj_classes:
                     modifications["objectClass"] = [(MODIFY_ADD, ["wdAccount"])]
 
-                modifications["discordName"] = [(MODIFY_REPLACE, [discord_name])]
-                if discord_id:
-                    modifications["discordId"] = [(MODIFY_REPLACE, [discord_id])]
-                if minecraft_name:
-                    modifications["minecraftName"] = [(MODIFY_REPLACE, [minecraft_name])]
-                if minecraft_uuid:
-                    modifications["minecraftUuid"] = [(MODIFY_REPLACE, [minecraft_uuid])]
+                if discord_name and discord_name.strip():
+                    modifications["discordName"] = [(MODIFY_REPLACE, [discord_name.strip()])]
+                if discord_id and discord_id.strip():
+                    modifications["discordId"] = [(MODIFY_REPLACE, [discord_id.strip()])]
+                if clean_ign:
+                    modifications["minecraftName"] = [(MODIFY_REPLACE, [clean_ign])]
+                if minecraft_uuid and minecraft_uuid.strip():
+                    modifications["minecraftUuid"] = [(MODIFY_REPLACE, [minecraft_uuid.strip()])]
 
                 if modifications:
                     conn.modify(user_dn, modifications)
 
             # Assign group
+            clean_role = role.lower().strip() if role else "admin"
             target_group = (
-                self.admin_group_dn if role.lower() == "admin" else self.mod_group_dn
+                self.admin_group_dn if clean_role == "admin" else self.mod_group_dn
             )
             other_group = (
-                self.mod_group_dn if role.lower() == "admin" else self.admin_group_dn
+                self.mod_group_dn if clean_role == "admin" else self.admin_group_dn
             )
 
             self.add_member_to_group(target_group, user_dn)
@@ -384,8 +415,8 @@ class LDAPClient:
             # Fetch fresh state
             updated = self.get_user(clean_user)
             if updated:
-                updated["role"] = role.lower()
-            return updated or {"uid": clean_user, "dn": user_dn, "role": role.lower()}
+                updated["role"] = clean_role
+            return updated or {"uid": clean_user, "dn": user_dn, "role": clean_role}
         finally:
             conn.unbind()
 
@@ -393,8 +424,15 @@ class LDAPClient:
         self, username: str, minecraft_name: str, minecraft_uuid: str
     ) -> bool:
         """Updates minecraftName and minecraftUuid on a user."""
+        clean_user = sanitize_username(username)
+        if not validate_minecraft_ign(minecraft_name):
+            logger.error(f"Cannot set invalid Minecraft IGN: {minecraft_name}")
+            return False
+
+        clean_ign = minecraft_name.strip()
+        clean_uuid = minecraft_uuid.strip()
+
         conn = self._get_connection()
-        clean_user = username.lower().strip()
         user_dn = f"uid={clean_user},{self.user_ou}"
         existing = self.get_user(clean_user)
         if not existing:
@@ -406,8 +444,8 @@ class LDAPClient:
             if "wdAccount" not in existing.get("objectClass", []):
                 modifications["objectClass"] = [(MODIFY_ADD, ["wdAccount"])]
 
-            modifications["minecraftName"] = [(MODIFY_REPLACE, [minecraft_name])]
-            modifications["minecraftUuid"] = [(MODIFY_REPLACE, [minecraft_uuid])]
+            modifications["minecraftName"] = [(MODIFY_REPLACE, [clean_ign])]
+            modifications["minecraftUuid"] = [(MODIFY_REPLACE, [clean_uuid])]
 
             success = conn.modify(user_dn, modifications)
             return success
@@ -416,7 +454,7 @@ class LDAPClient:
 
     def revoke_roles(self, username: str) -> bool:
         """Removes user from both admin and mod LDAP groups."""
-        clean_user = username.lower().strip()
+        clean_user = sanitize_username(username)
         user = self.get_user(clean_user)
         if not user:
             # Check by discord

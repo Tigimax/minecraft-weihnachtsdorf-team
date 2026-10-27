@@ -1,7 +1,7 @@
 """
 FastAPI Webhook & Onboarding server for Weihnachtsdorf 7.
 Coordinates:
-- Onboarding completion (IGN resolution, LDAP write-back, Planka provisioning, Minecraft LuckPerms/whitelist sync, Welcome DM)
+- Onboarding completion (IGN validation & resolution, LDAP write-back, Planka provisioning, Minecraft LuckPerms/whitelist sync, Welcome DM)
 - Authentik event notifications
 - Privilege sync triggers
 """
@@ -18,6 +18,7 @@ from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.mojang_client import get_player_profile
 from wd_identity.planka_sync import PlankaSyncClient
+from wd_identity.utils import sanitize_email, sanitize_username, validate_minecraft_ign
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class OnboardingRequest(BaseModel):
     minecraft_name: str
     discord_name: Optional[str] = None
     discord_id: Optional[str] = None
-    role: Optional[str] = "admin"
+    role: Optional[str] = None
     email: Optional[str] = None
 
 
@@ -58,58 +59,83 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     mc = MinecraftSyncClient()
     planka = PlankaSyncClient()
 
-    username = req.username.strip().lower()
-    role = (req.role or "admin").strip().lower()
-    discord_tag = req.discord_name or username
+    clean_user = sanitize_username(req.username)
+    raw_ign = (req.minecraft_name or "").strip()
+    if not validate_minecraft_ign(raw_ign):
+        raise ValueError(f"Invalid Minecraft In-Game Name: '{raw_ign}'")
+
+    # Fetch existing LDAP record to avoid losing Discord info or assigned role
+    existing = ldap.get_user(clean_user)
+    if not existing:
+        existing = ldap.search_by_discord(req.discord_name or clean_user)
+
+    clean_role = (
+        (req.role or "").strip().lower()
+        or (existing.get("role") if existing else None)
+        or "admin"
+    )
+    if clean_role not in ("admin", "mod"):
+        clean_role = "admin"
+
+    discord_tag = (
+        (req.discord_name or "").strip()
+        or (existing.get("discordName") if existing else None)
+        or clean_user
+    )
+    discord_id = (
+        (req.discord_id or "").strip()
+        or (existing.get("discordId") if existing else None)
+    )
+    user_email = sanitize_email(clean_user, raw_email=req.email or (existing.get("mail") if existing else None))
 
     # 1. Resolve Mojang profile (canonical IGN and UUID)
-    canonical_ign, mc_uuid = get_player_profile(req.minecraft_name)
+    canonical_ign, mc_uuid = get_player_profile(raw_ign)
     logger.info(
-        f"Resolved Minecraft profile for {req.minecraft_name}: {canonical_ign} ({mc_uuid})"
+        f"Resolved Minecraft profile for {raw_ign}: {canonical_ign} ({mc_uuid})"
     )
 
     # 2. Update OpenLDAP
     ldap.create_or_update_user(
-        username=username,
+        username=clean_user,
         discord_name=discord_tag,
-        discord_id=req.discord_id,
-        email=req.email,
-        role=role,
+        discord_id=discord_id,
+        email=user_email,
+        role=clean_role,
         minecraft_name=canonical_ign,
         minecraft_uuid=mc_uuid,
     )
-    logger.info(f"Updated LDAP user {username} with Minecraft & Discord metadata.")
+    logger.info(f"Updated LDAP user {clean_user} with Minecraft & Discord metadata.")
 
     # 3. Provision in Planka
     planka_ok = planka.sync_user(
-        username=username,
-        email=req.email or f"{username}@tigimax.mooo.com",
-        name=username.capitalize(),
-        role=role,
+        username=clean_user,
+        email=user_email,
+        name=clean_user.capitalize(),
+        role=clean_role,
     )
-    logger.info(f"Planka provisioning for {username}: {'OK' if planka_ok else 'FAILED'}")
+    logger.info(f"Planka provisioning for {clean_user}: {'OK' if planka_ok else 'FAILED'}")
 
     # 4. Sync Minecraft whitelist and LuckPerms
-    mc_ok = mc.set_player_role(canonical_ign, role, mc_uuid=mc_uuid)
+    mc_ok = mc.set_player_role(canonical_ign, clean_role, mc_uuid=mc_uuid)
     logger.info(
-        f"Minecraft server whitelist & LuckPerms role set for {canonical_ign} ({role}): {'OK' if mc_ok else 'FAILED'}"
+        f"Minecraft server whitelist & LuckPerms role set for {canonical_ign} ({clean_role}): {'OK' if mc_ok else 'FAILED'}"
     )
 
     # 5. Dispatch Welcome DM via Discord
     welcome_text = get_welcome_message(
-        username=username,
-        role=role,
+        username=clean_user,
+        role=clean_role,
         ign=canonical_ign,
     )
-    dm_target = req.discord_id or discord_tag
+    dm_target = discord_id or discord_tag
     send_dm(dm_target, welcome_text)
 
     return {
         "status": "success",
-        "username": username,
+        "username": clean_user,
         "minecraft_name": canonical_ign,
         "minecraft_uuid": mc_uuid,
-        "role": role,
+        "role": clean_role,
         "planka_synced": planka_ok,
         "minecraft_synced": mc_ok,
     }
@@ -122,6 +148,9 @@ def complete_onboarding(req: OnboardingRequest):
     """
     try:
         return process_onboarding(req)
+    except ValueError as e:
+        logger.warning(f"Validation error in onboarding for {req.username}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Error processing onboarding for {req.username}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -140,10 +169,10 @@ def authentik_webhook(
     event: AuthentikWebhookEvent, background_tasks: BackgroundTasks
 ):
     """Webhook listener for Authentik event notifications."""
-    logger.info(f"Received Authentik webhook: {event.action}")
+    logger.info(f"Received Authentik webhook: action={event.action}")
     if event.user and "username" in event.user:
         username = event.user["username"]
-        # Trigger sync in background
+        # Trigger Minecraft sync and LDAP check in background
         background_tasks.add_task(trigger_full_sync)
         return {"status": "accepted", "user": username}
     return {"status": "ignored"}

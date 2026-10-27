@@ -1,11 +1,11 @@
 """
 Command-line interface (wd-admin) for Weihnachtsdorf 7.
 Commands:
-- invite <discord_name> [--role admin|mod] [--ign <minecraft_ign>]
+- invite <discord_name> [--role admin|mod] [--ign <minecraft_ign>] [--username <uid>]
 - reset <discord_name>
 - list
 - revoke <discord_name>
-- sync
+- sync [--force]
 """
 
 import sys
@@ -19,6 +19,7 @@ from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.mojang_client import get_player_profile
 from wd_identity.planka_sync import PlankaSyncClient
+from wd_identity.utils import sanitize_email, sanitize_username, validate_minecraft_ign
 
 
 @click.group()
@@ -50,15 +51,16 @@ def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optio
     Invites a new admin or moderator to Weihnachtsdorf 7.
     Creates LDAP entry, generates Authentik enrollment link, and sends Discord DM.
     """
-    clean_role = role.lower()
+    clean_role = role.lower().strip()
     clean_discord = discord_name.strip()
     clean_username = (
-        username.strip().lower()
+        sanitize_username(username)
         if username
-        else clean_discord.lower().replace("#", "_").replace(" ", "_")
+        else sanitize_username(clean_discord)
     )
+    user_email = sanitize_email(clean_username)
 
-    click.echo(f"[*] Preparing invitation for '{clean_discord}' (Role: {clean_role})...")
+    click.echo(f"[*] Preparing invitation for '{clean_discord}' (Role: {clean_role}, UID: {clean_username})...")
 
     ldap = LDAPClient()
     authentik = AuthentikClient()
@@ -67,31 +69,61 @@ def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optio
     canonical_ign = None
     mc_uuid = None
     if ign:
-        canonical_ign, mc_uuid = get_player_profile(ign)
-        click.echo(f"[*] Resolved Minecraft IGN: {canonical_ign} ({mc_uuid})")
+        raw_ign = ign.strip()
+        if not validate_minecraft_ign(raw_ign):
+            click.secho(f"[-] Invalid Minecraft IGN: '{raw_ign}'. Must be 1-16 alphanumeric chars or underscores.", fg="red")
+            sys.exit(1)
+        try:
+            canonical_ign, mc_uuid = get_player_profile(raw_ign)
+            click.echo(f"[*] Resolved Minecraft IGN: {canonical_ign} ({mc_uuid})")
+        except Exception as e:
+            click.secho(f"[-] Minecraft IGN resolution failed: {e}", fg="red")
+            sys.exit(1)
 
     # 1. Create / Update LDAP Entry
     discord_id = clean_discord if clean_discord.isdigit() else None
-    user_entry = ldap.create_or_update_user(
-        username=clean_username,
-        discord_name=clean_discord,
-        discord_id=discord_id,
-        role=clean_role,
-        minecraft_name=canonical_ign,
-        minecraft_uuid=mc_uuid,
-    )
-    click.echo(f"[+] LDAP entry configured: {user_entry.get('dn', clean_username)}")
-
-    # 2. Generate Authentik Invitation Link
     try:
-        invite_link = authentik.create_invitation(name=f"invite-{clean_username}")
+        user_entry = ldap.create_or_update_user(
+            username=clean_username,
+            discord_name=clean_discord,
+            discord_id=discord_id,
+            email=user_email,
+            role=clean_role,
+            minecraft_name=canonical_ign,
+            minecraft_uuid=mc_uuid,
+        )
+        click.echo(f"[+] LDAP entry configured: {user_entry.get('dn', clean_username)}")
+    except Exception as e:
+        click.secho(f"[-] Failed to configure LDAP entry: {e}", fg="red")
+        sys.exit(1)
+
+    # 2. Trigger Authentik LDAP sync so user exists in Authentik
+    authentik.trigger_ldap_sync()
+
+    # 3. Generate Authentik Invitation Link
+    fixed_data = {
+        "username": clean_username,
+        "email": user_email,
+        "role": clean_role,
+        "discord_name": clean_discord,
+    }
+    if discord_id:
+        fixed_data["discord_id"] = discord_id
+    if canonical_ign:
+        fixed_data["minecraft_name"] = canonical_ign
+
+    try:
+        invite_link = authentik.create_invitation(
+            name=f"invite-{clean_username}",
+            fixed_data=fixed_data,
+        )
         click.echo("[+] Single-use Authentik Enrollment Link generated successfully:")
         click.echo(f"    {invite_link}\n")
     except Exception as e:
         click.secho(f"[-] Failed to generate Authentik enrollment link: {e}", fg="red")
         sys.exit(1)
 
-    # 3. Dispatch Discord DM
+    # 4. Dispatch Discord DM
     dm_message = (
         f"🎅 **Einladung zum Weihnachtsdorf 7 Team!** 🎄\n\n"
         f"Du wurdest als **{clean_role.upper()}** eingeladen.\n"
@@ -249,28 +281,42 @@ def revoke_cmd(discord_name: str):
     else:
         click.echo("[*] No Minecraft IGN linked; skipping Minecraft server revocation.")
 
+    # 4. Trigger sync to persist revocation in state
+    mc.sync_all(force=True)
+
     click.secho(f"\n[+] Privileges successfully revoked for {username}!\n", fg="green")
 
 
 @cli.command("sync")
-def sync_cmd():
+@click.option("--force", "-f", is_flag=True, help="Force execution of Minecraft commands even if state is unchanged.")
+def sync_cmd(force: bool):
     """
-    Triggers an immediate synchronization of Minecraft server whitelist and LuckPerms roles.
+    Triggers synchronization of Minecraft server whitelist and LuckPerms roles.
     """
-    click.echo("[*] Triggering Minecraft server synchronization...")
+    click.echo(f"[*] Triggering Minecraft server synchronization (force={force})...")
     mc = MinecraftSyncClient()
-    report = mc.sync_all()
+    report = mc.sync_all(force=force)
 
     if report["success"]:
-        click.secho(
-            f"[+] Synchronization complete: {len(report['synced_admins'])} admins, "
-            f"{len(report['synced_mods'])} mods synced.",
-            fg="green",
-        )
-        for a in report["synced_admins"]:
-            click.echo(f"    [Admin] {a['uid']} -> IGN: {a['ign']}")
-        for m in report["synced_mods"]:
-            click.echo(f"    [Mod]   {m['uid']} -> IGN: {m['ign']}")
+        if report["commands_executed"] > 0:
+            click.secho(
+                f"[+] Synchronization complete: {len(report['synced_admins'])} admins, "
+                f"{len(report['synced_mods'])} mods updated, {len(report['revoked_users'])} revoked "
+                f"({report['commands_executed']} commands sent).",
+                fg="green",
+            )
+            for a in report["synced_admins"]:
+                click.echo(f"    [Admin Updated] {a['uid']} -> IGN: {a['ign']}")
+            for m in report["synced_mods"]:
+                click.echo(f"    [Mod Updated]   {m['uid']} -> IGN: {m['ign']}")
+            for r in report["revoked_users"]:
+                click.secho(f"    [Revoked]       {r['uid']} -> IGN: {r['ign']}", fg="red")
+        else:
+            click.secho(
+                f"[+] Synchronization up-to-date: {len(report['unchanged_users'])} staff members in sync. "
+                f"No console commands required.",
+                fg="green",
+            )
         for s in report["skipped_users"]:
             click.secho(f"    [Skip]  {s['uid']} ({s['reason']})", fg="yellow")
     else:

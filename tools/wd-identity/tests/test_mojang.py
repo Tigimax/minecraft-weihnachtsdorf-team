@@ -27,10 +27,19 @@ class TestMojangClient(unittest.TestCase):
         self.assertTrue(len(p_uuid) == 36)
 
     def test_get_player_profile_fallback(self):
-        # Extremely unlikely IGN that tests fallback
-        name, p_uuid = get_player_profile("NonExistentPlayerXYZ1234999")
-        self.assertEqual(name, "NonExistentPlayerXYZ1234999")
+        # Unlikely 16-char IGN that tests fallback
+        name, p_uuid = get_player_profile("NonExistent9999")
+        self.assertEqual(name, "NonExistent9999")
         self.assertTrue(len(p_uuid) == 36)
+
+    def test_get_player_profile_invalid(self):
+        # Invalid characters or length > 16 should raise ValueError
+        with self.assertRaises(ValueError):
+            get_player_profile("Notch\nstop")
+        with self.assertRaises(ValueError):
+            get_player_profile("TooLongPlayerName12345")
+        with self.assertRaises(ValueError):
+            get_player_profile("")
 
 
 if __name__ == "__main__":

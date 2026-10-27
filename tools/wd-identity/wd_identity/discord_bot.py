@@ -7,8 +7,11 @@ Features:
 """
 
 import asyncio
+import json
 import logging
 from typing import Optional
+import urllib.parse
+import urllib.request
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -212,70 +215,102 @@ async def cmd_links(interaction: discord.Interaction):
 async def on_ready():
     logger.info(f"Discord Bot logged in as {bot.user} (ID: {bot.user.id})")
     try:
+        # Sync directly to configured guild for instant slash command availability
+        if settings.DISCORD_GUILD_ID:
+            guild_obj = discord.Object(id=int(settings.DISCORD_GUILD_ID))
+            tree.copy_global_to(guild=guild_obj)
+            synced_guild = await tree.sync(guild=guild_obj)
+            logger.info(f"Synced {len(synced_guild)} slash commands to guild {settings.DISCORD_GUILD_ID}")
         synced = await tree.sync()
-        logger.info(f"Synced {len(synced)} application commands.")
+        logger.info(f"Synced {len(synced)} application commands globally.")
     except Exception as e:
         logger.error(f"Failed to sync slash commands: {e}")
 
 
-async def send_dm_async(discord_name_or_id: str, message: str) -> bool:
-    """Asynchronously sends a direct message to a user."""
-    if not bot.is_ready():
-        logger.warning("Discord bot is not connected. Skipping DM dispatch.")
+def send_dm_rest(discord_name_or_id: str, message: str) -> bool:
+    """
+    Sends a direct message using Discord REST API.
+    Operates synchronously and independently of the gateway connection,
+    ensuring 100% reliable DM delivery from CLI, webhooks, and scripts.
+    """
+    if not settings.DISCORD_BOT_TOKEN:
+        logger.info(
+            f"[Discord DM Dispatch (Mock/No Token)] To: {discord_name_or_id} | Message:\n{message}"
+        )
         return False
 
-    target_user: Optional[discord.User] = None
+    token = settings.DISCORD_BOT_TOKEN.strip()
+    headers = {
+        "Authorization": f"Bot {token}",
+        "User-Agent": "DiscordBot (https://tigimax.mooo.com, 1.0)",
+        "Content-Type": "application/json",
+    }
 
-    # Try numeric ID
-    if discord_name_or_id.isdigit():
+    # 1. Resolve target Discord user ID
+    user_id = None
+    target_clean = discord_name_or_id.strip()
+    if target_clean.isdigit():
+        user_id = target_clean
+    else:
+        guild_id = settings.DISCORD_GUILD_ID or "784805552504438794"
+        query_enc = urllib.parse.quote(target_clean)
+        search_url = (
+            f"https://discord.com/api/v10/guilds/{guild_id}/members/search?query={query_enc}&limit=10"
+        )
         try:
-            target_user = await bot.fetch_user(int(discord_name_or_id))
-        except Exception:
-            pass
+            req = urllib.request.Request(search_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                members = json.loads(resp.read().decode())
+                target_lower = target_clean.lower()
+                for m in members:
+                    u = m.get("user", {})
+                    username = (u.get("username") or "").lower()
+                    global_name = (u.get("global_name") or "").lower()
+                    nick = (m.get("nick") or "").lower()
+                    if target_lower in (username, global_name, nick):
+                        user_id = str(u.get("id"))
+                        break
+                if not user_id and members:
+                    user_id = str(members[0].get("user", {}).get("id"))
+        except Exception as e:
+            logger.warning(f"Failed to search member '{target_clean}' in guild {guild_id}: {e}")
 
-    # Search among guilds if not found
-    if not target_user:
-        for guild in bot.guilds:
-            for member in guild.members:
-                if (
-                    member.name.lower() == discord_name_or_id.lower()
-                    or f"{member.name}#{member.discriminator}".lower()
-                    == discord_name_or_id.lower()
-                ):
-                    target_user = member
-                    break
-            if target_user:
-                break
-
-    if not target_user:
-        logger.warning(f"Could not find Discord user '{discord_name_or_id}'")
+    if not user_id:
+        logger.error(f"Could not resolve Discord user ID for '{discord_name_or_id}'")
         return False
 
+    # 2. Open DM channel
+    channel_id = None
     try:
-        dm_channel = await target_user.create_dm()
-        await dm_channel.send(message)
-        logger.info(f"Successfully sent DM to {target_user}")
-        return True
+        dm_channel_url = "https://discord.com/api/v10/users/@me/channels"
+        data = json.dumps({"recipient_id": str(user_id)}).encode("utf-8")
+        req = urllib.request.Request(dm_channel_url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            channel_info = json.loads(resp.read().decode())
+            channel_id = channel_info.get("id")
     except Exception as e:
-        logger.error(f"Failed to send DM to {target_user}: {e}")
+        logger.error(f"Failed to create DM channel for user {user_id}: {e}")
+        return False
+
+    if not channel_id:
+        return False
+
+    # 3. Send Message
+    try:
+        msg_url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+        data = json.dumps({"content": message}).encode("utf-8")
+        req = urllib.request.Request(msg_url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.info(f"Successfully dispatched Discord DM to {target_clean} (ID: {user_id})")
+            return True
+    except Exception as e:
+        logger.error(f"Failed to post DM message to channel {channel_id}: {e}")
         return False
 
 
 def send_dm(discord_name_or_id: str, message: str) -> bool:
-    """Synchronous wrapper for sending DMs."""
-    if not settings.DISCORD_BOT_TOKEN or not bot.is_ready():
-        logger.info(
-            f"[Discord DM Dispatch (Offline/Mock)] To: {discord_name_or_id} | Message:\n{message}"
-        )
-        return False
-    try:
-        future = asyncio.run_coroutine_threadsafe(
-            send_dm_async(discord_name_or_id, message), bot.loop
-        )
-        return future.result(timeout=10)
-    except Exception as e:
-        logger.error(f"Error in send_dm: {e}")
-        return False
+    """Synchronous DM dispatcher."""
+    return send_dm_rest(discord_name_or_id, message)
 
 
 def run_bot():

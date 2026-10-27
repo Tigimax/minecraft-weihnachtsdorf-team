@@ -1,0 +1,21 @@
+[Unit]
+Description=Weihnachtsdorf 7 Discord Identity Bot
+After=network.target
+
+[Service]
+Type=simple
+User=tigimax
+Group=tigimax
+WorkingDirectory=/opt/wd-identity
+EnvironmentFile=-/etc/default/wd-identity
+ExecStart=/opt/wd-identity/venv/bin/python3 -m wd_identity.discord_bot
+Restart=always
+RestartSec=10s
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

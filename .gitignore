@@ -10,6 +10,7 @@ world_the_end/
 *.jar
 *.tar.gz
 *.zip
+!datapacks/*.zip
 *.log
 logs/
 crash-reports/

@@ -42,6 +42,9 @@ Phase 2 wurde erfolgreich abgeschlossen und verifiziert:
 
 6. **Spektakuläre 100% Schnee-Weltgenerierung**:
    - **Tectonic 3.0.25 Datapack**: Gewaltige Terrain-Höhen bis Y=320, Steilküsten, tiefe Schluchten und riesige Höhlensysteme.
-   - **SnowyWorld 1.2.0 Datapack**: 100% winterliche Biome (`frozen_peaks`, `jagged_peaks`, `snowy_slopes`, `grove`, `ice_spikes`, `snowy_taiga`, `snowy_plains`, `frozen_river`, `frozen_ocean`) über die gesamte Oberwelt.
+   - **SnowyWorld 1.2.0 (Audited & Corrected)**: Alle Biome auf 100% winterliche Biome (`frozen_peaks`, `jagged_peaks`, `snowy_slopes`, `grove`, `ice_spikes`, `snowy_taiga`, `snowy_plains`, `frozen_river`, `frozen_ocean`, `deep_frozen_ocean`, `snowy_beach`) umgestellt (alle 212 temperierten Wald- und 14 Warmmeer-Einträge restlos eliminiert und durch Groves und Eisformationen ersetzt).
+   - In-Game Biome-Verification: `locate biome minecraft:forest` und `minecraft:ocean` finden 0 Treffer; alle Landflächen sind garantiert winterlich.
    - Vanilla Client-Kompatibilität: 100% ohne Client-Mods betretbar.
    - Spark Health: **20.00 TPS**, 0.1 ms Tick-Dauer, 0% CPU-Last.
+   - Benutzer `tigimax` auf beiden Nodes zur `docker`-Gruppe hinzugefügt.
+

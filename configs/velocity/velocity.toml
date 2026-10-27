@@ -1,7 +1,4 @@
-# Velocity Proxy Configuration - Weihnachtsdorf 7
-# Deployed on mc-node1 (192.168.1.148:25565)
-
-config-version = "2.6"
+config-version = "2.8"
 bind = "0.0.0.0:25565"
 motd = "<aqua><bold>Weihnachtsdorf 7</bold></aqua> <gray>| Event Server</gray>"
 show-max-players = 80
@@ -16,34 +13,45 @@ ping-passthrough = "DISABLED"
 enable-player-address-logging = true
 
 [servers]
-hauptwelt = "192.168.1.149:25574"
-
-try = [
-    "hauptwelt"
-]
+	hauptwelt = "192.168.1.149:25574"
+	try = ["hauptwelt"]
 
 [forced-hosts]
-"play.tigimax.mooo.com" = [
-    "hauptwelt"
-]
+	"play.tigimax.mooo.com" = ["hauptwelt"]
 
 [advanced]
-compression-threshold = 256
-compression-level = 6
-login-ratelimit = 3000
-connection-timeout = 5000
-read-timeout = 30000
-haproxy-protocol = false
-tcp-fast-open = true
-bungee-plugin-message-channel = true
-show-ping-requests = false
-failover-on-unexpected-server-disconnect = true
-announce-proxy-commands = true
-log-command-executions = false
-log-player-connections = true
+	compression-threshold = 256
+	compression-level = 6
+	login-ratelimit = 3000
+	connection-timeout = 5000
+	read-timeout = 30000
+	haproxy-protocol = false
+	tcp-fast-open = true
+	bungee-plugin-message-channel = true
+	show-ping-requests = false
+	failover-on-unexpected-server-disconnect = true
+	announce-proxy-commands = true
+	log-command-executions = false
+	log-player-connections = true
+	#Allows players transferred from other hosts via the
+	#Transfer packet (Minecraft 1.20.5) to be received.
+	accepts-transfers = false
 
 [query]
-enabled = false
-port = 25565
-map = "Velocity"
-show-plugins = false
+	enabled = false
+	port = 25565
+	map = "Velocity"
+	show-plugins = false
+
+[packet-limiter]
+	#Size of the moving time window in seconds used to calculate average rates.
+	#A larger window tolerates short bursts while still enforcing the configured limits over time.
+	interval = 7
+	#Maximum average number of packets per second a client may send. -1 disables this check.
+	packets-per-second = -1
+	#Maximum average number of compressed (on-wire) bytes per second a client may send. -1 disables this check.
+	bytes-per-second = -1
+	#Maximum average number of decompressed bytes per second a client may send.
+	#Protects against compression bomb attacks where small packets expand to excessive sizes after decompression.
+	#-1 disables this check.
+	decompressed-bytes-per-second = 5242880

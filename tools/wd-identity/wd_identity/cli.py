@@ -129,7 +129,7 @@ def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optio
         f"Du wurdest als **{clean_role.upper()}** eingeladen.\n"
         f"Bitte schließe deine Registrierung über folgenden Link ab (Passwort & 2FA-Einrichtung):\n"
         f"👉 {invite_link}\n\n"
-        f"*Dieser Link ist einmalig gültig und verfällt in 48 Stunden.*"
+        f"*Dieser Link ist einmalig gültig und verfällt in 24 Stunden.*"
     )
     sent = send_dm(clean_discord, dm_message)
     if sent:

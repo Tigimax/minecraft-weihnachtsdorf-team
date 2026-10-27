@@ -125,6 +125,16 @@ class AuthentikClient:
         )
         return res.ok
 
+    def delete_user(self, username: str) -> bool:
+        """Deletes user in Authentik so they can be re-enrolled."""
+        user = self.get_user_by_username(username)
+        if not user:
+            return True
+        user_pk = user["pk"]
+        url = f"{self.api_url}/api/v3/core/users/{user_pk}/"
+        res = requests.delete(url, headers=self._headers, timeout=10)
+        return res.status_code in (200, 204)
+
     def trigger_ldap_sync(self) -> bool:
         """Triggers OpenLDAP source sync in Authentik."""
         try:

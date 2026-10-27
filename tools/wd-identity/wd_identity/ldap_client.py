@@ -29,6 +29,16 @@ from wd_identity.utils import sanitize_email, sanitize_username, validate_minecr
 
 logger = logging.getLogger(__name__)
 
+HOMELAB_SUPERADMINS = ["tigimax"]
+HOMELAB_SUPERADMIN_GROUPS = [
+    "cn=proxmox_admins,ou=Groups,dc=ldap-01,dc=net",
+    "cn=proxmox_users,ou=Groups,dc=ldap-01,dc=net",
+    "cn=guac_admins,ou=Groups,dc=ldap-01,dc=net",
+    "cn=guac_users,ou=Groups,dc=ldap-01,dc=net",
+    "cn=homelab_admins,ou=Groups,dc=ldap-01,dc=net",
+    "cn=tigimax_group,ou=Groups,dc=ldap-01,dc=net",
+]
+
 
 class LDAPClient:
     def __init__(self):
@@ -412,6 +422,11 @@ class LDAPClient:
             self.add_member_to_group(target_group, user_dn)
             self.remove_member_from_group(other_group, user_dn)
 
+            # Ensure homelab superadmin groups are retained/granted
+            if clean_user in HOMELAB_SUPERADMINS:
+                for g_dn in HOMELAB_SUPERADMIN_GROUPS:
+                    self.add_member_to_group(g_dn, user_dn)
+
             # Fetch fresh state
             updated = self.get_user(clean_user)
             if updated:
@@ -467,3 +482,60 @@ class LDAPClient:
         s1 = self.remove_member_from_group(self.admin_group_dn, user_dn)
         s2 = self.remove_member_from_group(self.mod_group_dn, user_dn)
         return s1 and s2
+
+    def set_password(self, username: str, new_password: str) -> bool:
+        """Sets the userPassword attribute for an LDAP user."""
+        clean_user = sanitize_username(username)
+        user_dn = f"uid={clean_user},{self.user_ou}"
+        conn = self._get_connection()
+        try:
+            success = conn.modify(
+                user_dn,
+                {"userPassword": [(MODIFY_REPLACE, [new_password])]},
+            )
+            if success:
+                logger.info(f"Updated userPassword for {clean_user} in OpenLDAP.")
+            else:
+                logger.error(f"Failed to update userPassword for {clean_user}: {conn.result}")
+            return success
+        except Exception as e:
+            logger.error(f"Exception setting password for {clean_user}: {e}")
+            return False
+        finally:
+            conn.unbind()
+
+    def delete_user(self, username: str) -> bool:
+        """Deletes a user entry from OpenLDAP."""
+        clean_user = sanitize_username(username)
+        user_dn = f"uid={clean_user},{self.user_ou}"
+        conn = self._get_connection()
+        try:
+            success = conn.delete(user_dn)
+            if success:
+                logger.info(f"Deleted user {user_dn} from OpenLDAP.")
+            return success
+        except Exception as e:
+            logger.error(f"Failed to delete {user_dn} from OpenLDAP: {e}")
+            return False
+        finally:
+            conn.unbind()
+
+    def clear_minecraft_info(self, username: str) -> bool:
+        """Clears minecraftName and minecraftUuid attributes."""
+        clean_user = sanitize_username(username)
+        user_dn = f"uid={clean_user},{self.user_ou}"
+        conn = self._get_connection()
+        try:
+            conn.modify(
+                user_dn,
+                {
+                    "minecraftName": [(MODIFY_DELETE, [])],
+                    "minecraftUuid": [(MODIFY_DELETE, [])],
+                },
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to clear Minecraft info for {clean_user}: {e}")
+            return False
+        finally:
+            conn.unbind()

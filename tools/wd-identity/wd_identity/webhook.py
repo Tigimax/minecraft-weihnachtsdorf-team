@@ -37,6 +37,7 @@ class OnboardingRequest(BaseModel):
     discord_id: Optional[str] = None
     role: Optional[str] = None
     email: Optional[str] = None
+    password: Optional[str] = None
 
 
 class AuthentikWebhookEvent(BaseModel):
@@ -104,6 +105,8 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
         minecraft_name=canonical_ign,
         minecraft_uuid=mc_uuid,
     )
+    if req.password and req.password.strip():
+        ldap.set_password(clean_user, req.password.strip())
     logger.info(f"Updated LDAP user {clean_user} with Minecraft & Discord metadata.")
 
     # 3. Provision in Planka

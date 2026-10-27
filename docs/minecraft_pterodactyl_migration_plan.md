@@ -7,7 +7,7 @@
 > **Weihnachtsdorf 7 – 100% Neueste Versionen (Upstream Fresh):**
 > Keine Alt-Plugins oder alte Server-JARs aus Crafty (Weihnachtsdorf 5) übernehmen.
 > Alle Komponenten werden direkt aus den neuesten Upstream-Quellen geladen:
-> - **Server**: Neueste Minecraft / Purpur Version (Java 21 LTS)
+> - **Server**: Neueste Minecraft / Purpur Version (Purpur 26.3 auf Java 25 LTS)
 > - **Proxy**: Neueste Velocity Version
 > - **Plugins**: Alle Plugins (LuckPerms, ViaVersion, ViaBackwards, Simple Voice Chat, Chunky, CoreProtect, Plan, EssentialsX, BlueMap, TAB) als frische Releases direkt von Hangar/Modrinth/GitHub.
 

@@ -164,7 +164,7 @@
         rule: allow
         port: '25574'
         src: '192.168.1.148'
-        comment: 'Purpur 1.21.4 from Node 1 Velocity Proxy'
+        comment: 'Purpur 26.3 from Node 1 Velocity Proxy'
 
     - name: Allow Wings API port 8080 from Node 1 Panel
       community.general.ufw:

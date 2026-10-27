@@ -1,0 +1,53 @@
+---
+- name: Setup Docker CE and Wings Daemon on Minecraft Nodes
+  hosts: minecraft_nodes
+  become: true
+  tasks:
+    - name: Create pterodactyl directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/pterodactyl
+        - /var/log/pterodactyl
+
+    - name: Download Wings daemon
+      ansible.builtin.get_url:
+        url: "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_amd64"
+        dest: /usr/local/bin/wings
+        mode: '0755'
+
+    - name: Deploy Wings systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/wings.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Pterodactyl Wings Daemon
+          After=docker.service
+          Requires=docker.service
+          PartOf=docker.service
+
+          [Service]
+          User=root
+          WorkingDirectory=/etc/pterodactyl
+          LimitNOFILE=4096
+          PIDFile=/var/run/wings/daemon.pid
+          ExecStart=/usr/local/bin/wings
+          Restart=on-failure
+          StartLimitInterval=180
+          StartLimitBurst=30
+          RestartSec=5s
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Reload systemd and restart Wings
+
+  handlers:
+    - name: Reload systemd and restart Wings
+      ansible.builtin.systemd:
+        name: wings
+        daemon_reload: true
+        state: restarted
+        enabled: true

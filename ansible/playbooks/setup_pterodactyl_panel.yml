@@ -1,0 +1,53 @@
+---
+- name: Setup Pterodactyl Panel, MariaDB, and Redis on VM 119
+  hosts: minecraft_panel
+  become: true
+  tasks:
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - mariadb-server
+          - redis-server
+          - nginx
+          - composer
+          - php8.3
+          - php8.3-cli
+          - php8.3-gd
+          - php8.3-mysql
+          - php8.3-pdo
+          - php8.3-mbstring
+          - php8.3-tokenizer
+          - php8.3-bcmath
+          - php8.3-xml
+          - php8.3-fpm
+          - php8.3-curl
+          - php8.3-zip
+          - tar
+          - unzip
+          - git
+        state: present
+        update_cache: true
+
+    - name: Configure MariaDB to listen on 0.0.0.0
+      ansible.builtin.lineinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf
+        regexp: '^bind-address'
+        line: 'bind-address            = 0.0.0.0'
+      notify: Restart MariaDB
+
+    - name: Ensure Redis and MariaDB are enabled and started
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - mariadb
+        - redis-server
+        - php8.3-fpm
+        - nginx
+
+  handlers:
+    - name: Restart MariaDB
+      ansible.builtin.systemd:
+        name: mariadb
+        state: restarted

@@ -1,0 +1,11 @@
+# Paper Global Proxy Forwarding Configuration
+# Purpur 1.21.4 Weihnachtsdorf 7 on Node 2 (192.168.1.149:25574)
+
+proxies:
+  bungee-cord:
+    online-mode: true
+  proxy-protocol: false
+  velocity:
+    enabled: true
+    online-mode: true
+    secret: <FORWARDING_SECRET>

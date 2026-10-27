@@ -1,18 +1,31 @@
-config-version = "2.7"
+# Velocity Proxy Configuration - Weihnachtsdorf 7
+# Deployed on mc-node1 (192.168.1.148:25565)
+
+config-version = "2.6"
 bind = "0.0.0.0:25565"
-motd = "<aqua>Weihnachtsdorf SMP</aqua>"
+motd = "<aqua><bold>Weihnachtsdorf 7</bold></aqua> <gray>| Event Server</gray>"
 show-max-players = 80
 online-mode = true
-force-key-authentication = false
+force-key-authentication = true
+prevent-client-proxy-connections = false
 player-info-forwarding-mode = "modern"
 forwarding-secret-file = "forwarding.secret"
+announce-forge = false
+kick-existing-players = false
+ping-passthrough = "DISABLED"
+enable-player-address-logging = true
 
 [servers]
 hauptwelt = "192.168.1.149:25574"
-try = ["hauptwelt"]
+
+try = [
+    "hauptwelt"
+]
 
 [forced-hosts]
-"play.tigimax.mooo.com" = ["hauptwelt"]
+"play.tigimax.mooo.com" = [
+    "hauptwelt"
+]
 
 [advanced]
 compression-threshold = 256
@@ -20,9 +33,17 @@ compression-level = 6
 login-ratelimit = 3000
 connection-timeout = 5000
 read-timeout = 30000
+haproxy-protocol = false
 tcp-fast-open = true
 bungee-plugin-message-channel = true
 show-ping-requests = false
 failover-on-unexpected-server-disconnect = true
 announce-proxy-commands = true
 log-command-executions = false
+log-player-connections = true
+
+[query]
+enabled = false
+port = 25565
+map = "Velocity"
+show-plugins = false

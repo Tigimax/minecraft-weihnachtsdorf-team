@@ -242,6 +242,30 @@ wd-admin sync [--force]
 
 ---
 
+### 🧩 Pterodactyl Blueprint Framework & Extensions
+
+Auf `mc-node1` ist das [Blueprint Framework](https://blueprint.zip/) (`beta-2026-08`) für Pterodactyl installiert.
+
+* **Admin-Interface:** Im Pterodactyl Admin-Bereich (Zahnrad oben rechts) unter **Extensions** (`/admin/extensions`).
+* **CLI-Befehle (auf `mc-node1`):**
+  ```bash
+  # Extension installieren (.blueprint Datei hochladen nach /var/www/pterodactyl/):
+  blueprint -i <extension_name>
+
+  # Installierte Extensions anzeigen:
+  blueprint -q
+
+  # Frontend nach Änderungen neu bauen:
+  blueprint -b
+
+  # Extension entfernen:
+  blueprint -r <extension_name>
+  ```
+* **Hinweis bei Pterodactyl-Updates:**
+  Falls Pterodactyl aktualisiert wird, muss `blueprint -b` ausgeführt werden und sichergestellt werden, dass [`AuthentikSsoMiddleware`](file:///home/dweisstan/agy/minecraft-weihnachtsdorf/configs/pterodactyl/AuthentikSsoMiddleware.php) in `app/Http/Kernel.php` registriert bleibt. Backups liegen in `/var/backups/pterodactyl/`.
+
+---
+
 ### 🚨 Notfall-Zugang (Bypass-Prozeduren)
 
 Falls Authentik oder der Discord-Bot temporär ausfallen:

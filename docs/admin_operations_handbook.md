@@ -67,6 +67,11 @@ sudo systemctl status mariadb redis-server php8.3-fpm
   # Docker-Container direkt ansprechen (Weihnachtsdorf 7)
   docker ps | grep -E 'purpur|velocity'
   docker restart <CONTAINER_ID>
+
+  # Server-Befehle direkt via lokales RCON-Tool senden:
+  sudo mc-cmd "spark health"
+  sudo mc-cmd "chunky progress"
+  sudo mc-cmd "whitelist list"
   ```
 
 #### Live-Konsole & Chat-Befehle
@@ -80,6 +85,30 @@ sudo systemctl status mariadb redis-server php8.3-fpm
   /whitelist reload        -> Whitelist neu einlesen
   /lp user <IGN> info      -> LuckPerms Gruppen und Rechte prüfen
   /save-all                -> Welt sofort auf Festplatte sichern
+  ```
+
+---
+
+### 🏔️ Weltgenerierung: Zelda-Eisbiom (Terralith Winter + Terratonic)
+
+Die Welt wurde auf ein extremes **100% Winter-/Eis-Wunderland** umgestellt, inspiriert von den Hebra Mountains / Mount Lanayru aus Zelda:
+
+- **Architektur**:
+  - `terralith_winter.zip`: Vollständiges Terralith-Biome- & Feature-System mit 100% Cold-/Alpine-Remapping (keine flachen Vanilla-Ebenen, keine warmen Biome). Enthält Riesen-Spruce- und Kiefern-Bäume (`trees_giant`, `trees_tall`), mehrlagigen Tiefschnee (`layer/first..third`), gefrorene Schluchten (`glacial_chasm`) und Frostfeuer-Höhlen (`frostfire_caves`).
+  - `terratonic.zip`: Tektonische Rausch- und Dichtefunktionen für vertikale Skalierung bis **Y = 297** und massive 200+ Block Steilwände.
+- **Topografie**:
+  - **Seed**: `479668427` (Massive Alpine Valley).
+  - **Weltspawn**: `X = 0, Y = 66, Z = 380` (Aussichtspunkt an einem zugefrorenen Alpensee mit direktem Blick auf das Y=297 Riesen-Bergmassiv).
+  - **Höhenprofil**: Min Y = 52, Max Y = 297 (Höhenunterschied von 245 Blöcken — über 15x höher als frühere Flachland-Generierung!).
+  - **Worldborder**: 3000 x 3000 Blöcke, zentriert auf `(0, 380)`.
+- **Vorab-Generierung (Chunky)**:
+  ```bash
+  # Chunky-Status prüfen:
+  sudo mc-cmd "chunky progress"
+
+  # Chunky pausieren/fortsetzen:
+  sudo mc-cmd "chunky pause"
+  sudo mc-cmd "chunky continue"
   ```
 
 ---

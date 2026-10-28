@@ -251,6 +251,8 @@ Auf `mc-node1` ist das [Blueprint Framework](https://blueprint.zip/) (`beta-2026
   1. **Darkenate (`darkenate`)**: Modernes Dark-Theme für das gesamte Panel.
   2. **Modrinth Browser (`modrinthbrowser`)**: Ermöglicht die Suche und 1-Klick-Installation von Minecraft-Plugins direkt im Server-Menü.
   3. **PteroMonaco (`pteromonaco`)**: Ersetzt den Standard-Dateieditor durch den VS Code Monaco-Editor mit Syntax-Highlighting.
+  4. **Player Listing (`playerlisting`)**: Zeigt verbundene Online-Spieler mit Köpfen, Ping und RCON-Integration direkt auf der Konsole und im Server-Menü.
+  5. **Snowflakes (`snowflakes`)**: Dezent herabrieselnde Schneeflocken auf dem Dashboard – passend zum Weihnachtsdorf-Motto!
 * **Datenbank-Hosts (Databases Tab):**
   * Für `mc-node1` und `mc-node2` (`mc-main`) ist MariaDB als Database Host registriert (`ptero_mgr`). Admins können im Server-Tab **Databases** per Mausklick eigene Datenbanken erzeugen.
 * **CLI-Befehle (auf `mc-node1`):**

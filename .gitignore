@@ -35,6 +35,8 @@ forwarding.secret
 *.pem
 *.key
 *.crt
+tools/wd-identity/etc/default/wd-identity
+/etc/default/wd-identity
 
 # OS / Editor files
 .DS_Store

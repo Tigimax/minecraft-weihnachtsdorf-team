@@ -28,7 +28,7 @@ class Settings:
     )
     LDAP_BIND_PASSWORD: str = os.getenv(
         "LDAP_BIND_PASSWORD",
-        "YOUR_LDAP_BIND_PASSWORD",
+        "",
     )
     LDAP_BASE_DN: str = os.getenv("LDAP_BASE_DN", "dc=ldap-01,dc=net")
     LDAP_USER_OU: str = os.getenv("LDAP_USER_OU", "ou=User,dc=ldap-01,dc=net")
@@ -59,7 +59,7 @@ class Settings:
         "AUTHENTIK_API_URL", "http://127.0.0.1:9000"
     ).rstrip("/")
     AUTHENTIK_TOKEN: str = os.getenv(
-        "AUTHENTIK_TOKEN", "YOUR_AUTHENTIK_API_TOKEN"
+        "AUTHENTIK_TOKEN", ""
     )
     AUTHENTIK_INVITATION_FLOW_UUID: str = os.getenv(
         "AUTHENTIK_INVITATION_FLOW_UUID", "9c936c43-2dad-40d9-a980-7c3054a5c414"
@@ -80,7 +80,7 @@ class Settings:
     )
     WINGS_BEARER_TOKEN: str = os.getenv(
         "WINGS_BEARER_TOKEN",
-        "YOUR_WINGS_BEARER_TOKEN",
+        "",
     )
 
     # Planka Integration (Postgres via SSH on usrv01)

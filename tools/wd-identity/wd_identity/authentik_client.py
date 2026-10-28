@@ -155,6 +155,33 @@ class AuthentikClient:
         res = requests.delete(url, headers=self._headers, timeout=10)
         return res.status_code in (200, 204)
 
+    def delete_invitations(self, username_or_prefix: str) -> int:
+        """Deletes any invitations whose name contains the username or prefix."""
+        url = f"{self.api_url}/api/v3/stages/invitation/invitations/"
+        count = 0
+        try:
+            res = requests.get(
+                url,
+                headers=self._headers,
+                params={"search": username_or_prefix},
+                timeout=10,
+            )
+            if res.ok:
+                for inv in res.json().get("results", []):
+                    inv_pk = inv.get("pk")
+                    inv_name = inv.get("name", "")
+                    if username_or_prefix.lower() in inv_name.lower():
+                        del_res = requests.delete(
+                            f"{url}{inv_pk}/",
+                            headers=self._headers,
+                            timeout=10,
+                        )
+                        if del_res.status_code in (200, 204):
+                            count += 1
+        except Exception as e:
+            logger.warning(f"Failed to delete invitations for {username_or_prefix}: {e}")
+        return count
+
     def trigger_ldap_sync(self) -> bool:
         """Triggers OpenLDAP source sync in Authentik."""
         try:

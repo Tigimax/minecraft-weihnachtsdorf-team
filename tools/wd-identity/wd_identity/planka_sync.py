@@ -119,3 +119,34 @@ class PlankaSyncClient:
         WHERE username = '{esc_user}' OR email = '{esc_email}';
         """
         return self._execute_sql(sql)
+
+    def delete_user(self, username: str, email: Optional[str] = None) -> bool:
+        """
+        Completely deletes user and active sessions from Planka Kanban.
+        Falls back to deactivation if historical cards prevent hard delete.
+        """
+        clean_user = sanitize_username(username)
+        clean_email = sanitize_email(clean_user, raw_email=email)
+        esc_user = escape_sql_literal(clean_user)
+        esc_email = escape_sql_literal(clean_email)
+
+        sql = f"""
+        DO $$
+        DECLARE
+            v_user_id BIGINT;
+        BEGIN
+            SELECT id INTO v_user_id FROM user_account WHERE username = '{esc_user}' OR email = '{esc_email}';
+            IF v_user_id IS NOT NULL THEN
+                DELETE FROM session WHERE user_id = v_user_id;
+                DELETE FROM project_manager WHERE user_id = v_user_id;
+                DELETE FROM board_membership WHERE user_id = v_user_id;
+                DELETE FROM card_membership WHERE user_id = v_user_id;
+                BEGIN
+                    DELETE FROM user_account WHERE id = v_user_id;
+                EXCEPTION WHEN OTHERS THEN
+                    UPDATE user_account SET is_deactivated = true, updated_at = NOW() WHERE id = v_user_id;
+                END;
+            END IF;
+        END $$;
+        """
+        return self._execute_sql(sql)

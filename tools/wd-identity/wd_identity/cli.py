@@ -590,50 +590,109 @@ def project_lock_cmd():
 
 
 @cli.command("revoke")
-@click.argument("discord_name")
-def revoke_cmd(discord_name: str):
+@click.argument("target")
+@click.option(
+    "--keep-ldap",
+    is_flag=True,
+    default=False,
+    help="Keep the LDAP entry and only remove group memberships and external access.",
+)
+def revoke_cmd(target: str, keep_ldap: bool):
     """
-    Revokes admin/mod privileges:
-    - Removes LDAP group memberships (wd_admins / wd_mods)
-    - Deactivates user account in Planka Kanban
-    - Revokes Minecraft whitelist and LuckPerms group permissions
+    Completely revokes access and purges all user data across all systems:
+    - OpenLDAP: Removes memberships from wd_admins, wd_mods, wd_players (and deletes LDAP account unless --keep-ldap)
+    - Authentik IdP: Deletes user account, invalidates sessions, and removes pending invitations
+    - Planka Kanban: Terminates active sessions, clears memberships, and deletes user account
+    - Minecraft Server: Kicks player if online, removes whitelist, clears LuckPerms permissions
+    - SQLite DB: Lifts active bans and cancels pending applications
+    TARGET can be a Discord name, Discord ID, LDAP username, or Minecraft IGN.
     """
-    clean_target = discord_name.strip()
-    click.echo(f"[*] Revoking privileges for '{clean_target}'...")
+    clean_target = target.strip()
+    click.echo(f"[*] Starting full purge & revocation for '{clean_target}'...")
 
     ldap = LDAPClient()
     planka = PlankaSyncClient()
     mc = MinecraftSyncClient()
+    authentik = AuthentikClient()
 
-    user = ldap.search_by_discord(clean_target) or ldap.get_user(clean_target)
+    # Resolve user metadata across LDAP
+    user = None
+    if clean_target.isdigit():
+        user = ldap.search_by_discord(clean_target)
     if not user:
-        click.secho(f"[-] User '{clean_target}' not found in LDAP.", fg="red")
-        sys.exit(1)
+        user = (
+            ldap.get_user(clean_target)
+            or ldap.search_by_discord(clean_target)
+            or ldap.search_by_minecraft(clean_target)
+        )
 
-    username = user["uid"]
-    ign = user.get("minecraftName")
-    mc_uuid = user.get("minecraftUuid")
+    if user:
+        username = user["uid"]
+        discord_id = user.get("discordId")
+        discord_name = user.get("discordName")
+        ign = user.get("minecraftName")
+        mc_uuid = user.get("minecraftUuid")
+        click.echo(f"[+] Found LDAP user: {username} (IGN: {ign or 'None'}, Discord: {discord_name or discord_id or 'None'})")
+    else:
+        username = clean_target
+        ign = clean_target
+        discord_id = clean_target if clean_target.isdigit() else None
+        discord_name = clean_target
+        mc_uuid = None
+        click.echo(f"[!] Target not found in LDAP; proceeding to clean Authentik, Planka, Minecraft, and DB by name '{clean_target}'...")
 
-    # 1. Remove from LDAP groups
-    ldap_ok = ldap.revoke_roles(username)
-    click.echo(f"[*] LDAP group memberships removed: {'OK' if ldap_ok else 'FAILED'}")
+    # 1. OpenLDAP Clean Up
+    if user:
+        if keep_ldap:
+            ldap.revoke_roles(username)
+            ldap.remove_member_from_group(ldap.player_group, user["dn"])
+            click.echo("[+] OpenLDAP: Group memberships revoked (user entry kept).")
+        else:
+            ldap_ok = ldap.delete_user(username)
+            click.echo(f"[+] OpenLDAP: Account '{username}' deleted: {'OK' if ldap_ok else 'FAILED'}")
+    else:
+        click.echo("[-] OpenLDAP: No LDAP entry to delete.")
 
-    # 2. Deactivate in Planka
-    planka_ok = planka.deactivate_user(username)
-    click.echo(f"[*] Planka user account deactivated: {'OK' if planka_ok else 'FAILED'}")
+    # 2. Authentik IdP Clean Up
+    auth_user_del = authentik.delete_user(username)
+    click.echo(f"[+] Authentik: User '{username}' deleted: {'OK' if auth_user_del else 'Not found or failed'}")
+    inv_del_count = authentik.delete_invitations(username)
+    if discord_name and discord_name != username:
+        inv_del_count += authentik.delete_invitations(discord_name)
+    click.echo(f"[+] Authentik: Pending invitations deleted: {inv_del_count}")
 
-    # 3. Revoke Minecraft access
-    mc_ok = False
+    # 3. Planka Kanban Clean Up
+    planka_del = planka.delete_user(username)
+    click.echo(f"[+] Planka: User and sessions purged: {'OK' if planka_del else 'FAILED'}")
+
+    # 4. Minecraft Server Clean Up
     if ign:
         mc_ok = mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
-        click.echo(f"[*] Minecraft whitelist & LuckPerms removed for '{ign}': {'OK' if mc_ok else 'FAILED'}")
+        target_lp = mc_uuid if mc_uuid else ign
+        mc.execute_commands([
+            f"lp user {target_lp} clear",
+            f'kick {ign} "Zugang wurde widerrufen."',
+        ])
+        click.echo(f"[+] Minecraft Server: Whitelist removed, kicked & LuckPerms cleared for '{ign}': {'OK' if mc_ok else 'FAILED'}")
+        mc.sync_all(force=True)
     else:
-        click.echo("[*] No Minecraft IGN linked; skipping Minecraft server revocation.")
+        click.echo("[-] Minecraft Server: No IGN specified; skipping.")
 
-    # 4. Trigger sync to persist revocation in state
-    mc.sync_all(force=True)
+    # 5. SQLite DB (Applications & Bans) Clean Up
+    lift_count = applications.lift_ban(discord_id=discord_id, minecraft_ign=ign)
+    click.echo(f"[+] SQLite: Active bans lifted: {lift_count}")
+    if discord_id:
+        status = applications.get_user_status(discord_id)
+        if status.get("has_pending") and status.get("pending_app"):
+            applications.reject_application(
+                status["pending_app"]["id"],
+                "cli-admin",
+                "Admin (Revoke)",
+                "Zugang widerrufen (Account purged)",
+            )
+            click.echo(f"[+] SQLite: Pending application #{status['pending_app']['id']} cancelled.")
 
-    click.secho(f"\n[+] Privileges successfully revoked for {username}!\n", fg="green")
+    click.secho(f"\n[+] Komplettes Cleanup erfolgreich abgeschlossen für '{clean_target}'!\n", fg="green")
 
 
 @cli.command("ban")

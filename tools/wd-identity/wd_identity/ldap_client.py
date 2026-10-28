@@ -530,11 +530,18 @@ class LDAPClient:
             conn.unbind()
 
     def delete_user(self, username: str) -> bool:
-        """Deletes a user entry from OpenLDAP."""
+        """Deletes a user entry from OpenLDAP and cleans up group memberships."""
         clean_user = sanitize_username(username)
         user_dn = f"uid={clean_user},{self.user_ou}"
         conn = self._get_connection()
         try:
+            # Strip group memberships first
+            for grp in [self.admin_group, self.mod_group, self.player_group]:
+                try:
+                    conn.modify(grp, {"member": [(MODIFY_DELETE, [user_dn])]})
+                except Exception:
+                    pass
+
             success = conn.delete(user_dn)
             if success:
                 logger.info(f"Deleted user {user_dn} from OpenLDAP.")

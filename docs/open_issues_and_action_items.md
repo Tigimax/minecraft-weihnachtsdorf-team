@@ -17,10 +17,11 @@ flowchart TD
         AK["Authentik Staff-Gruppen & API-Sync aktiv"]
         IGN["Authentik Minecraft IGN Validierung aktiv"]
         INV["Invite DM-Precheck & Rollback aktiv"]
+        WB["Worldborder (3000) & Chunky Pre-Gen gestartet"]
+        VH["Velocity forced-hosts für tigimax.mooo.com"]
     end
 
     subgraph OPEN["⏳ Noch offen / Zu erledigen"]
-        WB["Worldborder & Chunky Pre-Gen starten"]
         WAN["WAN DNS-Prüfung (*.mooo.com Subdomains)"]
         GATE["Launch Gate (Freischaltung bei Projektstart)"]
     end
@@ -71,28 +72,27 @@ flowchart TD
   * In `wd-admin invite`: Wenn die Discord-DM fehlschlägt (z. B. durch Privatsphäre-Einstellungen des Users), bricht der Befehl sofort ab und rollt alle angelegten Daten in LDAP und Authentik restlos zurück (`Rollback`).
   * Account `sneezingcookie` wurde vollständig aus LDAP, Authentik, Planka und Datenbanken gelöscht.
 
+### 8. Worldborder & Chunky Vorab-Generierung • [BEHOBEN / LÄUFT]
+* **Ausgeführt auf `mc-main`**:
+  * `worldborder center 0 0`
+  * `worldborder set 3000` (Worldborder mit Durchmesser 3.000 Blöcke gesetzt)
+  * `chunky world world`, `chunky shape square`, `chunky center 0 0`, `chunky radius 1500`
+  * `chunky start`: Vorab-Generierung aller Chunks im Spielbereich erfolgreich gestartet.
+
+### 9. Velocity Forced-Hosts & Verbindungsrouting • [BEHOBEN]
+* **Lösung**: `tigimax.mooo.com = ["hauptwelt"]` explizit in `velocity.toml` unter `[forced-hosts]` ergänzt.
+* **Status**: Sowohl interner Ping (`192.168.1.174:25565`) als auch externer WAN-Zugriff (`178.195.201.195:25565` bzw. `tigimax.mooo.com:25565`) antworten stabil mit Minecraft 26.3 Handshakes und Mojang Encryption Requests.
+
 ---
 
 ## ⏳ Verbleibende offene Punkte vor dem Launch
 
-### 1. Worldborder & Chunky Vorab-Generierung starten
-* **Befehle auf `mc-main`**:
-  ```bash
-  sudo mc-cmd "worldborder center 0 0"
-  sudo mc-cmd "worldborder set 3000"
-  sudo mc-cmd "chunky world world"
-  sudo mc-cmd "chunky shape square"
-  sudo mc-cmd "chunky center 0 0"
-  sudo mc-cmd "chunky radius 1500"
-  sudo mc-cmd "chunky start"
-  ```
-
-### 2. WAN-Erreichbarkeit & Subdomain-Hinweis
+### 1. WAN-Erreichbarkeit & Subdomain-Hinweis
 * **Status**: Port `25565` ist über die Hauptdomain `tigimax.mooo.com:25565` von außen erreichbar und liefert den MOTD (`mcstatus.io: online: true`).
 * **Wichtig**: Die Subdomains `play.tigimax.mooo.com` und `mc.tigimax.mooo.com` existieren **nicht** im öffentlichen DNS von FreeDNS (afraid.org). Spieler müssen sich mit `tigimax.mooo.com` (ohne Subdomain) verbinden, oder die Subdomains müssen auf afraid.org angelegt werden.
 * **Whitelist Gate**: Da der Server im `PRE-LAUNCH`-Modus ist, können aktuell nur Admins/Mods joinen. Nicht-gewhitelistete Spieler erhalten beim Verbindungsversuch einen Disconnect.
 
-### 3. Launch Gate (Freischaltung bei Projektstart)
+### 2. Launch Gate (Freischaltung bei Projektstart)
 * **Befehl**:
   ```bash
   wd-admin project launch

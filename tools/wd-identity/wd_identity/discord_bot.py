@@ -424,6 +424,7 @@ async def handle_admin_accept(interaction: discord.Interaction, app_id: int):
     invite_link = None
     try:
         clean_user = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_")) or f"user{discord_id[-4:]}"
+        authentik.delete_user(clean_user)
         invite_link = authentik.create_invitation(
             name=f"invite-{clean_user}",
             fixed_data=fixed_data,
@@ -560,6 +561,7 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
     else:
         # User was rejected initially and had no account yet: Send Authentik invite link
         clean_user = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_")) or f"user{discord_id[-4:]}"
+        authentik.delete_user(clean_user)
         invite_link = authentik.create_invitation(
             name=f"invite-{clean_user}",
             fixed_data={"discord_id": discord_id, "discord_name": discord_name, "role": "player"},

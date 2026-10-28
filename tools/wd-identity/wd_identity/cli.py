@@ -99,8 +99,8 @@ def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optio
         click.secho(f"[-] Failed to configure LDAP entry: {e}", fg="red")
         sys.exit(1)
 
-    # 2. Trigger Authentik LDAP sync so user exists in Authentik
-    authentik.trigger_ldap_sync()
+    # 2. Ensure user does not already exist in Authentik (avoids 'Username is already taken' in enrollment)
+    authentik.delete_user(clean_username)
 
     # 3. Generate Authentik Invitation Link
     fixed_data = {

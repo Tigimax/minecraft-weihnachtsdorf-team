@@ -247,6 +247,12 @@ wd-admin sync [--force]
 Auf `mc-node1` ist das [Blueprint Framework](https://blueprint.zip/) (`beta-2026-08`) für Pterodactyl installiert.
 
 * **Admin-Interface:** Im Pterodactyl Admin-Bereich (Zahnrad oben rechts) unter **Extensions** (`/admin/extensions`).
+* **Aktive Erweiterungen:**
+  1. **Darkenate (`darkenate`)**: Modernes Dark-Theme für das gesamte Panel.
+  2. **Modrinth Browser (`modrinthbrowser`)**: Ermöglicht die Suche und 1-Klick-Installation von Minecraft-Plugins direkt im Server-Menü.
+  3. **PteroMonaco (`pteromonaco`)**: Ersetzt den Standard-Dateieditor durch den VS Code Monaco-Editor mit Syntax-Highlighting.
+* **Datenbank-Hosts (Databases Tab):**
+  * Für `mc-node1` und `mc-node2` (`mc-main`) ist MariaDB als Database Host registriert (`ptero_mgr`). Admins können im Server-Tab **Databases** per Mausklick eigene Datenbanken erzeugen.
 * **CLI-Befehle (auf `mc-node1`):**
   ```bash
   # Extension installieren (.blueprint Datei hochladen nach /var/www/pterodactyl/):

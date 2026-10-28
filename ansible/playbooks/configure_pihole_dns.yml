@@ -1,0 +1,54 @@
+---
+- name: Manage Pi-hole Internal DNS Records
+  hosts: dns
+  become: true
+  vars:
+    custom_list_src: "{{ playbook_dir }}/../../configs/pihole/custom.list"
+    custom_list_dest: "/root/pihole/etc-pihole/custom.list"
+
+  tasks:
+    - name: Ensure Pi-hole etc directory exists
+      ansible.builtin.file:
+        path: /root/pihole/etc-pihole
+        state: directory
+        mode: '0755'
+
+    - name: Create timestamped backup of custom.list
+      ansible.builtin.copy:
+        src: "{{ custom_list_dest }}"
+        dest: "{{ custom_list_dest }}.bak_{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+        remote_src: true
+        mode: '0644'
+      ignore_errors: true
+
+    - name: Deploy custom.list DNS records
+      ansible.builtin.copy:
+        src: "{{ custom_list_src }}"
+        dest: "{{ custom_list_dest }}"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload Pi-hole DNS
+
+    - name: Flush handlers to reload DNS immediately
+      ansible.builtin.meta: flush_handlers
+
+    - name: Validate DNS resolution for Minecraft & SSO endpoints
+      ansible.builtin.command: "getent hosts {{ item }}"
+      loop:
+        - mc-node1.net
+        - mc-main.net
+        - idp-01.net
+        - auth.tigimax.mooo.com
+        - panel.tigimax.mooo.com
+        - map.tigimax.mooo.com
+        - plan.tigimax.mooo.com
+        - tigimax.mooo.com
+      register: dns_check
+      changed_when: false
+      failed_when: dns_check.rc != 0
+
+  handlers:
+    - name: Reload Pi-hole DNS
+      ansible.builtin.command: docker exec pihole pihole restartdns reload
+      changed_when: true

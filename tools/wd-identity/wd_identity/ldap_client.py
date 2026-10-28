@@ -51,6 +51,9 @@ class LDAPClient:
         self.admin_group_dn = settings.LDAP_ADMIN_GROUP
         self.mod_group_dn = settings.LDAP_MOD_GROUP
         self.player_group_dn = settings.LDAP_PLAYER_GROUP
+        self.admin_group = self.admin_group_dn
+        self.mod_group = self.mod_group_dn
+        self.player_group = self.player_group_dn
 
     def _get_connection(self) -> Connection:
         tls = Tls(validate=ssl.CERT_NONE)

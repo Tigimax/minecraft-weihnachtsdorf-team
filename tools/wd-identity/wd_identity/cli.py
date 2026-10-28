@@ -48,7 +48,12 @@ def cli():
     "-u",
     help="Explicit username/UID in LDAP (defaults to sanitized discord_name).",
 )
-def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optional[str]):
+@click.option(
+    "--force-manual",
+    is_flag=True,
+    help="Erstellt den Account auch dann, wenn die Discord-DM nicht zugestellt werden kann (für manuelle Weitergabe).",
+)
+def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optional[str], force_manual: bool):
     """
     Invites a new player, mod, or admin to Weihnachtsdorf 7.
     Creates LDAP entry, generates Authentik enrollment link, and sends Discord DM.
@@ -147,11 +152,23 @@ def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optio
     if sent:
         click.secho(f"[+] Discord DM successfully dispatched to {clean_discord}!", fg="green")
     else:
-        click.secho(
-            f"[!] Discord DM could not be sent directly (bot offline or DM closed). "
-            f"Please share the enrollment link manually.",
-            fg="yellow",
-        )
+        if force_manual:
+            click.secho(
+                f"[!] Discord DM could not be sent directly (bot offline or DM closed). "
+                f"--force-manual angegeben: Bitte Einladungslink manuell teilen.",
+                fg="yellow",
+            )
+        else:
+            click.secho(
+                f"[-] Discord DM konnte nicht zugestellt werden (Privatsphäre-Einstellungen des Users blockieren DMs oder Bot kann keine DM senden).",
+                fg="red",
+            )
+            click.secho("[*] Rollback: Breche ab und bereinige angelegte Daten...", fg="yellow")
+            ldap.delete_user(clean_username)
+            authentik.delete_user(clean_username)
+            authentik.delete_invitations(clean_username)
+            click.secho(f"[-] Account '{clean_username}' wurde NICHT erstellt. Bitte den Nutzer bitten, Direktnachrichten von Servermitgliedern zu erlauben, und dann erneut einladen.", fg="red")
+            sys.exit(1)
 
 
 @cli.command("reset")

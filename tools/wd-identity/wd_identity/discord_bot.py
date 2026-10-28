@@ -240,6 +240,8 @@ class AdminActionRow(discord.ui.View):
 
 async def trigger_application_modal(interaction: discord.Interaction):
     """Validates user eligibility and displays the application modal."""
+    if interaction.response.is_done():
+        return
     status = applications.get_user_status(str(interaction.user.id))
 
     if status["is_banned"]:
@@ -291,6 +293,8 @@ async def trigger_application_modal(interaction: discord.Interaction):
 
 async def trigger_unban_modal(interaction: discord.Interaction):
     """Validates unban eligibility and displays the unban appeal modal."""
+    if interaction.response.is_done():
+        return
     status = applications.get_user_status(str(interaction.user.id))
 
     if status["in_cooldown"]:
@@ -659,15 +663,14 @@ async def handle_admin_appeal_reject_submit(
 
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
+    if interaction.response.is_done():
+        return
+
     if interaction.type == discord.InteractionType.component:
         custom_id = interaction.data.get("custom_id", "")
 
-        if custom_id == "wd_apply_start_btn":
-            await trigger_application_modal(interaction)
-            return
-
-        if custom_id == "wd_appeal_start_btn":
-            await trigger_unban_modal(interaction)
+        # Persistent view buttons (handled by ApplyStartView and AppealStartView)
+        if custom_id in ("wd_apply_start_btn", "wd_appeal_start_btn"):
             return
 
         if custom_id.startswith("app:accept:"):

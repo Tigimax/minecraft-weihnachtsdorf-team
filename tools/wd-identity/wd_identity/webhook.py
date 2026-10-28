@@ -113,6 +113,15 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
         ldap.set_password(clean_user, req.password.strip())
     logger.info(f"Updated LDAP user {clean_user} with Minecraft & Discord metadata.")
 
+    # 2.5 Direct Authentik Group Assignment (ensures staff web access without LDAP sync delays)
+    ak = AuthentikClient()
+    group_map = {"admin": "wd_admins", "mod": "wd_mods", "player": "wd_players"}
+    ak_group = group_map.get(clean_role, "wd_players")
+    ak.add_user_to_group(clean_user, ak_group)
+    if req.username and req.username != clean_user:
+        ak.add_user_to_group(req.username, ak_group)
+    logger.info(f"Assigned user {clean_user} to Authentik group {ak_group}.")
+
     # 3. Provision in Planka (Staff only)
     planka_ok = None
     if clean_role in ("admin", "mod"):

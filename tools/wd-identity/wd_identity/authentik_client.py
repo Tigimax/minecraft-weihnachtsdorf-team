@@ -201,3 +201,26 @@ class AuthentikClient:
         except Exception as e:
             logger.warning(f"Could not trigger direct ak shell LDAP sync: {e}")
             return False
+
+    def add_user_to_group(self, username: str, group_name: str) -> bool:
+        """Adds an Authentik user to a group by group name."""
+        user = self.get_user_by_username(username)
+        if not user:
+            return False
+        user_pk = user.get("pk")
+        try:
+            req_url = f"{self.api_url}/api/v3/core/groups/?name={group_name}"
+            res = requests.get(req_url, headers=self._headers, timeout=10)
+            if not res.ok:
+                return False
+            results = res.json().get("results", [])
+            if not results:
+                return False
+            group_pk = results[0]["pk"]
+
+            add_url = f"{self.api_url}/api/v3/core/groups/{group_pk}/add_user/"
+            add_res = requests.post(add_url, headers=self._headers, json={"pk": user_pk}, timeout=10)
+            return add_res.status_code in (200, 204)
+        except Exception as e:
+            logger.error(f"Failed to add {username} to Authentik group {group_name}: {e}")
+            return False

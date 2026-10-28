@@ -89,18 +89,17 @@ sudo systemctl status mariadb redis-server php8.3-fpm
 
 ---
 
-### 🏔️ Weltgenerierung: Zelda-Eisbiom (Terralith Winter + Terratonic)
+### 🏔️ Weltgenerierung: Standard Upstream Datapacks (Terralith & Terratonic)
 
-Die Welt wurde auf ein extremes **100% Winter-/Eis-Wunderland** umgestellt, inspiriert von den Hebra Mountains / Mount Lanayru aus Zelda:
+Die Welt nutzt ausschließlich die **offiziellen, unveränderten Upstream-Releases** der Datapacks (keine manuellen JSON-Änderungen oder Biome-Hacks):
 
-- **Architektur**:
-  - `terralith_winter.zip`: Vollständiges Terralith-Biome- & Feature-System mit 100% Cold-/Alpine-Remapping (keine flachen Vanilla-Ebenen, keine warmen Biome). Enthält Riesen-Spruce- und Kiefern-Bäume (`trees_giant`, `trees_tall`), mehrlagigen Tiefschnee (`layer/first..third`), gefrorene Schluchten (`glacial_chasm`) und Frostfeuer-Höhlen (`frostfire_caves`).
-  - `terratonic.zip`: Tektonische Rausch- und Dichtefunktionen für vertikale Skalierung bis **Y = 297** und massive 200+ Block Steilwände.
-- **Topografie**:
-  - **Seed**: `479668427` (Massive Alpine Valley).
-  - **Weltspawn**: `X = 0, Y = 66, Z = 380` (Aussichtspunkt an einem zugefrorenen Alpensee mit direktem Blick auf das Y=297 Riesen-Bergmassiv).
-  - **Höhenprofil**: Min Y = 52, Max Y = 297 (Höhenunterschied von 245 Blöcken — über 15x höher als frühere Flachland-Generierung!).
-  - **Worldborder**: 3000 x 3000 Blöcke, zentriert auf `(0, 380)`.
+- **Datapacks (100% Unmodified Upstream)**:
+  - `terralith.zip`: Offizielles Release `v2.6.5+26.3` von Stardust Labs (preisgekrönte, prozedural abgestimmte Weltgenerierung mit über 100 Biomen, nahtlosem Blending, Riesenbäumen und Gebirgen).
+  - `terratonic.zip`: Offizielle Kompatibilitäts-Bridge `v3.0.31` von Apollo zur Fusionierung der tektonischen Terrain-Höhen mit Terralith.
+- **Topografie & Einstellungen**:
+  - **Seed**: Standard Minecraft Random Seed (keine künstliche Erzwingung).
+  - **Spawn**: Natürlicher Minecraft World-Spawn.
+  - **BlueMap Startposition**: Standard `(0, 0)`.
 - **Vorab-Generierung (Chunky)**:
   ```bash
   # Chunky-Status prüfen:

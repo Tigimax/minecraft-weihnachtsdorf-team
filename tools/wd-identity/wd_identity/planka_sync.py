@@ -79,18 +79,22 @@ class PlankaSyncClient:
                     role = '{esc_role}',
                     name = '{esc_name}',
                     username = '{esc_user}',
+                    terms_signature = '2796eedee33c0bc4592eb8f0d301acffe60ca01d81e9df4023cb32d05f724323',
+                    terms_accepted_at = COALESCE(terms_accepted_at, NOW()),
                     is_deactivated = false,
                     updated_at = NOW()
                 WHERE username = '{esc_user}' OR email = '{esc_email}';
             ELSE
                 INSERT INTO user_account (
                     email, role, name, username,
+                    terms_signature, terms_accepted_at,
                     subscribe_to_own_cards, subscribe_to_card_when_commenting,
                     turn_off_recent_card_highlighting, enable_favorites_by_default,
                     default_editor_mode, default_home_view, default_projects_order,
                     is_deactivated, created_at, updated_at, auto_logout_mode
                 ) VALUES (
                     '{esc_email}', '{esc_role}', '{esc_name}', '{esc_user}',
+                    '2796eedee33c0bc4592eb8f0d301acffe60ca01d81e9df4023cb32d05f724323', NOW(),
                     false, true, false, true,
                     'wysiwyg', 'groupedProjects', 'byDefault',
                     false, NOW(), NOW(), '30m'

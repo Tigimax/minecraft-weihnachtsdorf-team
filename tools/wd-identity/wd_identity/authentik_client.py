@@ -125,6 +125,26 @@ class AuthentikClient:
         )
         return res.ok
 
+    def set_user_banned(self, username: str, is_banned: bool = True) -> bool:
+        """
+        Sets or unsets the is_banned flag in Authentik user attributes.
+        Keeps Authentik account active while blocking BlueMap via wd-bluemap-access-policy.
+        """
+        user = self.get_user_by_username(username)
+        if not user:
+            return False
+        user_pk = user["pk"]
+        current_attrs = user.get("attributes") or {}
+        current_attrs["is_banned"] = bool(is_banned)
+        url = f"{self.api_url}/api/v3/core/users/{user_pk}/"
+        res = requests.patch(
+            url,
+            headers=self._headers,
+            json={"attributes": current_attrs},
+            timeout=10,
+        )
+        return res.ok
+
     def delete_user(self, username: str) -> bool:
         """Deletes user in Authentik so they can be re-enrolled."""
         user = self.get_user_by_username(username)

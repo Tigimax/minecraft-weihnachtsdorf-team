@@ -92,7 +92,15 @@ class Settings:
 
     # Discord Bot Settings
     DISCORD_BOT_TOKEN: str = os.getenv("DISCORD_BOT_TOKEN", "")
-    DISCORD_GUILD_ID: str = os.getenv("DISCORD_GUILD_ID", "")
+    DISCORD_GUILD_ID: str = os.getenv("DISCORD_GUILD_ID", "909437200125538364")
+    DISCORD_CATEGORY_WD7_ID: str = os.getenv("DISCORD_CATEGORY_WD7_ID", "1561436206577750138")
+    DISCORD_CHANNEL_ANMELDUNG_ID: str = os.getenv("DISCORD_CHANNEL_ANMELDUNG_ID", "")
+    DISCORD_CHANNEL_ENTBANNUNG_ID: str = os.getenv("DISCORD_CHANNEL_ENTBANNUNG_ID", "")
+    DISCORD_CHANNEL_ADMIN_ID: str = os.getenv("DISCORD_CHANNEL_ADMIN_ID", "")
+    DISCORD_ADMIN_ROLE_ID: str = os.getenv("DISCORD_ADMIN_ROLE_ID", "909437200125538371")
+
+    # Data Directory (SQLite & Local State)
+    DATA_DIR: Path = Path(os.getenv("DATA_DIR", "/opt/wd-identity/data"))
 
     # Webhook & API Server
     WEBHOOK_HOST: str = os.getenv("WEBHOOK_HOST", "0.0.0.0")

@@ -14,6 +14,7 @@ from typing import Optional, Tuple
 import click
 
 from wd_identity.authentik_client import AuthentikClient
+from wd_identity import applications
 from wd_identity.config import settings
 from wd_identity.discord_bot import send_dm
 from wd_identity.ldap_client import LDAPClient
@@ -633,6 +634,166 @@ def revoke_cmd(discord_name: str):
     mc.sync_all(force=True)
 
     click.secho(f"\n[+] Privileges successfully revoked for {username}!\n", fg="green")
+
+
+@cli.command("ban")
+@click.argument("target")
+@click.option("--reason", "-m", default="Regelverstoß", help="Begründung für die Sperre.")
+def ban_cmd(target: str, reason: str):
+    """
+    Bans a player from Minecraft server and blocks BlueMap access.
+    Leaves Authentik account active for password recovery and communication.
+    TARGET can be a Discord name, Discord ID, username, or Minecraft IGN.
+    """
+    clean_target = target.strip()
+    click.echo(f"[*] Verhängen der Sperre für '{clean_target}' (Grund: {reason})...")
+
+    ldap = LDAPClient()
+    mc = MinecraftSyncClient()
+    authentik = AuthentikClient()
+
+    user = None
+    if clean_target.isdigit():
+        user = ldap.search_by_discord(clean_target)
+    if not user:
+        user = ldap.get_user(clean_target) or ldap.search_by_discord(clean_target) or ldap.search_by_minecraft(clean_target)
+
+    discord_id = None
+    ign = None
+    uid = None
+
+    if user:
+        discord_id = user.get("discordId")
+        ign = user.get("minecraftName")
+        uid = user["uid"]
+    else:
+        ign = clean_target
+
+    mc_ok = False
+    if ign:
+        mc_ok = mc.ban_player(ign, reason)
+        click.echo(f"[*] Minecraft server ban & whitelist removal for '{ign}': {'OK' if mc_ok else 'FAILED'}")
+    else:
+        click.echo("[!] No Minecraft IGN linked; skipping Minecraft server ban.")
+
+    bm_ok = False
+    if uid:
+        bm_ok = authentik.set_user_banned(uid, True)
+        click.echo(f"[*] Authentik BlueMap access blocked for '{uid}': {'OK' if bm_ok else 'FAILED'}")
+
+    applications.record_ban(
+        discord_id=discord_id,
+        minecraft_ign=ign,
+        banned_by="wd-admin-cli",
+        reason=reason,
+    )
+    click.secho(f"\n[+] Spieler '{clean_target}' erfolgreich gesperrt!\n", fg="green")
+
+
+@cli.command("pardon")
+@click.argument("target")
+def pardon_cmd(target: str):
+    """
+    Lifts ban for a player on Minecraft and restores BlueMap access.
+    """
+    clean_target = target.strip()
+    click.echo(f"[*] Aufheben der Sperre für '{clean_target}'...")
+
+    ldap = LDAPClient()
+    mc = MinecraftSyncClient()
+    authentik = AuthentikClient()
+
+    user = None
+    if clean_target.isdigit():
+        user = ldap.search_by_discord(clean_target)
+    if not user:
+        user = ldap.get_user(clean_target) or ldap.search_by_discord(clean_target) or ldap.search_by_minecraft(clean_target)
+
+    discord_id = None
+    ign = None
+    uid = None
+
+    if user:
+        discord_id = user.get("discordId")
+        ign = user.get("minecraftName")
+        uid = user["uid"]
+    else:
+        ign = clean_target
+
+    if ign:
+        mc_ok = mc.pardon_player(ign)
+        click.echo(f"[*] Minecraft server pardon for '{ign}': {'OK' if mc_ok else 'FAILED'}")
+
+    if uid:
+        bm_ok = authentik.set_user_banned(uid, False)
+        click.echo(f"[*] Authentik BlueMap access restored for '{uid}': {'OK' if bm_ok else 'FAILED'}")
+
+    count = applications.lift_ban(discord_id=discord_id, minecraft_ign=ign)
+    click.echo(f"[*] Active ban records lifted in database: {count}")
+    click.secho(f"\n[+] Spieler '{clean_target}' erfolgreich entbannt!\n", fg="green")
+
+
+@cli.group("apps")
+def apps_group():
+    """Manage candidate applications and unban appeals."""
+    pass
+
+
+@apps_group.command("list")
+@click.option("--status", type=click.Choice(["pending", "accepted", "rejected"], case_sensitive=False))
+@click.option("--type", "app_type", type=click.Choice(["initial", "unban"], case_sensitive=False))
+def list_apps_cmd(status: Optional[str], app_type: Optional[str]):
+    """Lists applications."""
+    items = applications.list_applications(status=status, app_type=app_type)
+    if not items:
+        click.echo("Keine Anträge gefunden.")
+        return
+
+    click.secho(f"\n{'ID':<5} {'TYP':<9} {'STATUS':<10} {'DISCORD USER':<25} {'DATUM':<20}", fg="cyan")
+    click.echo("-" * 75)
+    for it in items:
+        color = "yellow" if it["status"] == "pending" else ("green" if it["status"] == "accepted" else "red")
+        click.secho(
+            f"#{it['id']:<4} {it['app_type']:<9} {it['status']:<10} {it['discord_username']:<25} {it['created_at'][:19]:<20}",
+            fg=color,
+        )
+        msg_preview = it["message"].replace("\n", " ")[:60]
+        click.echo(f"      Nachricht: {msg_preview}...")
+    click.echo("")
+
+
+@apps_group.command("accept")
+@click.argument("app_id", type=int)
+def accept_app_cmd(app_id: int):
+    """Accepts an application by ID."""
+    app = applications.get_application(app_id)
+    if not app:
+        click.secho(f"[-] Antrag #{app_id} nicht gefunden.", fg="red")
+        sys.exit(1)
+
+    updated = applications.accept_application(app_id, "cli-admin", "Admin (CLI)")
+    click.secho(f"[+] Antrag #{app_id} ({updated['discord_username']}) wurde angenommen!", fg="green")
+
+
+@apps_group.command("reject")
+@click.argument("app_id", type=int)
+@click.option("--reason", "-m", help="Begründung der Ablehnung.")
+@click.option("--cooldown-days", "-c", type=int, help="Cooldown in Tagen (-1 für permanent).")
+def reject_app_cmd(app_id: int, reason: Optional[str], cooldown_days: Optional[int]):
+    """Rejects an application by ID with optional cooldown."""
+    app = applications.get_application(app_id)
+    if not app:
+        click.secho(f"[-] Antrag #{app_id} nicht gefunden.", fg="red")
+        sys.exit(1)
+
+    updated = applications.reject_application(
+        app_id=app_id,
+        reviewer_id="cli-admin",
+        reviewer_name="Admin (CLI)",
+        reason=reason,
+        cooldown_days=cooldown_days,
+    )
+    click.secho(f"[+] Antrag #{app_id} ({updated['discord_username']}) wurde abgelehnt (Sperre: {cooldown_days} Tage)!", fg="red")
 
 
 @cli.command("sync")

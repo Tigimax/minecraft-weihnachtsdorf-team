@@ -208,6 +208,28 @@ class MinecraftSyncClient:
             return False
         return self.execute_commands(cmds)
 
+    def ban_player(self, ign: str, reason: str = "Regelverstoß") -> bool:
+        """Bans a player on Minecraft server and removes them from whitelist."""
+        if not validate_minecraft_ign(ign):
+            logger.error(f"Invalid Minecraft IGN for ban: '{ign}'")
+            return False
+        clean_reason = reason.replace("\n", " ").replace('"', "'")
+        cmds = [
+            f'ban {ign} {clean_reason}',
+            f'whitelist remove {ign}',
+        ]
+        return self.execute_commands(cmds)
+
+    def pardon_player(self, ign: str) -> bool:
+        """Unbans player on Minecraft server and re-adds to whitelist if project is launched."""
+        if not validate_minecraft_ign(ign):
+            logger.error(f"Invalid Minecraft IGN for pardon: '{ign}'")
+            return False
+        cmds = [f'pardon {ign}']
+        if self.is_project_launched():
+            cmds.append(f'whitelist add {ign}')
+        return self.execute_commands(cmds)
+
     def launch_project(self) -> Dict[str, Any]:
         """Sets launch state to True and immediately whitelists all registered players."""
         self.set_project_launched(True)

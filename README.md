@@ -1,119 +1,139 @@
-# Minecraft SMP Weihnachtsdorf 7
+<div align="center">
 
-Infrastructure-as-Code, Serverkonfigurationen, Tuning, Identity Management und Migrations-Playbooks für das **Minecraft SMP Weihnachtsdorf 7** (80-Spieler Event am Spawn).
+# 🎄 Minecraft SMP Weihnachtsdorf 7
 
----
+**Infrastructure-as-Code, Server-Tuning, Identity Management & Migrations-Playbooks**
+für das 80-Spieler Weihnachts-Event am Spawn.
 
-## 1. Gesamt-Architektur
+![Purpur](https://img.shields.io/badge/Purpur-26.3-a020f0)
+![Velocity](https://img.shields.io/badge/Velocity-3.5.1-1f6feb)
+![Java](https://img.shields.io/badge/Java-25_LTS-orange)
+![Authentik](https://img.shields.io/badge/SSO-Authentik_2026.8-fd4b2d)
+![Ansible](https://img.shields.io/badge/IaC-Ansible-black)
 
-```
-┌────────────────────────────────────── Internet ──────────────────────────────────────┐
-│  • Minecraft Server:        tigimax.mooo.com :25565 (TCP) / VoiceChat :24454 (UDP)   │
-│  • Authentik SSO IdP:       https://auth.tigimax.mooo.com                            │
-│  • BlueMap Live-Karte:      https://map.tigimax.mooo.com                             │
-│  • Plan Analytics:          https://plan.tigimax.mooo.com                            │
-│  • Pterodactyl Game Panel:  https://panel.tigimax.mooo.com                           │
-│  • Planka Kanban Board:     https://tigimax.mooo.com                                 │
-└──────────────────────────────────────────┬───────────────────────────────────────────┘
-                                           │
-                                           ▼
-┌─────────────────────────────────── usrv01 (.174) ────────────────────────────────────┐
-│  Nginx Ingress, TLS Termination (Let's Encrypt) & Forward-Auth Gatekeeper:           │
-│  ├─ auth.tigimax.mooo.com -> idp-01 :9000 (Authentik Web)                           │
-│  ├─ map.tigimax.mooo.com  -> Forward-Auth -> mc-node1 :8123 (BlueMap CLI)           │
-│  ├─ plan.tigimax.mooo.com -> Forward-Auth -> usrv01 :8804 (Plan Analytics)          │
-│  ├─ panel.tigimax.mooo.com-> Forward-Auth -> mc-node1 :80 (Wings /api/remote/ bypass)│
-│  ├─ tigimax.mooo.com      -> Forward-Auth -> usrv01 :3000 (Planka Kanban)           │
-│  └─ Shared Session Cookie: .tigimax.mooo.com (Single Sign-On über alle Portale)      │
-└──────────────────────────────────────────┬───────────────────────────────────────────┘
-                                           │
-         ┌─────────────────────────────────┼─────────────────────────────────┐
-         ▼                                 ▼                                 ▼
-┌── anode01 (VM 105, .164) ──┐  ┌── idp-01 (VM 121, .150) ───┐  ┌── mc-node1 (VM 119, .148) ─┐
-│ OpenLDAP 2.5.20 (LDAPS :636)│  │ Authentik 2026.8.5 (:9000) │  │ Pterodactyl Node 1 / Proxy │
-│ ├─ Single Source of Truth  │  │ ├─ Enrollment Flow (2FA)   │  │ ├─ Velocity Proxy 3.5.1    │
-│ ├─ wdAccount Schema        │  │ ├─ wd-identity.service:8000│  │ │  (:25565 TCP/UDP) [512M] │
-│ ├─ cn=wd_admins, wd_mods   │  │ ├─ wd-bot.service (Discord)│  │ ├─ Decoupled BlueMap :8123 │
-│ └─ Proxmox & Homelab Admin │  │ └─ mc-admin-sync.timer(60s)│  │ └─ Panel Web & Wings :8080  │
-└────────────────────────────┘  └────────────────────────────┘  └──────────────┬──────────────┘
-                                                                               │ Intern :25574
-                                                                               ▼
-                                                                ┌── mc-main (VM 120, .149) ──┐
-                                                                │ Purpur 26.3 (Build 2654)   │
-                                                                │ ├─ Java 25 LTS (Container) │
-                                                                │ ├─ Heap: 11 GB (Aikar)     │
-                                                                │ ├─ Wings Node 2 API :8080  │
-                                                                │ ├─ Whitelist & LuckPerms   │
-                                                                │ └─ Tectonic + SnowyWorld   │
-                                                                └────────────────────────────┘
-```
+</div>
 
 ---
 
-## 2. Identity Management & Onboarding (`wd-identity`)
+## 🌐 Portale & Endpunkte
 
-Alle Admin- und Mod-Zugänge werden über das Werkzeug [`wd-admin`](tools/wd-identity/README.md) und den Discord-Bot **WHD Privileges** verwaltet.
+| Dienst | Adresse | Schutz |
+|---|---|---|
+| 🎮 Minecraft Server | `tigimax.mooo.com:25565` (TCP) | Whitelist |
+| 🎙️ Simple VoiceChat | `tigimax.mooo.com:24454` (UDP) | – |
+| 🔐 Authentik SSO | https://auth.tigimax.mooo.com | 2FA (TOTP) |
+| 🗺️ BlueMap Live-Karte | https://map.tigimax.mooo.com | Forward-Auth |
+| 📊 Plan Analytics | https://plan.tigimax.mooo.com | Forward-Auth |
+| 🦖 Pterodactyl Panel | https://panel.tigimax.mooo.com | Forward-Auth |
+| 📋 Planka Kanban | https://tigimax.mooo.com | Forward-Auth |
 
-### Wichtigste Befehle (direkt im Mac-Terminal):
-```bash
-# 1. Teammitglied einladen (Minecraft-Name muss NICHT bekannt sein):
-wd-admin invite <discord_name> [--role admin|mod]
-
-# 2. Passwort zurücksetzen (sendet Recovery-Link per Discord-DM):
-wd-admin reset <discord_name>
-
-# 3. Aktive Teammitglieder und Berechtigungen auflisten:
-wd-admin list
-
-# 4. Berechtigungen entziehen (LDAP, Planka, Whitelist, LuckPerms):
-wd-admin revoke <discord_name>
-
-# 5. Minecraft Whitelist & LuckPerms manuell synchronisieren:
-wd-admin sync
-```
-
-### Automatische Onboarding-Kette:
-1. Administrator führt `wd-admin invite <discord_name>` aus.
-2. Discord-Bot sendet einen persönlichen, 24h gültigen Authentik-Einladungslink per DM.
-3. Nutzer setzt im Browser sein Kennwort, richtet verpflichtend **2FA (TOTP)** ein und trägt seinen Minecraft-Namen ein.
-4. Backend validiert den Spieler über die Mojang-API, schreibt die UUID ins OpenLDAP, synchronisiert Planka und schaltet Whitelist sowie LuckPerms-Gruppe (`admin`/`mod`) auf dem Purpur-Server frei.
-5. Bot sendet dem Nutzer eine Willkommens-DM mit allen Links zu den Portalen.
+> Ein gemeinsames Session-Cookie auf `.tigimax.mooo.com` sorgt für **Single Sign-On** über alle Portale.
 
 ---
 
-## 3. Repository-Struktur
+## 🏗️ Architektur
+
+```mermaid
+flowchart TD
+    NET((Internet)) --> NGX
+
+    subgraph usrv01["usrv01 (.174) – Nginx Ingress + TLS + Forward-Auth"]
+        NGX[Nginx / Let's Encrypt]
+        PLAN[Plan Analytics :8804]
+        PLANKA[Planka :3000]
+    end
+
+    subgraph idp["idp-01 (VM 121, .150)"]
+        AK[Authentik :9000<br/>Enrollment + 2FA]
+        WDI[wd-identity :8000]
+        BOT[wd-bot Discord]
+        SYNC[mc-admin-sync.timer 60s]
+    end
+
+    subgraph ldap["anode01 (VM 105, .164)"]
+        OL[(OpenLDAP 2.5 LDAPS :636<br/>Single Source of Truth)]
+    end
+
+    subgraph node1["mc-node1 (VM 119, .148)"]
+        VEL[Velocity 3.5.1 :25565]
+        BM[BlueMap :8123]
+        PTERO[Panel + Wings]
+    end
+
+    subgraph main["mc-main (VM 120, .149)"]
+        PUR[Purpur 26.3 · Java 25<br/>11 GB Heap · Aikar Flags<br/>Tectonic + SnowyWorld]
+    end
+
+    NGX --> AK & PLAN & PLANKA & BM & PTERO
+    AK --> OL
+    WDI --> OL
+    VEL -- intern :25574 --> PUR
+    SYNC --> PUR
+```
+
+---
+
+## 👥 Identity Management (`wd-admin`)
+
+Alle Admin-/Mod-Zugänge laufen über [`wd-admin`](tools/wd-identity/README.md) und den Discord-Bot **WHD Privileges**.
+
+| Befehl | Wirkung |
+|---|---|
+| `wd-admin invite <discord> [--role admin\|mod]` | Einladung per Discord-DM (MC-Name nicht nötig) |
+| `wd-admin reset <discord>` | Recovery-Link per DM |
+| `wd-admin list` | Aktive Teammitglieder & Rechte |
+| `wd-admin revoke <discord>` | Entzug in LDAP, Planka, Whitelist, LuckPerms |
+| `wd-admin sync` | Whitelist & LuckPerms manuell synchronisieren |
+
+### 🔄 Onboarding-Kette
+
+```mermaid
+sequenceDiagram
+    participant A as Admin
+    participant B as Discord-Bot
+    participant U as Nutzer
+    participant K as Authentik
+    participant S as wd-identity
+    A->>B: wd-admin invite <discord>
+    B->>U: DM mit 24h-Einladungslink
+    U->>K: Passwort + 2FA + MC-Name
+    K->>S: Enrollment-Webhook
+    S->>S: Mojang-UUID prüfen → LDAP, Planka
+    S->>S: Whitelist + LuckPerms (admin/mod)
+    B->>U: Willkommens-DM mit Portal-Links
+```
+
+---
+
+## 📁 Repository-Struktur
 
 ```
 .
-├── README.md
-├── docs/
-│   ├── identity_sso_ldap_discord_guide.md       # Vollständige SSO, LDAP & Discord Dokumentation
-│   ├── phase2_pterodactyl_deployment_report.md  # Deployment Report für Pterodactyl & Velocity
-│   ├── minecraft_pterodactyl_migration_plan.md  # Migrations- & Tuning-Plan
-│   ├── minecraft_plan_critical_review.md        # Kritische Architektur-Prüfung
-│   └── minecraft_crafty_guide.md                # Bisherige Crafty Controller Dokumentation
-├── tools/
-│   └── wd-identity/                             # Identity Management, Webhook & Bot Backend
-│       ├── bin/                                 # CLI Wrapper (wd-admin, mc-admin-sync)
-│       ├── systemd/                             # Systemd Unit Files (Service, Timer, Bot)
-│       ├── tests/                               # Unit-Tests (Sanitization, Injection, Idempotency)
-│       ├── wd_identity/                         # Python Quellcode (FastAPI, ldap3, discord.py)
-│       └── README.md
-├── configs/
-│   ├── velocity/                                # Velocity Proxy Konfiguration
-│   ├── purpur/                                  # Purpur Server Konfiguration
-│   ├── paper/                                   # Paper Anti-Xray & World Settings
-│   └── spigot/                                  # Spigot & Bukkit Parameter
-├── ansible/
-│   ├── inventory.ini
-│   └── playbooks/                               # Automatisierungs-Playbooks für Nodes
-└── scripts/                                     # Wartungs- und Sync-Skripte
+├── ansible/            # Inventory & Playbooks für alle Nodes
+├── configs/            # bluemap · mariadb · nginx · paper · purpur · spigot · velocity
+├── datapacks/          # tectonic.zip · snowyworld.zip (Weltgenerierung)
+├── docs/               # Architektur-, Deployment- & Migrations-Dokumente
+├── scripts/            # provision_vms.sh · sync-mc-world.sh · BlueMap-Sync (service/timer)
+└── tools/wd-identity/  # FastAPI-Backend, Discord-Bot, CLI, systemd-Units, Tests
 ```
 
 ---
 
-## 4. Detaillierte Dokumentation & Guides
-- [Identity, SSO, LDAP & Discord Architektur-Guide](docs/identity_sso_ldap_discord_guide.md)
-- [wd-identity Paket & CLI Handbuch](tools/wd-identity/README.md)
-- [Pterodactyl & Velocity Deployment Report](docs/phase2_pterodactyl_deployment_report.md)
-- [Server-Tuning & Migrationsplan](docs/minecraft_pterodactyl_migration_plan.md)
+## 📚 Dokumentation
+
+| Dokument | Inhalt |
+|---|---|
+| [Identity, SSO, LDAP & Discord](docs/identity_sso_ldap_discord_guide.md) | Vollständige Auth-Architektur |
+| [wd-identity Handbuch](tools/wd-identity/README.md) | Paket & CLI |
+| [Pterodactyl & Velocity Deployment](docs/phase2_pterodactyl_deployment_report.md) | Phase-2-Report |
+| [Tuning & Migrationsplan](docs/minecraft_pterodactyl_migration_plan.md) | Performance & Umzug |
+| [Kritische Architektur-Prüfung](docs/minecraft_plan_critical_review.md) | Review & Risiken |
+| [Crafty Controller (Legacy)](docs/minecraft_crafty_guide.md) | Alte Setup-Doku |
+
+<div align="center">
+
+---
+
+Frohe Weihnachten & viel Spaß im Dorf! 🎅⛄
+
+</div>

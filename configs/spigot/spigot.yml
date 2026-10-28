@@ -5,6 +5,9 @@ settings:
   netty-threads: 4
   bungeecord: true
 
+messages:
+  whitelist: "§cWeihnachtsdorf 7 ist noch nicht gestartet! 🎅\n§7Dein Account ist vorab registriert. Der Server öffnet zum offiziellen Projektstart."
+
 world-settings:
   default:
     entity-activation-range:

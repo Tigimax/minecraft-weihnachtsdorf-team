@@ -72,20 +72,37 @@ tools/wd-identity/
 
 ## CLI-Nutzung (`wd-admin`)
 
-### 1. Teammitglied einladen
+### 1. Benutzer / Spieler einladen
 ```bash
-wd-admin invite <discord_name> [--role admin|mod]
+wd-admin invite <discord_name> [--role player|mod|admin] [--ign <ign>]
 ```
-*Beispiel*:
+*Beispiele*:
 ```bash
-wd-admin invite MaxMustermann
-```
-- Erstellt den LDAP-Account.
-- Erzeugt einen 24h gültigen Authentik-Einladungslink.
-- Der Bot sendet den Registrierungslink per Discord-DM.
-- Der Nutzer setzt Passwort, 2FA und Minecraft-Namen selbst.
+# Regulären Spieler vorab einladen (Default-Rolle: player)
+wd-admin invite GamerMax
 
-### 2. Passwort zurücksetzen
+# Administrator oder Moderator einladen
+wd-admin invite MaxMustermann --role admin
+```
+- Erstellt den LDAP-Account in `ou=User,dc=ldap-01,dc=net` und ordnet die entsprechende Gruppe zu (`cn=wd_players`, `cn=wd_admins` oder `cn=wd_mods`).
+- Erzeugt einen 24h gültigen Authentik-Einladungslink.
+- Der Discord-Bot `WHD Privileges` sendet den Registrierungslink per DM.
+- Der Nutzer setzt Passwort, 2FA (TOTP) und optional seinen Minecraft In-Game Namen selbst.
+- **Pre-Launch Schutz**: Reguläre Spieler erhalten vor dem offiziellen Projektstart noch **keinen** Whitelist-Zugang und werden im Pre-Registered-Status gehalten.
+
+### 2. Projekt-Status & Whitelist-Launch Gate
+```bash
+# Status abfragen (Launch-Modus, Staff- & Spielerzahlen)
+wd-admin project status
+
+# Projekt offiziell starten (schaltet alle registrierten Spieler sofort frei)
+wd-admin project launch
+
+# Server wieder in den Wartungs-/Pre-Launch-Modus sperren
+wd-admin project lock
+```
+
+### 3. Passwort zurücksetzen
 ```bash
 wd-admin reset <discord_name>
 ```
@@ -95,25 +112,25 @@ wd-admin reset MaxMustermann
 ```
 - Erzeugt einen Einmal-Link zur Passwort-Wiederherstellung und schickt ihn per Discord-DM.
 
-### 3. Team-Übersicht anzeigen
+### 4. Übersicht aller Accounts anzeigen
 ```bash
 wd-admin list
 ```
-Gibt eine tabellarische Übersicht aller Admins und Moderatoren mit Rolle, Discord-Tag, Minecraft-IGN und UUID aus.
+Gibt eine tabellarische Übersicht aller Staff-Mitglieder sowie aller regulären Spieler mit Rolle, Discord-Tag, Minecraft-IGN, UUID und Whitelist-Status (`[PRE-REGISTERED]` vs. `[WHITELISTED]`) aus.
 
-### 4. Berechtigungen entziehen (Revoke)
+### 5. Berechtigungen entziehen (Revoke)
 ```bash
 wd-admin revoke <discord_name>
 ```
-- Entfernt LDAP-Gruppen (`wd_admins`/`wd_mods`).
-- Deaktiviert den Nutzer in Planka.
-- Entfernt den Spieler von der Minecraft-Whitelist und löscht LuckPerms-Rechte.
+- Entfernt LDAP-Gruppen (`wd_admins`/`wd_mods`/`wd_players`).
+- Deaktiviert den Nutzer in Planka (falls vorhanden).
+- Entfernt den Spieler von der Minecraft-Whitelist und setzt LuckPerms auf `default`.
 
-### 5. Minecraft-Synchronisation anstoßen
+### 6. Minecraft-Synchronisation anstoßen
 ```bash
 wd-admin sync [--force]
 ```
-Gleicht alle LDAP-Mitglieder mit der Minecraft-Whitelist und LuckPerms ab. Sendet nur bei Änderungen Konsolenbefehle.
+Gleicht alle LDAP-Mitglieder mit der Minecraft-Whitelist und LuckPerms ab. Sendet nur bei Änderungen Konsolenbefehle. Regular Players werden nur synchronisiert, wenn das Projekt live geschaltet ist (`wd-admin project launch`).
 
 ---
 

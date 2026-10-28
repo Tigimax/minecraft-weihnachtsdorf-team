@@ -50,6 +50,7 @@ class LDAPClient:
         self.group_ou = settings.LDAP_GROUP_OU
         self.admin_group_dn = settings.LDAP_ADMIN_GROUP
         self.mod_group_dn = settings.LDAP_MOD_GROUP
+        self.player_group_dn = settings.LDAP_PLAYER_GROUP
 
     def _get_connection(self) -> Connection:
         tls = Tls(validate=ssl.CERT_NONE)
@@ -334,6 +335,24 @@ class LDAPClient:
 
         return admins, mods
 
+    def get_players(self) -> List[Dict[str, Any]]:
+        """Fetch all registered regular players in cn=wd_players (excluding staff)."""
+        admin_dns = set(self.get_group_members(self.admin_group_dn))
+        mod_dns = set(self.get_group_members(self.mod_group_dn))
+        staff_dns = admin_dns | mod_dns
+
+        player_dns = set(self.get_group_members(self.player_group_dn))
+        all_users = self.list_all_users()
+        players = []
+
+        for u in all_users:
+            if u["dn"] in player_dns and u["dn"] not in staff_dns:
+                u_copy = dict(u)
+                u_copy["role"] = "player"
+                players.append(u_copy)
+
+        return players
+
     def create_or_update_user(
         self,
         username: str,
@@ -412,15 +431,20 @@ class LDAPClient:
 
             # Assign group
             clean_role = role.lower().strip() if role else "admin"
-            target_group = (
-                self.admin_group_dn if clean_role == "admin" else self.mod_group_dn
-            )
-            other_group = (
-                self.mod_group_dn if clean_role == "admin" else self.admin_group_dn
-            )
+            if clean_role == "admin":
+                target_group = self.admin_group_dn
+                remove_groups = [self.mod_group_dn, self.player_group_dn]
+            elif clean_role == "mod":
+                target_group = self.mod_group_dn
+                remove_groups = [self.admin_group_dn, self.player_group_dn]
+            else:
+                clean_role = "player"
+                target_group = self.player_group_dn
+                remove_groups = [self.admin_group_dn, self.mod_group_dn]
 
             self.add_member_to_group(target_group, user_dn)
-            self.remove_member_from_group(other_group, user_dn)
+            for rg in remove_groups:
+                self.remove_member_from_group(rg, user_dn)
 
             # Ensure homelab superadmin groups are retained/granted
             if clean_user in HOMELAB_SUPERADMINS:
@@ -468,7 +492,7 @@ class LDAPClient:
             conn.unbind()
 
     def revoke_roles(self, username: str) -> bool:
-        """Removes user from both admin and mod LDAP groups."""
+        """Removes user from admin, mod, and player LDAP groups."""
         clean_user = sanitize_username(username)
         user = self.get_user(clean_user)
         if not user:
@@ -481,7 +505,8 @@ class LDAPClient:
         user_dn = user["dn"]
         s1 = self.remove_member_from_group(self.admin_group_dn, user_dn)
         s2 = self.remove_member_from_group(self.mod_group_dn, user_dn)
-        return s1 and s2
+        s3 = self.remove_member_from_group(self.player_group_dn, user_dn)
+        return s1 and s2 and s3
 
     def set_password(self, username: str, new_password: str) -> bool:
         """Sets the userPassword attribute for an LDAP user."""

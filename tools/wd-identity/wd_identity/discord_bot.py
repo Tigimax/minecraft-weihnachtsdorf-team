@@ -19,6 +19,7 @@ from discord.ext import commands
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity.config import settings
 from wd_identity.ldap_client import LDAPClient
+from wd_identity.mc_sync import MinecraftSyncClient
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,32 @@ Dein Zugang als **{role.upper()}** wurde erfolgreich eingerichtet.
 • Passwort-Resets kannst du jederzeit mit `/passwort-reset` anfordern.
 
 Viel Spaß und Erfolg beim Aufbau von Weihnachtsdorf 7! 🎅✨"""
+
+
+def get_player_welcome_message(username: str, ign: str, is_launched: bool = False) -> str:
+    if is_launched:
+        whitelist_status = "✅ Du bist ab sofort auf der Server-Whitelist freigeschaltet! Du kannst direkt joinen."
+    else:
+        whitelist_status = "⏳ **Pre-Launch:** Dein Account ist startklar registriert! Die Freischaltung auf der Minecraft-Whitelist erfolgt automatisch zum offiziellen Projektstart. 🎅"
+
+    return f"""🎄 **Willkommen bei Weihnachtsdorf 7, {username}!** 🎄
+
+Deine Registrierung als **Spieler** war erfolgreich.
+
+📌 **Wichtige Zugänge & Portale:**
+• **Authentik SSO Portal:** {settings.AUTHENTIK_BASE_URL} (Profil, Passwort & 2FA verwalten)
+• **BlueMap Live-Karte:** https://map.tigimax.mooo.com
+• **Minecraft Server:** `tigimax.mooo.com` (Purpur 26.3)
+
+🎮 **Dein Minecraft Profil:**
+• Ingame-Name: `{ign}`
+• Whitelist-Status: {whitelist_status}
+
+🔒 **Sicherheitsrichtlinien:**
+• 2FA (TOTP) ist für deinen Account aktiv geschützt.
+• Bei Passwort-Verlust kannst du jederzeit hier im Discord `/passwort-reset` nutzen.
+
+Wir freuen uns auf ein unvergessliches Event mit dir! ✨"""
 
 
 @tree.command(
@@ -131,15 +158,29 @@ async def cmd_status(interaction: discord.Interaction):
         return
 
     admins, mods = ldap.get_admins_and_mods()
+    players = ldap.get_players()
     admin_uids = [a["uid"] for a in admins]
     mod_uids = [m["uid"] for m in mods]
+    player_uids = [p["uid"] for p in players]
+
+    mc = MinecraftSyncClient()
+    is_live = mc.is_project_launched()
 
     if user["uid"] in admin_uids:
         role = "Administrator 🔴"
+        whitelist_info = "Aktiviert (Staff)"
     elif user["uid"] in mod_uids:
         role = "Moderator 🟡"
+        whitelist_info = "Aktiviert (Staff)"
+    elif user["uid"] in player_uids:
+        role = "Spieler 🟢"
+        if is_live:
+            whitelist_info = "Aktiviert (Live)"
+        else:
+            whitelist_info = "Vorab registriert (Freischaltung zum Projektstart 🎅)"
     else:
         role = "Benutzer ⚪"
+        whitelist_info = "Keine Rolle zugewiesen"
 
     embed = discord.Embed(
         title="Weihnachtsdorf 7 • Account Status",
@@ -155,6 +196,11 @@ async def cmd_status(interaction: discord.Interaction):
     embed.add_field(
         name="Minecraft UUID",
         value=f"`{user.get('minecraftUuid') or 'Nicht hinterlegt'}`",
+        inline=False,
+    )
+    embed.add_field(
+        name="Minecraft Whitelist",
+        value=whitelist_info,
         inline=False,
     )
     embed.add_field(

@@ -33,9 +33,9 @@ def cli():
 @click.option(
     "--role",
     "-r",
-    type=click.Choice(["admin", "mod"], case_sensitive=False),
-    default="admin",
-    help="Role to assign (admin or mod). Defaults to admin.",
+    type=click.Choice(["admin", "mod", "player"], case_sensitive=False),
+    default="player",
+    help="Role to assign (admin, mod, or player). Defaults to player.",
 )
 @click.option(
     "--ign",
@@ -48,7 +48,7 @@ def cli():
 )
 def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optional[str]):
     """
-    Invites a new admin or moderator to Weihnachtsdorf 7.
+    Invites a new player, mod, or admin to Weihnachtsdorf 7.
     Creates LDAP entry, generates Authentik enrollment link, and sends Discord DM.
     """
     clean_role = role.lower().strip()
@@ -124,13 +124,23 @@ def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optio
         sys.exit(1)
 
     # 4. Dispatch Discord DM
-    dm_message = (
-        f"🎅 **Einladung zum Weihnachtsdorf 7 Team!** 🎄\n\n"
-        f"Du wurdest als **{clean_role.upper()}** eingeladen.\n"
-        f"Bitte schließe deine Registrierung über folgenden Link ab (Passwort & 2FA-Einrichtung):\n"
-        f"👉 {invite_link}\n\n"
-        f"*Dieser Link ist einmalig gültig und verfällt in 24 Stunden.*"
-    )
+    if clean_role == "player":
+        dm_message = (
+            f"🎅 **Einladung zum Weihnachtsdorf 7!** 🎄\n\n"
+            f"Du wurdest als **Spieler** eingeladen.\n"
+            f"Bitte schließe deine Vorab-Registrierung über folgenden Link ab (Passwort & 2FA-Einrichtung):\n"
+            f"👉 {invite_link}\n\n"
+            f"*Nach der Registrierung ist dein Account startklar. Die Freischaltung auf dem Server erfolgt zum Projektstart!*\n"
+            f"*Dieser Link ist einmalig gültig und verfällt in 24 Stunden.*"
+        )
+    else:
+        dm_message = (
+            f"🎅 **Einladung zum Weihnachtsdorf 7 Team!** 🎄\n\n"
+            f"Du wurdest als **{clean_role.upper()}** eingeladen.\n"
+            f"Bitte schließe deine Registrierung über folgenden Link ab (Passwort & 2FA-Einrichtung):\n"
+            f"👉 {invite_link}\n\n"
+            f"*Dieser Link ist einmalig gültig und verfällt in 24 Stunden.*"
+        )
     sent = send_dm(clean_discord, dm_message)
     if sent:
         click.secho(f"[+] Discord DM successfully dispatched to {clean_discord}!", fg="green")
@@ -197,14 +207,18 @@ def reset_cmd(discord_name: str):
 @cli.command("list")
 def list_cmd():
     """
-    Lists all active admins and moderators with their linked Discord and Minecraft identities.
+    Lists all active admins, moderators, and registered players with their linked Discord and Minecraft identities.
     """
     ldap = LDAPClient()
-    admins, mods = ldap.get_admins_and_mods()
+    mc = MinecraftSyncClient()
+    is_live = mc.is_project_launched()
 
-    total = len(admins) + len(mods)
+    admins, mods = ldap.get_admins_and_mods()
+    players = ldap.get_players()
+
+    total_staff = len(admins) + len(mods)
     click.secho(
-        f"\n=== Weihnachtsdorf 7 Active Staff ({total} members) ===\n",
+        f"\n=== Weihnachtsdorf 7 Active Staff ({total_staff} members) ===\n",
         bold=True,
     )
 
@@ -237,7 +251,114 @@ def list_cmd():
             fg="yellow",
         )
 
+    # Players section
+    status_tag = "[LIVE - WHITELISTED]" if is_live else "[PRE-LAUNCH - STAGED]"
+    click.secho(
+        f"\n=== Weihnachtsdorf 7 Registered Players ({len(players)} players) • Whitelist Gate: {status_tag} ===\n",
+        bold=True,
+    )
+    p_fmt = "{:<14} {:<18} {:<18} {:<36} {:<16}"
+    p_header = p_fmt.format("USERNAME", "DISCORD", "MINECRAFT IGN", "MINECRAFT UUID", "WHITELIST")
+    click.secho(p_header, bold=True)
+    click.echo("-" * 106)
+
+    if not players:
+        click.echo("  (Keine regulären Spieler registriert)")
+    else:
+        for p in players:
+            ign = p.get("minecraftName")
+            if not ign:
+                wl_status = "No IGN"
+                color = "yellow"
+            elif is_live:
+                wl_status = "WHITELISTED"
+                color = "green"
+            else:
+                wl_status = "PRE-REGISTERED"
+                color = "cyan"
+
+            click.secho(
+                p_fmt.format(
+                    p["uid"],
+                    p.get("discordName") or "-",
+                    ign or "-",
+                    p.get("minecraftUuid") or "-",
+                    wl_status,
+                ),
+                fg=color,
+            )
+
     click.echo("")
+
+
+@cli.group("project")
+def project_group():
+    """Manage Weihnachtsdorf 7 project launch state and player whitelist gate."""
+    pass
+
+
+@project_group.command("status")
+def project_status_cmd():
+    """Displays current launch mode, whitelist gate, and player counts."""
+    ldap = LDAPClient()
+    mc = MinecraftSyncClient()
+    is_live = mc.is_project_launched()
+    admins, mods = ldap.get_admins_and_mods()
+    players = ldap.get_players()
+
+    click.secho("\n=== Weihnachtsdorf 7 Project Status ===", bold=True)
+    if is_live:
+        click.secho("Status:       🔴 LIVE (Server geöffnet für alle registrierten Spieler)", fg="green", bold=True)
+    else:
+        click.secho("Status:       🟡 PRE-LAUNCH (Wartungsmodus: Nur Staff hat Whitelist-Zugang)", fg="yellow", bold=True)
+
+    click.echo(f"Admins:       {len(admins)}")
+    click.echo(f"Moderatoren:  {len(mods)}")
+    click.echo(f"Spieler:      {len(players)} registriert")
+
+    staged_with_ign = sum(1 for p in players if p.get("minecraftName"))
+    click.echo(f"Spieler bereit (mit IGN): {staged_with_ign}/{len(players)}")
+    click.echo("")
+
+
+@project_group.command("launch")
+def project_launch_cmd():
+    """Launches the project and whitelists all registered players immediately."""
+    mc = MinecraftSyncClient()
+    click.secho("[*] Triggering Weihnachtsdorf 7 PROJECT LAUNCH...", bold=True)
+    report = mc.launch_project()
+    if report["success"]:
+        click.secho(
+            f"\n🎉 [SUCCESS] Weihnachtsdorf 7 is now LIVE! "
+            f"{len(report.get('synced_players', []))} player(s) whitelisted on Minecraft server.",
+            fg="green",
+            bold=True,
+        )
+        for p in report.get("synced_players", []):
+            click.echo(f"    [Player Whitelisted] {p['uid']} -> IGN: {p['ign']}")
+        click.echo("")
+    else:
+        click.secho("[-] Failed to launch project: Minecraft Wings API error.", fg="red")
+        sys.exit(1)
+
+
+@project_group.command("lock")
+def project_lock_cmd():
+    """Locks the server into pre-launch mode (removes players from whitelist, staff remains)."""
+    mc = MinecraftSyncClient()
+    click.secho("[*] Locking Weihnachtsdorf 7 into PRE-LAUNCH / MAINTENANCE mode...", bold=True)
+    report = mc.lock_project()
+    if report["success"]:
+        click.secho(
+            f"\n🔒 [LOCKED] Project locked into pre-launch mode. "
+            f"Removed normal players from whitelist; staff members remain active.",
+            fg="yellow",
+            bold=True,
+        )
+        click.echo("")
+    else:
+        click.secho("[-] Failed to lock project: Minecraft Wings API error.", fg="red")
+        sys.exit(1)
 
 
 @cli.command("revoke")
@@ -298,23 +419,29 @@ def sync_cmd(force: bool):
     report = mc.sync_all(force=force)
 
     if report["success"]:
+        synced_players = report.get("synced_players", [])
+        staged_players = report.get("staged_players", [])
+        mode_str = "LIVE" if report.get("is_launched") else "PRE-LAUNCH"
+
         if report["commands_executed"] > 0:
             click.secho(
-                f"[+] Synchronization complete: {len(report['synced_admins'])} admins, "
-                f"{len(report['synced_mods'])} mods updated, {len(report['revoked_users'])} revoked "
-                f"({report['commands_executed']} commands sent).",
+                f"[+] Synchronization complete [{mode_str}]: {len(report['synced_admins'])} admins, "
+                f"{len(report['synced_mods'])} mods, {len(synced_players)} players whitelisted, "
+                f"{len(report['revoked_users'])} revoked ({report['commands_executed']} commands sent).",
                 fg="green",
             )
             for a in report["synced_admins"]:
-                click.echo(f"    [Admin Updated] {a['uid']} -> IGN: {a['ign']}")
+                click.echo(f"    [Admin Updated]  {a['uid']} -> IGN: {a['ign']}")
             for m in report["synced_mods"]:
-                click.echo(f"    [Mod Updated]   {m['uid']} -> IGN: {m['ign']}")
+                click.echo(f"    [Mod Updated]    {m['uid']} -> IGN: {m['ign']}")
+            for p in synced_players:
+                click.echo(f"    [Player Whitelist] {p['uid']} -> IGN: {p['ign']}")
             for r in report["revoked_users"]:
-                click.secho(f"    [Revoked]       {r['uid']} -> IGN: {r['ign']}", fg="red")
+                click.secho(f"    [Revoked]        {r['uid']} -> IGN: {r['ign']}", fg="red")
         else:
             click.secho(
-                f"[+] Synchronization up-to-date: {len(report['unchanged_users'])} staff members in sync. "
-                f"No console commands required.",
+                f"[+] Synchronization up-to-date [{mode_str}]: {len(report['unchanged_users'])} accounts in sync. "
+                f"({len(staged_players)} player(s) staged for launch). No console commands required.",
                 fg="green",
             )
         for s in report["skipped_users"]:

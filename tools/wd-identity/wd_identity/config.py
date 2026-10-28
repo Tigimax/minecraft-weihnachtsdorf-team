@@ -41,6 +41,15 @@ class Settings:
         "LDAP_MOD_GROUP",
         "cn=wd_mods,ou=Groups,dc=ldap-01,dc=net",
     )
+    LDAP_PLAYER_GROUP: str = os.getenv(
+        "LDAP_PLAYER_GROUP",
+        "cn=wd_players,ou=Groups,dc=ldap-01,dc=net",
+    )
+
+    # Project Launch State File
+    PROJECT_STATE_FILE: Path = Path(
+        os.getenv("PROJECT_STATE_FILE", "/var/lib/wd-identity/project_state.json")
+    )
 
     # Authentik Settings
     AUTHENTIK_BASE_URL: str = os.getenv(

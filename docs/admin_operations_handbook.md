@@ -137,11 +137,11 @@ sudo iptables -t nat -L -n -v
 
 ---
 
-## 3. Team- & Berechtigungsverwaltung (`wd-admin`)
+## 3. Team-, Spieler- & Berechtigungsverwaltung (`wd-admin`)
 
-Alle Moderatoren und Administratoren werden ausschließlich über das Werkzeug [`wd-admin`](../tools/wd-identity/README.md) verwaltet.
+Alle Moderatoren, Administratoren und regulären Event-Spieler werden zentral über das Werkzeug [`wd-admin`](../tools/wd-identity/README.md) verwaltet.
 
-### 📋 Befehlsübersicht
+### 📋 Befehlsübersicht & Onboarding-Flow
 
 ```mermaid
 sequenceDiagram
@@ -153,51 +153,73 @@ sequenceDiagram
     participant W as wd-identity Backend (:8000)
     participant M as Purpur Server (VM 120)
 
-    A->>C: wd-admin invite Max [--role admin|mod]
-    C->>L: Erstellt LDAP User (wdAccount)
+    A->>C: wd-admin invite Max [--role player|mod|admin]
+    C->>L: Erstellt LDAP User (cn=wd_players / wd_admins / wd_mods)
     C->>K: Erstellt 24h Invitation Token
     C->>D: Triggert DM-Zustellung an Nutzer
-    Note over D: Nutzer setzt Passwort, 2FA & IGN
+    Note over D: Nutzer setzt Passwort, 2FA & Minecraft-IGN
     K->>W: Webhook nach erfolgreichem Enrollment
     W->>L: Schreibt IGN & Mojang-UUID in LDAP
-    W->>M: Setzt Whitelist & LuckPerms Gruppe via Wings API
-    W->>D: Triggert Willkommens-DM mit Portallinks
+    alt Rolle ist Admin oder Mod (Staff)
+        W->>M: Setzt Whitelist & LuckPerms Gruppe sofort via Wings API
+    else Rolle ist Player (Pre-Launch)
+        Note over W: Spieler wird staged registriert (noch KEINE Whitelist)
+    else Rolle ist Player (Nach Projekt-Launch)
+        W->>M: Setzt Whitelist & LuckPerms Default sofort via Wings API
+    end
+    W->>D: Triggert zugeschnittene Willkommens-DM
 ```
 
-#### 1. Teammitglied einladen
+#### 1. Spieler oder Teammitglied einladen
 ```bash
-wd-admin invite <discord_name> [--role admin|mod] [--ign <minecraft_ign>] [--username <uid>]
+# Regulären Spieler vorab einladen (Default-Rolle: player)
+wd-admin invite <discord_name> [--role player|mod|admin] [--ign <minecraft_ign>] [--username <uid>]
 ```
-- Legt das Konto in LDAP an.
+- Legt das Konto in LDAP an (`ou=User,dc=ldap-01,dc=net`).
+- Ordnet die LDAP-Gruppe zu (`cn=wd_players`, `cn=wd_admins` oder `cn=wd_mods`).
 - Generiert einen 24h gültigen Authentik-Einladungslink.
 - Der Discord-Bot `WHD Privileges` stellt den Link per DM zu.
 - Der Nutzer trägt seinen Minecraft-Namen selbst ein; Mojang-UUID wird automatisch validiert.
-- Optional kann mit `--ign` der Minecraft-Name vorab fixiert oder mit `--username` eine explizite UID vorgegeben werden.
+- **Pre-Launch Gate**: Reguläre Spieler erhalten vor dem offiziellen Projektstart noch **keinen** Whitelist-Zugang und werden vorab registriert. Beim Versuch zu joinen erhalten sie eine freundliche Kick-Meldung.
+- **Dienste-Schutz**: Durch die Authentik-Richtlinie `wd-staff-only-policy` sind Pterodactyl Panel, Planka Kanban und Plan Analytics für reguläre Spieler gesperrt (HTTP 403).
 
-#### 2. Passwort zurücksetzen
+#### 2. Projekt-Status & Whitelist-Launch Gate
+```bash
+# Launch-Status & Zähler abfragen
+wd-admin project status
+
+# Projekt offiziell starten (schaltet alle registrierten Spieler sofort frei)
+wd-admin project launch
+
+# Server wieder in den Wartungs-/Pre-Launch-Modus versetzen (Spieler gesperrt, Staff aktiv)
+wd-admin project lock
+```
+
+#### 3. Passwort zurücksetzen
 ```bash
 wd-admin reset <discord_name>
 ```
 - Sendet dem Nutzer einen zeitlich begrenzten Recovery-Link per Discord-DM.
 
-#### 3. Alle Admins & Mods auflisten
+#### 4. Übersicht aller Accounts anzeigen
 ```bash
 wd-admin list
 ```
-- Zeigt Rolle, Discord-Tag, verknüpften Minecraft Ingame-Namen und UUID an.
+- Zeigt Staff-Mitglieder und reguläre Spieler getrennt mit Discord-Tag, verknüpftem Minecraft Ingame-Namen, UUID und Whitelist-Status (`[PRE-REGISTERED]` vs. `[WHITELISTED]`) an.
 
-#### 4. Berechtigungen entziehen (Revoke)
+#### 5. Berechtigungen entziehen (Revoke)
 ```bash
 wd-admin revoke <discord_name>
 ```
-- Entfernt den Benutzer aus LDAP-Gruppen (`wd_admins`/`wd_mods`).
-- Deaktiviert das Konto in Planka.
-- Entfernt den Spieler von der Minecraft-Whitelist und löscht die LuckPerms-Gruppe auf Purpur.
+- Entfernt den Benutzer aus LDAP-Gruppen (`wd_admins`/`wd_mods`/`wd_players`).
+- Deaktiviert das Konto in Planka (falls vorhanden).
+- Entfernt den Spieler von der Minecraft-Whitelist und setzt LuckPerms auf `default`.
 
-#### 5. Manuelle Synchronisation erzwingen
+#### 6. Manuelle Synchronisation erzwingen
 ```bash
-wd-admin sync --force
+wd-admin sync [--force]
 ```
+- Gleicht alle LDAP-Mitglieder mit der Minecraft-Whitelist und LuckPerms ab. Regular Players werden nur freigeschaltet, wenn das Projekt live geschaltet ist.
 - Gleicht LDAP sofort mit Whitelist und LuckPerms ab.
 
 ---

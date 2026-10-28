@@ -147,7 +147,7 @@ class AuthentikClient:
                 "ak",
                 "shell",
                 "-c",
-                "from authentik.sources.ldap.tasks import ldap_sync_all; ldap_sync_all.delay()",
+                "from authentik.sources.ldap.models import LDAPSource; from authentik.sources.ldap.tasks import ldap_sync; s = LDAPSource.objects.first(); ldap_sync.send(s.pk) if s else None",
             ]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             return res.returncode == 0

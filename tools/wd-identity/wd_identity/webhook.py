@@ -13,7 +13,11 @@ from pydantic import BaseModel
 
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity.config import settings
-from wd_identity.discord_bot import get_welcome_message, send_dm
+from wd_identity.discord_bot import (
+    get_player_welcome_message,
+    get_welcome_message,
+    send_dm,
+)
 from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.mojang_client import get_player_profile
@@ -73,10 +77,10 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     clean_role = (
         (req.role or "").strip().lower()
         or (existing.get("role") if existing else None)
-        or "admin"
+        or "player"
     )
-    if clean_role not in ("admin", "mod"):
-        clean_role = "admin"
+    if clean_role not in ("admin", "mod", "player"):
+        clean_role = "player"
 
     discord_tag = (
         (req.discord_name or "").strip()
@@ -109,14 +113,18 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
         ldap.set_password(clean_user, req.password.strip())
     logger.info(f"Updated LDAP user {clean_user} with Minecraft & Discord metadata.")
 
-    # 3. Provision in Planka
-    planka_ok = planka.sync_user(
-        username=clean_user,
-        email=user_email,
-        name=clean_user.capitalize(),
-        role=clean_role,
-    )
-    logger.info(f"Planka provisioning for {clean_user}: {'OK' if planka_ok else 'FAILED'}")
+    # 3. Provision in Planka (Staff only)
+    planka_ok = None
+    if clean_role in ("admin", "mod"):
+        planka_ok = planka.sync_user(
+            username=clean_user,
+            email=user_email,
+            name=clean_user.capitalize(),
+            role=clean_role,
+        )
+        logger.info(f"Planka provisioning for {clean_user}: {'OK' if planka_ok else 'FAILED'}")
+    else:
+        logger.info(f"Skipping Planka provisioning for regular player {clean_user}.")
 
     # 4. Sync Minecraft whitelist and LuckPerms
     mc_ok = mc.set_player_role(canonical_ign, clean_role, mc_uuid=mc_uuid)
@@ -125,11 +133,18 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     )
 
     # 5. Dispatch Welcome DM via Discord
-    welcome_text = get_welcome_message(
-        username=clean_user,
-        role=clean_role,
-        ign=canonical_ign,
-    )
+    if clean_role == "player":
+        welcome_text = get_player_welcome_message(
+            username=clean_user,
+            ign=canonical_ign,
+            is_launched=mc.is_project_launched(),
+        )
+    else:
+        welcome_text = get_welcome_message(
+            username=clean_user,
+            role=clean_role,
+            ign=canonical_ign,
+        )
     dm_target = discord_id or discord_tag
     send_dm(dm_target, welcome_text)
 

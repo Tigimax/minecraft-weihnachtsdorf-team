@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="PLANKA is the kanban-style project mastering tool for everyone" />
+    <title>PLANKA</title>
+    <link rel="icon" href="<%- basePath %>/favicon.ico" />
+    <link rel="apple-touch-icon" href="<%- basePath %>/logo192.png" />
+    <link rel="manifest" href="<%- basePath %>/manifest.json" />
+    <script>
+      window.BASE_PATH = "<%- basePath %>";
+      <% if (typeof ssoToken !== "undefined" && ssoToken) { %>
+        (function() {
+          try {
+            var secure = window.location.protocol === "https:" ? "; Secure" : "";
+            var exp = new Date(Date.now() + 365*86400*1000).toUTCString();
+            document.cookie = "accessToken=" + "<%- ssoToken %>" + "; path=/; expires=" + exp + "; SameSite=Lax" + secure;
+            document.cookie = "accessTokenVersion=1; path=/; expires=" + exp + "; SameSite=Lax" + secure;
+          } catch (e) {
+            console.error("SSO cookie setup error", e);
+          }
+        })();
+      <% } %>
+    </script>
+    <script type="module" crossorigin src="<%- basePath %>/assets/index-DX5QboRC.js"></script>
+    <link rel="stylesheet" crossorigin href="<%- basePath %>/assets/index-DeGTL9kX.css">
+  </head>
+  <body id="app">
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

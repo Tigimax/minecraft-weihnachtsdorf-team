@@ -118,7 +118,24 @@ wd-admin list
 ```
 Gibt eine tabellarische Übersicht aller Staff-Mitglieder sowie aller regulären Spieler mit Rolle, Discord-Tag, Minecraft-IGN, UUID und Whitelist-Status (`[PRE-REGISTERED]` vs. `[WHITELISTED]`) aus.
 
-### 5. Berechtigungen entziehen (Revoke)
+### 5. Benachrichtigungen per Bot senden (Notify / Broadcast)
+```bash
+# Nachricht an alle Admins senden
+wd-admin notify --role admin "Hallo Team, hier ist der Link zum Git: https://github.com/Tigimax/minecraft-weihnachtsdorf-team"
+
+# Alternativ als Kurzform:
+wd-admin notify admin "Hallo Admins!"
+wd-admin notify staff "Wichtige Team-Info..."
+wd-admin notify players "Der Server öffnet heute um 18:00 Uhr!"
+
+# Nachricht an einen einzelnen Benutzer / Discord-Tag senden:
+wd-admin notify nummernfeld "Hier ist dein persönlicher Einladungslink: https://..."
+```
+- Sendet Direct Messages (DMs) über den offiziellen Discord-Bot `WHD Privileges` aus.
+- Unterstützt Rollengruppen (`--role admin`, `mod`, `player`, `staff`, `all`) oder einzelne Discord-/LDAP-Benutzernamen.
+- Fragt bei Rollen-Broadcasts interaktiv nach Bestätigung (kann mit `--yes` / `-y` übersprungen werden).
+
+### 6. Berechtigungen entziehen (Revoke)
 ```bash
 wd-admin revoke <discord_name>
 ```

@@ -9,7 +9,8 @@ Commands:
 """
 
 import sys
-from typing import Optional
+import time
+from typing import Optional, Tuple
 import click
 
 from wd_identity.authentik_client import AuthentikClient
@@ -202,6 +203,232 @@ def reset_cmd(discord_name: str):
             f"[!] Discord DM could not be sent directly. Please send the recovery link manually.",
             fg="yellow",
         )
+
+
+def resolve_notify_args(
+    target: Optional[str],
+    message: Optional[str],
+    role_opt: Optional[str],
+    user_opt: Optional[str],
+    message_opt: Optional[str],
+) -> Tuple[Optional[str], Optional[str], str]:
+    """
+    Intelligently determines target recipients and message text across various CLI calling conventions.
+    Returns: (role: Optional[str], user_target: Optional[str], text: str)
+    """
+    clean_target = (target or "").strip()
+    clean_message = (message or "").strip()
+    clean_msg_opt = (message_opt or "").strip()
+    clean_role = (role_opt or "").strip().lower()
+    clean_user = (user_opt or "").strip()
+
+    role = None
+    recipient = None
+    text = ""
+
+    # 1. If explicit --role option was provided
+    if clean_role:
+        role = clean_role
+        if clean_msg_opt:
+            text = clean_msg_opt
+        elif clean_target and clean_message:
+            text = f"{clean_target} {clean_message}"
+        elif clean_target:
+            text = clean_target
+        elif clean_message:
+            text = clean_message
+        return role, None, text
+
+    # 2. If explicit --user option was provided
+    if clean_user:
+        recipient = clean_user
+        if clean_msg_opt:
+            text = clean_msg_opt
+        elif clean_target and clean_message:
+            text = f"{clean_target} {clean_message}"
+        elif clean_target:
+            text = clean_target
+        elif clean_message:
+            text = clean_message
+        return None, recipient, text
+
+    # 3. Neither option provided: inspect positional arguments
+    role_synonyms = {
+        "admin": "admin",
+        "admins": "admin",
+        "mod": "mod",
+        "mods": "mod",
+        "player": "player",
+        "players": "player",
+        "staff": "staff",
+        "all": "all",
+    }
+    if clean_target.lower() in role_synonyms:
+        role = role_synonyms[clean_target.lower()]
+        text = clean_msg_opt or clean_message
+        return role, None, text
+
+    recipient = clean_target or None
+    text = clean_msg_opt or clean_message
+    return None, recipient, text
+
+
+@cli.command("notify")
+@click.argument("target", required=False)
+@click.argument("message", required=False)
+@click.option(
+    "--role",
+    "-r",
+    type=click.Choice(["admin", "mod", "player", "staff", "all"], case_sensitive=False),
+    help="Target an entire role: admin, mod, player, staff (admins+mods), or all.",
+)
+@click.option(
+    "--user",
+    "-u",
+    help="Target a specific user (Discord username, Discord ID, or LDAP username).",
+)
+@click.option(
+    "--message",
+    "-m",
+    "message_opt",
+    help="The message text to send.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Skip confirmation prompt for role broadcasts.",
+)
+def notify_cmd(
+    target: Optional[str],
+    message: Optional[str],
+    role: Optional[str],
+    user: Optional[str],
+    message_opt: Optional[str],
+    yes: bool,
+):
+    """
+    Sends a Discord notification message to a specific user or an entire role group.
+
+    Examples:
+      wd-admin notify --role admin "Hallo Team, hier ist das Git: https://github.com/..."
+      wd-admin notify nummernfeld "Hier ist dein Link: https://..."
+      wd-admin notify staff -m "Wartungsarbeiten um 18:00 Uhr"
+    """
+    resolved_role, resolved_user, text = resolve_notify_args(
+        target, message, role, user, message_opt
+    )
+
+    if not text:
+        click.secho("[-] Error: Please provide a message to send.", fg="red")
+        sys.exit(1)
+
+    if not resolved_role and not resolved_user:
+        click.secho(
+            "[-] Error: Please specify a recipient (username/Discord) or a role group (--role admin|mod|player|staff|all).",
+            fg="red",
+        )
+        sys.exit(1)
+
+    ldap = LDAPClient()
+
+    # Case 1: Role broadcast
+    if resolved_role:
+        admins, mods = ldap.get_admins_and_mods()
+        players = ldap.get_players()
+
+        if resolved_role == "admin":
+            recipients = admins
+        elif resolved_role == "mod":
+            recipients = mods
+        elif resolved_role == "staff":
+            recipients = admins + mods
+        elif resolved_role == "player":
+            recipients = players
+        elif resolved_role == "all":
+            recipients = admins + mods + players
+        else:
+            recipients = []
+
+        if not recipients:
+            click.secho(f"[!] No active accounts found for role '{resolved_role}'.", fg="yellow")
+            return
+
+        click.secho(
+            f"\n[*] Broadcasting Discord notification to role '{resolved_role}' ({len(recipients)} recipient(s)):",
+            bold=True,
+        )
+        for r in recipients:
+            d_handle = r.get("discordId") or r.get("discordName") or r.get("uid")
+            click.echo(f"    • {r.get('uid')} (Discord: {d_handle})")
+
+        click.echo(f"\n[*] Message preview:\n---\n{text}\n---")
+
+        if not yes and sys.stdin.isatty():
+            if not click.confirm("\nProceed with sending to all listed recipients?", default=True):
+                click.echo("[*] Notification broadcast aborted.")
+                return
+
+        click.echo("\n[*] Dispatching messages...")
+        success_count = 0
+        fail_count = 0
+
+        for r in recipients:
+            uid = r.get("uid")
+            discord_handle = r.get("discordId") or r.get("discordName") or uid
+            click.echo(f"  -> Sending to {uid} ({discord_handle})... ", nl=False)
+            sent = send_dm(discord_handle, text)
+            if sent:
+                click.secho("OK", fg="green")
+                success_count += 1
+            else:
+                click.secho("FAILED", fg="red")
+                fail_count += 1
+            if len(recipients) > 1:
+                time.sleep(0.5)
+
+        click.echo("")
+        if fail_count == 0:
+            click.secho(
+                f"[+] All {success_count} notifications successfully delivered via Discord DM!",
+                fg="green",
+                bold=True,
+            )
+        else:
+            click.secho(
+                f"[!] Delivery finished: {success_count} succeeded, {fail_count} failed.",
+                fg="yellow",
+                bold=True,
+            )
+        return
+
+    # Case 2: Single user
+    clean_target = resolved_user.strip()
+    click.echo(f"[*] Resolving recipient '{clean_target}' in directory...")
+    user_entry = ldap.search_by_discord(clean_target) or ldap.get_user(clean_target)
+
+    if user_entry:
+        discord_handle = (
+            user_entry.get("discordId")
+            or user_entry.get("discordName")
+            or user_entry.get("uid")
+        )
+        display_name = f"{user_entry.get('uid')} (Discord: {discord_handle})"
+    else:
+        discord_handle = clean_target
+        display_name = clean_target
+
+    click.echo(f"[*] Dispatching message to {display_name}...")
+    sent = send_dm(discord_handle, text)
+    if sent:
+        click.secho(f"[+] Message successfully delivered to {display_name}!", fg="green", bold=True)
+    else:
+        click.secho(
+            f"[-] Could not deliver Discord message to {display_name}. "
+            f"(Bot offline, token missing, or user has DMs disabled).",
+            fg="red",
+        )
+        sys.exit(1)
 
 
 @cli.command("list")

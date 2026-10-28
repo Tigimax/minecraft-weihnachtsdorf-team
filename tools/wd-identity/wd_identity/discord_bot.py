@@ -761,7 +761,7 @@ async def ensure_channels_and_pins():
 
     if anmeldung_ch:
         # Check if pinned guide message exists
-        pins = await anmeldung_ch.pins()
+        pins = [p async for p in anmeldung_ch.pins()]
         has_guide = any(p.author.id == bot.user.id and "Anmeldung für Weihnachtsdorf 7" in (p.embeds[0].title if p.embeds else "") for p in pins)
         if not has_guide:
             embed = discord.Embed(
@@ -803,7 +803,7 @@ async def ensure_channels_and_pins():
             logger.warning(f"Could not create #entbannung channel: {e}")
 
     if entbannung_ch:
-        pins = await entbannung_ch.pins()
+        pins = [p async for p in entbannung_ch.pins()]
         has_guide = any(p.author.id == bot.user.id and "Entbannungs- & Einspruchsanträge" in (p.embeds[0].title if p.embeds else "") for p in pins)
         if not has_guide:
             embed = discord.Embed(

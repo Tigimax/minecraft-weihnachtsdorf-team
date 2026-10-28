@@ -1,5 +1,12 @@
 # Minecraft SMP Weihnachtsdorf – Pterodactyl Migration & 80-Player Tuning
 
+> [!NOTE]
+> **STATUS: ERFOLGREICH ABGESCHLOSSEN & DEPLOYED (2026-10-27) ✅**
+> Dieser Migrationsplan wurde in Phase 2 vollständig und erfolgreich in die Praxis überführt:
+> - Detaillierter Abschlussbericht: [Phase 2 Deployment Report](phase2_pterodactyl_deployment_report.md)
+> - Laufender Betrieb & Befehlsreferenz: [Admin & Operations Handbook](admin_operations_handbook.md)
+> - Netzwerktopologie, DNAT & DNS: [Network, DNS & Firewall Guide](network_dns_firewall_guide.md)
+
 > **Ziel**: Maximale TPS bei 80 Spielern (invite-only) am Spawn auf i5-9400F (6C/6T, 16 GB RAM).
 > Keine Farmwelten. Ein Purpur-Server, ein Velocity-Proxy.
 
@@ -138,7 +145,7 @@ systemctl enable --now wings
 
 ## 3. Phase 2 – Node 1: Panel + Velocity
 
-### 3.1 Pterodactyl Panel (auf usrv01 .174 oder eigene VM) <--- Kommentar von Mensch sicher nicht auf usrv01
+### 3.1 Pterodactyl Panel (auf mc-node1 / VM 119: 192.168.1.148)
 
 ```bash
 apt install -y php8.3 php8.3-{cli,gd,mysql,pdo,mbstring,tokenizer,bcmath,xml,fpm,curl,zip} \
@@ -820,7 +827,7 @@ echo "0 * * * * root /usr/local/bin/mc-backup.sh" >> /etc/crontab
 flowchart TD
     A["1. Backup Weihnachtsdorf 5\n(Crafty Snapshot + tar)"] --> B["2. VM 120 erstellen\n(pnode02, 14 GB, 6 Kerne)"]
     B --> C["3. Ubuntu 24.04 + Docker\n+ Wings auf VM 120"]
-    C --> D["4. Panel + MariaDB\nauf Node 1 (.174)"]
+    C --> D["4. Panel + MariaDB\nauf Node 1 (.148)"]
     D --> E["5. Wings auf Node 1"]
     E --> F["6. Beide Nodes im\nPanel registrieren"]
     F --> G["7. Velocity Proxy\nerstellen (Node 1)"]

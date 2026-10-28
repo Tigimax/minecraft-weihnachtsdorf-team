@@ -132,12 +132,15 @@
         path: /etc/ufw/after.rules
         block: |
           # Restrict Minecraft Purpur (port 25574) container access strictly to Node 1 Velocity
+          # and Plan Analytics (port 8804) strictly to usrv01
           *filter
           :DOCKER-USER - [0:0]
           -A DOCKER-USER -i eth0 -p tcp --dport 25574 -s 192.168.1.148 -j ACCEPT
           -A DOCKER-USER -i eth0 -p udp --dport 25574 -s 192.168.1.148 -j ACCEPT
           -A DOCKER-USER -i eth0 -p tcp --dport 25574 -j DROP
           -A DOCKER-USER -i eth0 -p udp --dport 25574 -j DROP
+          -A DOCKER-USER -i eth0 -p tcp --dport 8804 -s 192.168.1.174 -j ACCEPT
+          -A DOCKER-USER -i eth0 -p tcp --dport 8804 -j DROP
           -A DOCKER-USER -j RETURN
           COMMIT
         marker: "# {mark} ANSIBLE MANAGED DOCKER-USER BLOCK"
@@ -165,6 +168,14 @@
         port: '25574'
         src: '192.168.1.148'
         comment: 'Purpur 26.3 from Node 1 Velocity Proxy'
+
+    - name: Allow Plan Analytics port 8804 from usrv01
+      community.general.ufw:
+        rule: allow
+        port: '8804'
+        proto: tcp
+        src: '192.168.1.174'
+        comment: 'Plan Analytics HTTP from usrv01'
 
     - name: Allow Wings API port 8080 from Node 1 Panel
       community.general.ufw:

@@ -1,0 +1,57 @@
+---
+- name: Setup BlueMap World-Sync Service & Timer on Node 1
+  hosts: mc-node1
+  become: true
+  vars:
+    script_src: "{{ playbook_dir }}/../../scripts/sync-mc-world.sh"
+    service_src: "{{ playbook_dir }}/../../scripts/bluemap-world-sync.service"
+    timer_src: "{{ playbook_dir }}/../../scripts/bluemap-world-sync.timer"
+
+  tasks:
+    - name: Ensure BlueMap destination directory exists
+      ansible.builtin.file:
+        path: /opt/bluemap/world
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy world synchronization script
+      ansible.builtin.copy:
+        src: "{{ script_src }}"
+        dest: /usr/local/bin/sync-mc-world.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy BlueMap world-sync systemd service
+      ansible.builtin.copy:
+        src: "{{ service_src }}"
+        dest: /etc/systemd/system/bluemap-world-sync.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload systemd daemon
+
+    - name: Deploy BlueMap world-sync systemd timer
+      ansible.builtin.copy:
+        src: "{{ timer_src }}"
+        dest: /etc/systemd/system/bluemap-world-sync.timer
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload systemd daemon
+
+    - name: Flush handlers to ensure units are known to systemd
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure BlueMap sync timer is enabled and active
+      ansible.builtin.systemd:
+        name: bluemap-world-sync.timer
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true

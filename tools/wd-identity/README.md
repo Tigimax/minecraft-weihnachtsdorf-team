@@ -139,8 +139,21 @@ Dieser leitet die Befehle automatisch per SSH transparent an `idp-01` (`192.168.
 
 ## Tests ausführen
 
-Im Repository oder auf `idp-01`:
+Mit `uv` (schnellste & isolierte Methode):
+```bash
+uv run --directory tools/wd-identity python -m unittest discover -s tests -v
+```
+
+Oder klassisch mit virtuellem Environment / PYTHONPATH:
 ```bash
 PYTHONPATH=tools/wd-identity python3 -m unittest discover -s tools/wd-identity/tests/ -v
 ```
-Alle 18 Tests für Input-Sanitization, SQL-Escaping, Mojang-Resolution und Idempotenz-Logik laufen vollständig durch.
+Alle 18 Unittests für Input-Sanitization, SQL-Escaping, Mojang-Resolution und Idempotenz-Logik laufen vollständig durch.
+
+---
+
+## 📚 Verwandte Dokumentationen
+
+- 🔐 [Identity, SSO, LDAP & Discord Guide](../../docs/identity_sso_ldap_discord_guide.md) – Architektur, OpenLDAP-Schema und Onboarding-Flow.
+- 📖 [Admin & Operations Handbook](../../docs/admin_operations_handbook.md) – CLI-Befehlsreferenz, Troubleshooting & Recovery.
+- 🌐 [Network, DNS & Firewall Guide](../../docs/network_dns_firewall_guide.md) – Ingress, TLS, Pi-hole Split-DNS & Portfreigaben.

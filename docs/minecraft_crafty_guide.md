@@ -1,6 +1,17 @@
-# Minecraft Server & Crafty Controller Guide
+# Minecraft Server & Crafty Controller Guide (Legacy / Archiv)
 
-Comprehensive technical documentation for the Minecraft infrastructure, Crafty 4 Controller, server instances, network ingress, and backup strategy.
+> [!CAUTION]
+> **ARCHIVIERT & DEPRECATED (Weihnachtsdorf 5 / Legacy Setup):**
+> Dieses Dokument beschreibt die historische Crafty 4 Controller-Infrastruktur auf VM 102 (`usrv03.net`), die für frühere Events (Weihnachtsdorf 5) genutzt wurde.
+> Für das aktive Produktiv-Event **Weihnachtsdorf 7** wurde die gesamte Plattform vollständig auf **Pterodactyl Panel v1.15.2 + Wings v1.13.4**, **Velocity Proxy 3.5.1 (Build 615)** und **Purpur 26.3 (Build 2654)** migriert.
+> 
+> **Relevante aktuelle Dokumentationen für Weihnachtsdorf 7:**
+> - 📖 [Admin & Operations Handbook](admin_operations_handbook.md)
+> - 🌐 [Network, DNS & Firewall Guide](network_dns_firewall_guide.md)
+> - 🦖 [Phase 2 Pterodactyl Deployment Report](phase2_pterodactyl_deployment_report.md)
+> - 🔐 [Identity, SSO, LDAP & Discord Guide](identity_sso_ldap_discord_guide.md)
+>
+> Dieses Dokument bleibt als Referenz für historische Spielstände, Dateipfade und Backup-Standorte archiviert.
 
 ---
 

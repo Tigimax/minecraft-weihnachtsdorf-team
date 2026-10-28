@@ -73,10 +73,13 @@ Für das Event **Minecraft SMP Weihnachtsdorf 7** wurde ein zentrales, hochsiche
 |---|---|---|---|
 | **`anode01`** (VM 105) | `192.168.1.164` | Ubuntu 24.04 LTS (slapd) | **OpenLDAP 2.5.20** (LDAPS Port 636), Schemas `wdAccount`, Gruppen `wd_admins`, `wd_mods`, `proxmox_admins`, `homelab_admins` |
 | **`idp-01`** (VM 121) | `192.168.1.150` | Ubuntu 24.04 LTS (Docker) | **Authentik 2026.8.5** (:9000), **`wd-identity.service`** (:8000), **`wd-bot.service`**, **`mc-admin-sync.timer`** |
-| **`usrv01`** | `192.168.1.174` | Ubuntu 22.04 LTS | **Nginx Reverse Proxy** & Ingress, Let's Encrypt TLS, Forward-Auth Outpost Gate, **Planka Kanban** (:3000) |
-| **`mc-node1`** (VM 119) | `192.168.1.148` | Ubuntu 24.04 LTS | **Velocity Proxy 3.5.1** (:25565), **BlueMap CLI Server** (:8123), Pterodactyl Wings Node 1 |
-| **`mc-main`** (VM 120) | `192.168.1.149` | Ubuntu 24.04 LTS | **Purpur 26.3 Build 2654** auf Java 25 LTS (:25574), Pterodactyl Wings Node 2 (:8080) |
-| **`pnode01`** | `192.168.1.199` | Proxmox VE 8.x | Proxmox Cluster Node 1 (LDAP-Realm `ldap`, Gruppen `proxmox_admins`) |
+| **`usrv01`** | `192.168.1.174` | Ubuntu 22.04 LTS | **Nginx Reverse Proxy** & Ingress, Let's Encrypt TLS, Forward-Auth Outpost Gate, **Planka Kanban** (:3000), Kernel DNAT (25565/24454) |
+| **`ulxc01`** | `192.168.1.173` | Ubuntu 22.04 LTS (LXC) | **Pi-hole DNS** (Port 53), Split-DNS für `*.tigimax.mooo.com` & `.net` Zone (Ansible-gesteuert) |
+| **`mc-node1`** (VM 119) | `192.168.1.148` | Ubuntu 24.04 LTS | **Velocity Proxy 3.5.1** (:25565), **BlueMap CLI Server** (:8123), Pterodactyl Panel v1.15.2, Wings Node 1, MariaDB 10.11, Redis |
+| **`mc-main`** (VM 120) | `192.168.1.149` | Ubuntu 24.04 LTS | **Purpur 26.3 Build 2654** auf Java 25 LTS (:25574), Plan Analytics (:8804), Wings Node 2 (:8080) |
+| **`pnode01`** | `192.168.1.199` | Proxmox VE 8.x | Proxmox Cluster Node 1 (LDAP-Realm `ldap`, Host für VM 119 `mc-node1`) |
+| **`pnode02`** | `192.168.1.200` | Proxmox VE 8.x | Proxmox Cluster Node 2 (Host für VM 120 `mc-main`, i5-9400F 6 Kerne dediziert) |
+| **`pnode03`** | `192.168.1.201` | Proxmox VE 8.x | Proxmox Cluster Node 3 (Quorum & Failover) |
 
 ---
 
@@ -88,7 +91,7 @@ Alle administrativen Webanwendungen befinden sich hinter dem zentralen Authentik
 |---|---|---|---|
 | **SSO Portal** | `https://auth.tigimax.mooo.com` | `idp-01:9000` | Authentik IdP (Let's Encrypt TLS) |
 | **Live-Karte** | `https://map.tigimax.mooo.com` | `mc-node1:8123` | Nginx Forward-Auth (`wd-bluemap` Provider) |
-| **Server-Analytics** | `https://plan.tigimax.mooo.com` | `usrv01:8804` | Nginx Forward-Auth (`wd-plan` Provider) |
+| **Server-Analytics** | `https://plan.tigimax.mooo.com` | `mc-main:8804` | Nginx Forward-Auth (`wd-plan` Provider) |
 | **Game-Panel** | `https://panel.tigimax.mooo.com` | `mc-node1:80` | Nginx Forward-Auth (`wd-panel` Provider), Wings-API `/api/remote/` im Bypass |
 | **Kanban-Board** | `https://tigimax.mooo.com` | `usrv01:3000` | Nginx Forward-Auth (`wd-planka` Provider) + interner DB-Sync |
 | **Minecraft Server** | `tigimax.mooo.com:25565` | `mc-node1:25565` | Purpur Whitelist & LuckPerms Berechtigungsgruppen |
@@ -136,7 +139,7 @@ olcObjectClasses: ( 1.3.6.1.4.1.99999.1.100 NAME 'wdAccount' DESC 'Weihnachtsdor
 
 ## 7. CLI-Administration (`wd-admin`)
 
-Das CLI-Werkzeug [`wd-admin`](file:///Users/tigimax/Documents/agy/minecraft-weihnachtsdorf/tools/wd-identity/wd_identity/cli.py) kann direkt im Terminal auf dem Mac (`~/.local/bin/wd-admin`) oder per SSH auf `idp-01` ausgeführt werden.
+Das CLI-Werkzeug [`wd-admin`](../tools/wd-identity/wd_identity/cli.py) (siehe auch [wd-identity Dokumentation](../tools/wd-identity/README.md)) kann direkt im Terminal auf dem Mac (`~/.local/bin/wd-admin`) oder per SSH auf `idp-01` ausgeführt werden.
 
 ### Befehlsübersicht:
 
@@ -216,3 +219,11 @@ Auf VM 121 (`idp-01`) laufen drei gehärtete Hintergrunddienste:
      ```bash
      wd-admin invite 320166607748071424
      ```
+
+---
+
+## 10. Relevante Handbücher & Dokumentation
+
+- 📖 [Admin & Operations Handbook](admin_operations_handbook.md) – Umfassendes Betriebshandbuch für Admins, Troubleshooting & Spark Profiling.
+- 🌐 [Network, DNS & Firewall Guide](network_dns_firewall_guide.md) – Ingress-Netzwerk, Kernel DNAT, Pi-hole DNS & UFW Firewall-Regeln.
+- 🦖 [Phase 2 Pterodactyl Deployment Report](phase2_pterodactyl_deployment_report.md) – Deployment-Abschlussbericht und Leistungsdaten.

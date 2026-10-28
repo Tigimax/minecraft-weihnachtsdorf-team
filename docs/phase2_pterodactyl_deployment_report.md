@@ -49,3 +49,20 @@ Phase 2 wurde erfolgreich abgeschlossen und verifiziert:
    - Spark Health: **20.00 TPS**, 0.1 ms Tick-Dauer, 0% CPU-Last.
    - Benutzer `tigimax` auf beiden Nodes zur `docker`-Gruppe hinzugefügt.
 
+---
+
+## 2. Automatisierung & Konfiguration (Ansible)
+
+Alle Komponenten wurden als Infrastructure-as-Code (IaC) versioniert und verifiziert:
+- **Firewall & DOCKER-USER Chains**: [`ansible/playbooks/configure_firewall.yml`](../ansible/playbooks/configure_firewall.yml) isoliert Port 25574 (Purpur) exklusiv auf Node 1 Velocity und schützt BlueMap (Port 8123) sowie Plan Analytics (Port 8804) auf Ingress `usrv01`.
+- **Kernel- & Sysctl-Tuning**: [`ansible/playbooks/tune_mc_nodes.yml`](../ansible/playbooks/tune_mc_nodes.yml) deaktiviert Swap und setzt Socket-Puffer (`net.core.rmem_max=2500000`, `vm.max_map_count=262144`).
+- **Pi-hole DNS Management**: [`ansible/playbooks/configure_pihole_dns.yml`](../ansible/playbooks/configure_pihole_dns.yml) pflegt alle internen `.net` und Split-DNS Einträge für `*.tigimax.mooo.com`.
+- **BlueMap World Sync**: [`ansible/playbooks/setup_bluemap_sync.yml`](../ansible/playbooks/setup_bluemap_sync.yml) orchestriert den zyklischen 5-Minuten World-Sync von `mc-main` auf `mc-node1`.
+
+---
+
+## 3. Weiterführende Dokumentation & Betrieb
+
+- 📖 [Admin & Operations Handbook](admin_operations_handbook.md) – Tägliche Wartung, Troubleshooting, Backup & Spark Profiling.
+- 🌐 [Network, DNS & Firewall Guide](network_dns_firewall_guide.md) – Ingress, DNAT Portforwarding, Pi-hole Split-DNS & UFW/Docker Chains.
+- 🔐 [Identity, SSO, LDAP & Discord Guide](identity_sso_ldap_discord_guide.md) – Authentik SSO, OpenLDAP `wdAccount` und Onboarding.

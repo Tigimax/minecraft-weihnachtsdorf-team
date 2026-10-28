@@ -46,6 +46,28 @@
         - php8.3-fpm
         - nginx
 
+    - name: Deploy Authentik SSO Middleware to Pterodactyl Panel
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../configs/pterodactyl/AuthentikSsoMiddleware.php"
+        dest: /var/www/pterodactyl/app/Http/Middleware/AuthentikSsoMiddleware.php
+        owner: www-data
+        group: www-data
+        mode: '0644'
+
+    - name: Ensure AuthentikSsoMiddleware is registered in Pterodactyl Kernel.php
+      ansible.builtin.lineinfile:
+        path: /var/www/pterodactyl/app/Http/Kernel.php
+        insertafter: 'StartSession::class,'
+        line: '            AuthentikSsoMiddleware::class,'
+        state: present
+
+    - name: Ensure AuthentikSsoMiddleware import exists in Kernel.php
+      ansible.builtin.lineinfile:
+        path: /var/www/pterodactyl/app/Http/Kernel.php
+        insertafter: 'use Pterodactyl\\Http\\Middleware\\LanguageMiddleware;'
+        line: 'use Pterodactyl\Http\Middleware\AuthentikSsoMiddleware;'
+        state: present
+
   handlers:
     - name: Restart MariaDB
       ansible.builtin.systemd:

@@ -92,9 +92,15 @@ Alle administrativen Webanwendungen befinden sich hinter dem zentralen Authentik
 | **SSO Portal** | `https://auth.tigimax.mooo.com` | `idp-01:9000` | Authentik IdP (Let's Encrypt TLS) |
 | **Live-Karte** | `https://map.tigimax.mooo.com` | `mc-node1:8123` | Nginx Forward-Auth (`wd-bluemap` Provider) |
 | **Server-Analytics** | `https://plan.tigimax.mooo.com` | `mc-main:8804` | Nginx Forward-Auth (`wd-plan` Provider) |
-| **Game-Panel** | `https://panel.tigimax.mooo.com` | `mc-node1:80` | Nginx Forward-Auth (`wd-panel` Provider), Wings-API `/api/remote/` im Bypass |
+| **Game-Panel** | `https://panel.tigimax.mooo.com` | `mc-node1:80` | Nginx Forward-Auth (`wd-panel` Provider) + `AuthentikSsoMiddleware` (Auto-Provisioning & Root-Admin Sync) |
 | **Kanban-Board** | `https://tigimax.mooo.com` | `usrv01:3000` | Nginx Forward-Auth (`wd-planka` Provider) + interner DB-Sync |
 | **Minecraft Server** | `tigimax.mooo.com:25565` | `mc-node1:25565` | Purpur Whitelist & LuckPerms Berechtigungsgruppen |
+
+> [!TIP]
+> **Pterodactyl Transparent Single Sign-On (SSO)**:  
+> Da das Pterodactyl Panel von Haus aus kein LDAP unterstützt, übernimmt [`AuthentikSsoMiddleware.php`](file:///home/dweisstan/agy/minecraft-weihnachtsdorf/configs/pterodactyl/AuthentikSsoMiddleware.php) die nahtlose Anmeldung:
+> Beim ersten Aufruf von `panel.tigimax.mooo.com` liest Pterodactyl die von Authentik übergebenen Header (`X-authentik-username`, `X-authentik-groups`, `X-authentik-email`).
+> Existiert der Benutzer noch nicht, wird er **automatisch angelegt**. Gehört er zu `wd_admins`, erhält er direkt `root_admin = true` und vollen Server-Zugriff – komplett ohne zweite Passwortabfrage!
 
 > [!IMPORTANT]
 > **Pterodactyl Wings Daemon Bypass**:  

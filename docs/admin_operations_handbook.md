@@ -270,6 +270,60 @@ wd-admin sync [--force]
 
 ---
 
+### 👑 Discord Admin Command Center & Bot-Operationen
+
+Neben der CLI bietet der Bot `WHD Privileges` eine vollwertige Administration über Discord-Kanäle und Slash-Befehle:
+
+#### 1. Discord Admin Channels (Kategorie `Weihnachtsdorf 7`)
+
+- **`#📋admin-anträge`**:
+  Prüfung aller eingehenden Anträge (Aufnahmeanträge & Entbannungs-/Einspruchsanträge).
+  - `[✅ Entbannen / Annehmen]`: Schaltet den Spieler frei (Authentik-Einladung oder Minecraft Pardon) und aktualisiert das Embed auf Grün.
+  - `[❌ Ablehnen & Sperre setzen]`: Öffnet ein modales Fenster zur Festlegung einer Sperrfrist (z. B. 14, 30, 90 Tage oder `-1` für permanente Sperre) sowie eines Ablehnungsgrundes.
+- **`#✉admin-einladungen`**:
+  Manuelle Einladungs-Zentrale.
+  - Buttons für `[🎟 Spieler-Einladung]` und `[👑 Admin-Einladung]`.
+  - **Sicherheits-Schutz**: Eine Admin-Einladung kann *ausschließlich* von Nutzern mit der Discord-Rolle `Administrator` ausgelöst werden.
+- **`#🎛admin-steuerung`**:
+  Interaktives Command-Center mit Kurzbeschreibung und Direktzugriff auf alle 22 Admin Slash-Commands.
+- **`#📜admin-logs`**:
+  Echtzeit-Audit-Log aller Sicherheits-, Aufnahme-, Entbannungs-, Server- und Moderations-Ereignisse.
+
+#### 2. Referenz der 22 Discord Slash-Befehle
+
+| Befehl | Beschreibung | Berechtigung |
+|---|---|---|
+| `/projekt-start` | Schaltet alle vorregistrierten Spieler auf der Whitelist frei | Admin |
+| `/projekt-sperren` | Versetzt Server in Pre-Launch/Wartungsmodus (Whitelist nur Staff) | Admin |
+| `/zugang-entziehen <user>` | Vollständiger Entzug über LDAP, Authentik, Planka, Whitelist & DB | Admin |
+| `/spieler-bannen <user> [grund]` | Bannt Spieler auf Minecraft und sperrt BlueMap-Zugang | Staff |
+| `/spieler-entbannen <user>` | Hebt Sperre auf Minecraft und BlueMap wieder auf | Staff |
+| `/spieler-kick <user> [grund]` | Kickt Spieler sofort vom Server via RCON | Staff |
+| `/spieler-zurücksetzen <user>` | Sendet Authentik Passwort-Recovery-Link per DM | Admin |
+| `/einladung <user> [rolle]` | Erstellt 24h-Einladung (Admin-Rolle nur durch Discord-Admins) | Staff/Admin |
+| `/einladung-abbrechen <user>` | Entwertet alle offenen Einladungen eines Nutzers | Admin |
+| `/rolle-zuweisen <user> <rolle>` | Weist LDAP- und Authentik-Rolle zu (`admin`, `mod`, `player`) | Admin |
+| `/admin-spieler <user>` | Detailauskunft aus LDAP, Authentik, Bans & SQLite-DB | Staff |
+| `/sync-alle` | Erzwingt sofortige Whitelist- & LuckPerms-Synchronisation | Admin |
+| `/spielerliste-aktualisieren` | Aktualisiert sofort das Live-Board in `#📝teilnehmerliste` | Staff |
+| `/live-status` | Zeigt CPU-, RAM-, Disk- und Uptime-Telemetrie via Wings API | Staff |
+| `/online-spieler` | Zeigt aktuell verbundene Spieler und Live-TPS an | Staff |
+| `/wartung-timer <minuten> [grund]` | Startet Countdown mit Ingame-Soundcues und schaltet Whitelist um | Admin |
+| `/wartung-abbrechen` | Bricht laufenden Wartungscountdown sofort ab | Admin |
+| `/mc-befehl <befehl>` | Führt beliebigen RCON-Befehl direkt auf Hauptwelt aus | Admin |
+| `/admin-rundruf <modus> <text>` | Sendet Broadcast (Chat, Actionbar, Titel) an Ingame-Spieler | Staff |
+| `/anmelden` | Öffnet das Aufnahme-Bewerbungsmodal | Jeder |
+| `/abmelden` | Öffnet das Self-Service-Abmelde-Modal für Spieler | Jeder |
+| `/entbannen` | Öffnet das Einspruchsmodal bei Ablehnung oder Ban | Jeder |
+
+#### 3. Automatischer Rechteentzug & Reaktivierung (Membership Lifecycle)
+- **Discord Leave (`on_member_remove`)**:
+  Verlässt ein Spieler oder Staff-Mitglied den Discord-Server, werden automatisch alle Privilegien entzogen (LDAP-Gruppen entfernt, Authentik deaktiviert & gebannt, Planka deaktiviert, Whitelist entfernt), während Spielstände, Bauwerke und LDAP-Eintrag erhalten bleiben. Ein Audit-Event wird in `#📜admin-logs` dokumentiert.
+- **Discord Rejoin (`on_member_join`)**:
+  Tritt ein zuvor registriertes Mitglied dem Server wieder bei, sendet der Bot eine interaktive Karte nach `#📜admin-logs`. Admins können mit einem Klick auf `[✅ Account reaktivieren]` sämtliche Rechte wiederherstellen oder per `[✖️ Inaktiv lassen]` verwerfen.
+
+---
+
 ### 🧩 Pterodactyl Blueprint Framework & Extensions
 
 Auf `mc-node1` ist das [Blueprint Framework](https://blueprint.zip/) (`beta-2026-08`) für Pterodactyl installiert.

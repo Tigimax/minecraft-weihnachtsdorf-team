@@ -1,7 +1,7 @@
 # Weihnachtsdorf 7 • Status, Behebungen & verbleibende Action Items
 
-**Stand**: 2026-10-28 (Aktualisiert nach Behebungs-Sprint)  
-**Gültig für**: Minecraft SMP Weihnachtsdorf 7 (Purpur 26.3 / Velocity 3.5.1 / Authentik / OpenLDAP)  
+**Stand**: 2026-10-29 (Aktualisiert nach Discord- & Identity-Sprint)  
+**Gültig für**: Minecraft SMP Weihnachtsdorf 7 (Purpur 26.3 / Velocity 3.5.1 / Authentik / OpenLDAP / Discord)  
 
 ---
 
@@ -9,20 +9,22 @@
 
 ```mermaid
 flowchart TD
-    subgraph SOLVED["✅ Erfolgreich behoben"]
+    subgraph SOLVED["✅ Erfolgreich behoben & verifiziert"]
         CP["CoreProtect 24.1 aktiv & SQL verbunden"]
-        VAULT["Vault 1.7.3 installiert & Essentials hooked"]
-        TAB["VelocityScoreboardAPI aktiv in TAB"]
-        BOT["Discord Bot Double-Interaction behoben"]
-        AK["Authentik Staff-Gruppen & API-Sync aktiv"]
-        IGN["Authentik Minecraft IGN Validierung aktiv"]
-        INV["Invite DM-Precheck & Rollback aktiv"]
-        WB["Worldborder (3000) & Chunky Pre-Gen gestartet"]
-        VH["Velocity forced-hosts für tigimax.mooo.com"]
+        VAULT["Vault 1.7.3 & Essentials hooked"]
+        TAB["VelocityScoreboardAPI aktiv"]
+        WB["Worldborder (3000) & Chunky Pre-Gen"]
+        CMD["Discord Slash Commands Duplikat-Fix"]
+        LEV["Discord Server Leave Auto-Revoke"]
+        REJ["Discord Rejoin Interactive Alert"]
+        OPT["Player Self Opt-Out in #anmeldung"]
+        REV["Admin Review Dashboard (#📋admin-anträge)"]
+        CTL["Admin Control Center (#🎛admin-steuerung)"]
+        EMO["Channel Emojis & resilienter Lookup"]
+        TEL["Wings Live Telemetry & Ingame Broadcasts"]
     end
 
-    subgraph OPEN["⏳ Noch offen / Zu erledigen"]
-        WAN["WAN DNS-Prüfung (*.mooo.com Subdomains)"]
+    subgraph OPEN["⏳ Vorbereitung vor Launch"]
         GATE["Launch Gate (Freischaltung bei Projektstart)"]
     end
 ```
@@ -44,57 +46,41 @@ flowchart TD
 * **Lösung**: `VelocityScoreboardAPI.jar` (v2.1.0 für Java 21) wurde im Velocity-Plugins-Ordner auf `mc-node1` hinterlegt.
 * **Status**: Velocity meldet: `[VelocityScoreboardAPI]: Successfully injected Scoreboard API.` und TAB initialisiert alle Scoreboard- und Team-Features ohne Warnungen.
 
-### 4. Discord-Bot Double-Interaction Crash (Fehler 40060) • [BEHOBEN]
-* **Ursache**: Buttons (`wd_apply_start_btn` und `wd_appeal_start_btn`) wurden sowohl von den persistenten Views als auch vom globalen `@bot.event async def on_interaction` abgefangen.
-* **Lösung**: Redundante Handler in `on_interaction` entfernt und `if interaction.response.is_done(): return` Absicherungen in `trigger_application_modal` und `trigger_unban_modal` integriert. Service `wd-bot.service` neu gestartet.
+### 4. Discord Slash-Command Duplikate im Autocomplete • [BEHOBEN]
+* **Ursache**: `discord_bot.py` synchronisierte Befehle sowohl global als auch auf die Guild.
+* **Lösung**: Globale Befehle via REST API gelöscht (`PUT /applications/.../commands` mit `[]`) und Bot auf exklusiven Guild-Sync umgestellt. Alle 22 Befehle werden nun sauber ohne Duplikate angezeigt.
 
-### 5. Authentik SSO Berechtigungs-Desync & Staff-Gruppen • [BEHOBEN]
-* **Lösung**:
-  1. `nummernfeld` und `Miaxian` wurden über die Authentik-API direkt der Authentik-Gruppe `wd_admins` zugewiesen (Zugriff auf Pterodactyl Panel, Planka und Plan Analytics funktioniert nun einwandfrei).
-  2. `AuthentikClient.add_user_to_group()` implementiert und in `webhook.py` integriert, sodass bei jedem Onboarding die Authentik-Gruppe automatisch sofort zugewiesen wird.
+### 5. Automatischer Rechte-Entzug bei Discord Server Leave • [BEHOBEN]
+* **Anforderung**: Verlässt ein Mitglied den Discord-Server, müssen alle Berechtigungen entzogen werden, ohne dass Spielstände oder Accounts verloren gehen.
+* **Lösung**: `membership.py` (`revoke_user_privileges`) strippt LDAP-Gruppen, sperrt Authentik (`is_active=False`, `is_banned=True`), deaktiviert Planka und entfernt die Whitelist. Ausgelöst über `on_member_remove` mit Logging nach `#📜admin-logs`.
 
-### 6. Clientseitige Minecraft-Name Validierung in Authentik • [BEHOBEN]
-* **Lösung**:
-  1. Neue Authentik Expression Policy `wd-minecraft-ign-validation` angelegt:
-     ```python
-     import re
-     mc_name = request.context.get('prompt_data', {}).get('minecraft_name', '').strip()
-     if not re.match(r'^[a-zA-Z0-9_]{3,16}$', mc_name):
-         ak_message('Ungültiger Minecraft-Name! Der Name muss 3 bis 16 Zeichen lang sein und darf nur Buchstaben, Zahlen und Unterstriche enthalten (KEINE Leerzeichen).')
-         return False
-     return True
-     ```
-  2. Direkt als `validation_policies` an die Prompt-Stage `invitation-enrollment-prompt-details` gebunden. Eine Fehleingabe (wie Leerzeichen) wird sofort rot im Browser abgefangen und blockiert das Absenden.
-  3. Benutzer `big_fanta` mit validem IGN `BigFanta` erfolgreich in LDAP und Whitelist-Vormerkung nachgetragen.
+### 6. Interaktiver Rejoin-Reaktivierungs-Flow • [BEHOBEN]
+* **Lösung**: `on_member_join` prüft, ob der zurückkehrende Nutzer bereits einen Account besitzt, und postet eine Karte in `#📜admin-logs` mit `[✅ Account reaktivieren]` und `[✖️ Inaktiv lassen]`.
 
-### 7. DM-Zustellungs-Schutz & Rollback bei `wd-admin invite` • [BEHOBEN]
-* **Lösung**:
-  * In `wd-admin invite`: Wenn die Discord-DM fehlschlägt (z. B. durch Privatsphäre-Einstellungen des Users), bricht der Befehl sofort ab und rollt alle angelegten Daten in LDAP und Authentik restlos zurück (`Rollback`).
-  * Account `sneezingcookie` wurde vollständig aus LDAP, Authentik, Planka und Datenbanken gelöscht.
+### 7. Spieler Self-Service Abmeldung • [BEHOBEN]
+* **Lösung**: Button `[🚪 Abmelden]` in `#📝anmeldung` und Slash-Befehl `/abmelden` mit Eingabe-Modal für den Abmeldegrund hinzugefügt.
 
-### 8. Worldborder & Chunky Vorab-Generierung • [BEHOBEN / LÄUFT]
-* **Ausgeführt auf `mc-main`**:
-  * `worldborder center 0 0`
-  * `worldborder set 3000` (Worldborder mit Durchmesser 3.000 Blöcke gesetzt)
-  * `chunky world world`, `chunky shape square`, `chunky center 0 0`, `chunky radius 1500`
-  * `chunky start`: Vorab-Generierung aller Chunks im Spielbereich erfolgreich gestartet.
+### 8. Admin Review System mit variablen Sperrfristen • [BEHOBEN]
+* **Lösung**: `#📋admin-anträge` mit `AdminActionRow` (`[✅ Entbannen / Annehmen]`, `[❌ Ablehnen & Sperre setzen]`). Ablehnungen unterstützen Cooldown-Sperrfristen (z. B. 14, 30, 90 Tage oder `-1` permanent). Zwei Testanträge (#1 Troll, #2 Ehrenhaft) wurden erfolgreich verifiziert.
 
-### 9. Velocity Forced-Hosts & Verbindungsrouting • [BEHOBEN]
-* **Lösung**: `tigimax.mooo.com = ["hauptwelt"]` explizit in `velocity.toml` unter `[forced-hosts]` ergänzt.
-* **Status**: Sowohl interner Ping (`192.168.1.174:25565`) als auch externer WAN-Zugriff (`178.195.201.195:25565` bzw. `tigimax.mooo.com:25565`) antworten stabil mit Minecraft 26.3 Handshakes und Mojang Encryption Requests.
+### 9. Admin Control Center & 22 Slash Commands • [BEHOBEN]
+* **Lösung**: Kanal `#🎛admin-steuerung` mit interaktivem Dashboard und 22 spezialisierten Admin-Befehlen (Projekt-State, Live-Telemetrie, Kicks, Ingame-Rundrufe, Wartungstimer, Whitelist-Sync).
+
+### 10. Channel-Design mit Emojis & robuster Lookup • [BEHOBEN]
+* **Lösung**: Alle Kanäle unter `Weihnachtsdorf 7` mit führenden Emojis formatiert (`#📝anmeldung`, `#⚖entbannung`, `#📋admin-anträge`, `#✉admin-einladungen`, `#🎛admin-steuerung`, `#📜admin-logs`). Namenssuche im Bot mit `any(k in ch.name.lower() ...)` gegen Emoji-Präfixe abgesichert.
+
+### 11. Wings Telemetrie & Ingame Broadcast Engine • [BEHOBEN]
+* **Lösung**: `mc_sync.py` erweitert um Live-Telemetrie (`get_server_telemetry()`), Live-TPS (`get_live_tps()`), Online-Spielerliste (`get_online_players()`) und Multi-Format Ingame-Broadcasts (`broadcast_ingame()` für Chat, Actionbar und Titel).
 
 ---
 
-## ⏳ Verbleibende offene Punkte vor dem Launch
+## ⏳ Verbleibende Punkte vor dem Launch
 
-### 1. WAN-Erreichbarkeit & Subdomain-Hinweis
-* **Status**: Port `25565` ist über die Hauptdomain `tigimax.mooo.com:25565` von außen erreichbar und liefert den MOTD (`mcstatus.io: online: true`).
-* **Wichtig**: Die Subdomains `play.tigimax.mooo.com` und `mc.tigimax.mooo.com` existieren **nicht** im öffentlichen DNS von FreeDNS (afraid.org). Spieler müssen sich mit `tigimax.mooo.com` (ohne Subdomain) verbinden, oder die Subdomains müssen auf afraid.org angelegt werden.
-* **Whitelist Gate**: Da der Server im `PRE-LAUNCH`-Modus ist, können aktuell nur Admins/Mods joinen. Nicht-gewhitelistete Spieler erhalten beim Verbindungsversuch einen Disconnect.
-
-### 2. Launch Gate (Freischaltung bei Projektstart)
+### 1. Launch Gate (Freischaltung bei Projektstart)
 * **Befehl**:
   ```bash
   wd-admin project launch
+  # oder via Discord:
+  /projekt-start
   ```
-  Schaltet alle registrierten Spieler sofort auf der Minecraft-Whitelist frei.
+  Schaltet alle registrierten Spieler sofort auf der Minecraft-Whitelist frei und wechselt den Gate-Status.

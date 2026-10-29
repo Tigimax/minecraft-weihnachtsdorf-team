@@ -87,35 +87,50 @@ flowchart TD
 
 ---
 
-## 👥 Identity & Berechtigungs-Management (`wd-admin`)
+## 👥 Identity, Discord Bot & Berechtigungs-Management (`wd-admin`)
 
-Alle Moderatoren- und Administratoren-Berechtigungen werden zentral über [`wd-admin`](tools/wd-identity/README.md) und den Discord-Bot **WHD Privileges** gesteuert.
+Alle Spieler-, Moderatoren- und Administratoren-Berechtigungen werden zentral über [`wd-admin`](tools/wd-identity/README.md) und den Discord-Bot **WHD Privileges** gesteuert.
 
-| Befehl | Wirkung |
-|---|---|
-| `wd-admin invite <discord> [--role admin\|mod]` | Einladung per Discord-DM (MC-Name muss vorher nicht bekannt sein) |
-| `wd-admin reset <discord>` | Einmaliger Passwort-Recovery-Link per Discord-DM |
-| `wd-admin list` | Tabellarische Übersicht aller aktiven Teammitglieder, IGNs & UUIDs |
-| `wd-admin revoke <discord>` | Sofortiger Entzug in LDAP, Planka, Whitelist und LuckPerms |
-| `wd-admin sync [--force]` | Whitelist & LuckPerms manuell abgleichen (idempotent ohne Spam) |
+### 🎮 Discord Channel-Architektur (Kategorie `Weihnachtsdorf 7`)
+
+| Kanal | Zweck | Features |
+|---|---|---|
+| **`#📋admin-anträge`** | Antragsprüfung für Admins | Interaktive Prüfung von Bewerbungen & Entbannungen (`[✅ Annehmen]`, `[❌ Ablehnen & Sperre]`) |
+| **`#✉admin-einladungen`** | Manuelle Einladungs-Zentrale | Generierung von 24h Authentik-Registrierungslinks (Admin-Einladungen nur für Discord-Admins) |
+| **`#🎛admin-steuerung`** | Admin-Command-Center | Interaktives Steuerungs-Panel mit 22 Slash-Befehlen zur Server- & Spielerverwaltung |
+| **`#📜admin-logs`** | Zentrales Audit-Log | Echtzeit-Protokollierung aller Bewerbungen, Entbannungen, Leaves, Kicks und Server-Events |
+| **`#📝anmeldung`** | Öffentliches Onboarding | Pinned Guide mit `[📝 Jetzt bewerben]` und Self-Service `[🚪 Abmelden]` Button |
+| **`#⚖entbannung`** | Einsprüche & Appeals | Pinned Leitfaden mit `[⚖️ Einspruch / Entbannung beantragen]` Modal |
+| **`#📝teilnehmerliste`** | Öffentliche Live-Übersicht | Automatischer 30s-Sync der registrierten Spieler und Rollen |
+
+### 🛠️ CLI- & Discord-Steuerung
+
+| Bereich | Befehle (CLI / Discord) | Wirkung |
+|---|---|---|
+| **Projekt-Status** | `wd-admin project [status\|launch\|lock]`<br>`/projekt-start`, `/projekt-sperren` | Pre-Launch Gate: Schaltet registrierte Spieler auf Whitelist frei oder sperrt Server in Wartungsmodus |
+| **Einladungen** | `wd-admin invite <user> [--role admin\|mod\|player]`<br>`/einladung`, `/einladung-abbrechen` | Single-Use Authentik-Einladung per DM zustellen (Admins nur durch Discord-Admins einladbar) |
+| **Zugang & Sperren** | `wd-admin revoke <user>`, `wd-admin ban/pardon`<br>`/zugang-entziehen`, `/spieler-bannen`, `/spieler-entbannen` | Vollständiger Entzug über LDAP, Authentik, Planka, Whitelist und DB; Cooldown-System |
+| **Server-Telemetrie** | `/live-status`, `/online-spieler` | Echtzeit-CPU, RAM, Festplatte, Uptime, TPS und Liste aller Ingame-Spieler via Wings API |
+| **Ingame-Aktionen** | `/admin-rundruf`, `/mc-befehl`, `/spieler-kick`<br>`/wartung-timer`, `/wartung-abbrechen` | Broadcasts (Chat/Title/Actionbar), RCON-Befehlsausführung und Countdown mit Audio-Cues |
+| **Mitgliedschaft** | Automatischer Event-Handler | **Server Leave**: Entzieht sofort alle Rechte, schont Account; **Rejoin**: Interaktiver Prompt in `#📜admin-logs` |
 
 ### 🔄 Automatisierter Onboarding-Workflow
 
 ```mermaid
 sequenceDiagram
-    participant A as Admin
+    participant A as Admin / Bewerber
     participant B as Discord-Bot (WHD Privileges)
     participant U as Nutzer
     participant K as Authentik IdP
     participant S as wd-identity Backend
     participant M as Purpur Server
 
-    A->>B: wd-admin invite <discord>
+    A->>B: Bewerbung / wd-admin invite
     B->>U: DM mit 24h-Einladungslink
     U->>K: Setzt Passwort + 2FA + Minecraft IGN
     K->>S: Enrollment-Webhook Event
     S->>S: Validiert IGN & Mojang-UUID -> Schreibt LDAP & Planka
-    S->>M: Setzt Whitelist & LuckPerms (admin/mod) via Wings API
+    S->>M: Setzt Whitelist & LuckPerms (admin/mod/player) via Wings API
     B->>U: Sendet Willkommens-DM mit allen Portal-Links
 ```
 
@@ -159,7 +174,16 @@ ansible-playbook -i ansible/inventory.ini ansible/playbooks/<PLAYBOOK>.yml
 ├── datapacks/              # tectonic.zip · snowyworld.zip (100% Schneelandschaft)
 ├── docs/                   # Architektur-, Netzwerk-, Betriebshandbücher & Reports
 ├── scripts/                # Provisionierung, BlueMap-World-Sync (Timer/Service)
-└── tools/wd-identity/      # FastAPI-Backend, Discord-Bot, CLI (wd-admin), Tests
+├── tools/wd-identity/      # FastAPI-Backend, Discord-Bot, CLI (wd-admin), Tests
+│   ├── wd_identity/        # Python-Kernbibliothek
+│   │   ├── audit_logger.py # Zentrales synchrones REST Audit-Logging (#📜admin-logs)
+│   │   ├── membership.py   # Automatische Rechte-Entzug & Rejoin-Reaktivierung
+│   │   ├── invitations.py  # Authentik-Einladungs- & Validierungslogik
+│   │   ├── playerlist.py   # Teilnehmerlisten-Aggregator & Sync (#📝teilnehmerliste)
+│   │   ├── applications.py # Bewerbungs- & Entbannungsantrags-Lifecycle (SQLite)
+│   │   ├── discord_bot.py  # WHD Privileges Discord Bot & 22 Slash Commands
+│   │   ├── mc_sync.py      # Wings API Client, Telemetrie, TPS & RCON Broadcast
+│   │   └── cli.py          # wd-admin CLI Suite
 ```
 
 ---

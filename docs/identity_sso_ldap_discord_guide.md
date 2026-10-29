@@ -188,20 +188,50 @@ wd-admin sync [--force]
 
 ---
 
-## 8. Systemd-Dienste auf `idp-01`
+## 8. Discord Bot Identity & Community Lifecycle
+
+Der Discord-Bot `WHD Privileges` ist direkt an das Identity-System gekoppelt und automatisiert den gesamten Benutzer-Lebenszyklus:
+
+### Kanäle & UI-Komponenten (Kategorie `Weihnachtsdorf 7`)
+
+- **`#📋admin-anträge`**: Interaktive Antragsprüfung (`AdminActionRow` mit `app:accept`, `app:reject`, `appeal:accept`, `appeal:reject`). Unterstützt Cooldown-Sperrfristen via Modal (`AdminAppealRejectModal`).
+- **`#✉admin-einladungen`**: Manuelle Erstellung von Authentik-Single-Use-Einladungen. Rollen-Check stellt sicher, dass Admin-Einladungen nur von Discord-Administratoren ausgelöst werden können.
+- **`#🎛admin-steuerung`**: Zentrale Befehlszentrale mit Live-Übersicht aller 22 Admin Slash-Commands.
+- **`#📜admin-logs`**: Zentrales Audit-Log über `audit_logger.py` (Echtzeit-REST-Anbindung ohne Gateway-Blockaden).
+- **`#📝anmeldung`**: Öffentliches Bewerbungs-Embed mit `[📝 Jetzt bewerben]` und Self-Service `[🚪 Abmelden]`.
+- **`#⚖entbannung`**: Einspruchs-Kanal für abgelehnte oder gesperrte Nutzer mit Cooldown-Überprüfung.
+- **`#📝teilnehmerliste`**: Automatisches Live-Board aller registrierten Spieler und Rollen (30s zyklischer Sync).
+
+### Automatischer Rechte-Entzug & Reaktivierung (`membership.py`)
+
+1. **Server Leave (`on_member_remove`)**:
+   - Wenn ein Mitglied den Discord-Server verlässt, entzieht `revoke_user_privileges()` sofort alle Rollen in OpenLDAP (`wd_admins`, `wd_mods`, `wd_players`), deaktiviert und sperrt den Authentik-Account (`is_active=False`, `is_banned=True`), schaltet Planka inaktiv und entfernt die Whitelist.
+   - Der LDAP-Account und Ingame-Bauwerke/Spielstände bleiben vollständig erhalten.
+   - Ein Audit-Ereignis wird in `#📜admin-logs` dokumentiert.
+
+2. **Server Rejoin (`on_member_join`)**:
+   - Tritt das Mitglied wieder bei, erkennt der Bot anhand der Discord-ID den bestehenden Account und postet eine Reaktivierungs-Karte in `#📜admin-logs`.
+   - Admins können mit einem Klick auf `[✅ Account reaktivieren]` sämtliche Rechte sofort wiederherstellen (`restore_user_privileges()`).
+
+3. **Spieler-Selbstabmeldung (`/abmelden` & `[🚪 Abmelden]`)**:
+   - Spieler können sich im Kanal `#📝anmeldung` jederzeit freiwillig abmelden. Ein Modal erfasst optional einen Grund, entzieht die Whitelist und informiert das Team in `#📜admin-logs`.
+
+---
+
+## 9. Systemd-Dienste auf `idp-01`
 
 Auf VM 121 (`idp-01`) laufen drei gehärtete Hintergrunddienste:
 
 1. **`wd-identity.service`**:
    FastAPI/Uvicorn Webhook-Dienst auf Port `8000`. Nimmt Authentik-Events entgegen, validiert Mojang-Profile, provisioniert Planka und steuert den Welcome-DM-Versand.
 2. **`wd-bot.service`**:
-   Permanenter Discord-Gateway-Client. Registriert und beantwortet die Slash-Commands `/passwort-reset`, `/status` und `/links`.
+   Permanenter Discord-Gateway-Client. Registriert die 22 Slash-Commands (ausschließlich auf Guild-Ebene synchronisiert), verarbeitet Interaktionen und Buttons und führt den 30s-Spielerlisten-Sync aus.
 3. **`mc-admin-sync.timer`**:
    Trigger-Timer, der alle 60 Sekunden `mc-admin-sync.service` ausführt, um eventuelle LDAP-Änderungen vollautomatisch und idempotent auf den Purpur-Server zu spiegeln.
 
 ---
 
-## 9. Fehlerbehebung & Runbook
+## 10. Fehlerbehebung & Runbook
 
 ### Problem: Einladungslink meldet "Internal Server Error /setup"
 - **Ursache**: Authentik prüft intern das System-Flag `Setup`.

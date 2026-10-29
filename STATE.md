@@ -1,0 +1,137 @@
+# Projekt-Status & Vorfall-Log: Weihnachtsdorf 7
+
+**Stand:** 29. Oktober 2026  
+**Dokument-Zweck:** Zentrale Dokumentation des aktuellen Systemzustands, offener Aufgaben sowie aufgetretener Vorfälle (Troubleshooting-Protokoll).
+
+---
+
+## 1. Aktuelle Vorfälle & Fehleranalysen
+
+### Vorfall A: "Permission Denied" nach erfolgreicher Authentik-Registrierung (z. B. bei `aboutlace`)
+- **Symptom:**  
+  Nachdem ein Benutzer (z. B. `aboutlace`) dem Einladungslink gefolgt ist, sein Passwort und 2FA eingerichtet hat und auf interne Portale (wie Planka Kanban unter `https://tigimax.mooo.com`) zugreifen möchte, erschien die Authentik-Fehlerseite mit **"Permission Denied"**.
+- **Root Cause:**  
+  Authentiks Einladungs-Flow (`invitation-enrollment-flow`) legte den Nutzer initially ohne Gruppenmitgliedschaft an (`groups: []`). Die Access Policies für Planka, Panel und Plan (`wd-staff-only-policy`) forderten Mitgliedschaft in `wd_admins` oder `wd_mods`.
+- **Behebung:**  
+  `AuthentikClient.add_user_to_group()` wurde in `webhook.py` integriert. Bei Abschluss des Enrollments wird der Account nun sofort programmatisch der Authentik-Gruppe zugewiesen.
+
+---
+
+### Vorfall B: "Username is already taken" bei Einladungsannahme
+- **Symptom:**  
+  Einladung wird geöffnet, Nutzer versucht seinen Benutzernamen einzugeben, Authentik bricht ab mit *"Username is already taken"*, obwohl der Nutzer sich noch nie zuvor eingeloggt hat.
+- **Root Cause:**  
+  Wird vor der Registrierung ein LDAP-Sync angestoßen, synchronisiert Authentik den LDAP-Nutzer ohne Passwort in seine interne Datenbank. Der Authentik Prompt-Stage für Einladungen schlägt dann fehl.
+- **Behebung:**  
+  Veraltete / verwaiste Authentik-Accounts vor dem Generieren des Einladungslinks via `authentik.delete_user(clean_username)` löschen. Erst nach Registrierung synchronisieren.
+
+---
+
+### Vorfall C: Unvollständiger User-Revoke
+- **Symptom:**  
+  `wd-admin revoke` entfernte Nutzer nur aus LDAP-Gruppen, hinterließ aber aktive Sessions, Accounts in Authentik, Accounts in Planka und Datenbankeinträge.
+- **Behebung:**  
+  `wd-admin revoke` wurde vollständig überarbeitet:
+  1. **OpenLDAP:** Entfernt Mitgliedschaften aus allen Gruppen (`wd_admins`, `wd_mods`, `wd_players`) und löscht optional den gesamten LDAP-Account.
+  2. **Authentik IdP:** Löscht Benutzerkonto, entwertet alle aktiven Sessions und bereinigt offene Einladungen.
+  3. **Planka Kanban:** Beendet aktive Postgres-Sessions, leert Board-Mitgliedschaften und löscht das Planka-Konto.
+  4. **Minecraft Server:** Führt `kick` aus (falls online), entfernt aus Whitelist und löscht LuckPerms-Gruppen/Rechte via RCON/Wings.
+  5. **SQLite DB:** Bereinigt offene Bans und archiviert/annulliert offene Bewerbungen.
+
+---
+
+### Vorfall D: Doppelte Slash-Befehle in der Discord Autocomplete-Vorschau
+- **Symptom:**  
+  Im Discord-Client wurden beim Tippen von `/` sämtliche Befehle des Bots doppelt angezeigt.
+- **Root Cause:**  
+  `discord_bot.py` synchronisierte die Slash Commands sowohl global (`await tree.sync()`) als auch gildenspezifisch (`await tree.sync(guild=guild)`). Da Discord globale und lokale Befehle separat im Cache hält, entstanden Duplikate.
+- **Behebung:**  
+  Globale Befehle via Discord REST API gelöscht (`PUT /applications/.../commands` mit `[]`) und in `on_ready()` globalen Sync deaktiviert. Slash-Commands werden nun ausschließlich direkt auf die Guild synchronisiert (sofortige Aktualisierung ohne 1-Stunden-Discord-Cache).
+
+---
+
+### Vorfall E: Rechte-Sicherheit bei Verlassen des Discord-Servers (Server Leave)
+- **Anforderung:**  
+  Verlässt ein Spieler oder Teammitglied den Discord-Server, soll der Account nicht gelöscht werden, aber alle Berechtigungen müssen sofort entzogen werden. Kehrt der Nutzer zurück, soll Admins ein Reaktivierungs-Prompt angeboten werden.
+- **Lösung:**  
+  1. **`membership.py` (`revoke_user_privileges`)**: Strippt LDAP-Gruppen, schaltet Authentik inaktiv (`is_active=False`, `is_banned=True`), deaktiviert Planka (`is_active=false`) und entfernt Minecraft-Whitelist.
+  2. **`on_member_remove`**: Führt automatischen Rechte-Entzug aus und loggt detailliert nach `#📜admin-logs`.
+  3. **`on_member_join`**: Erkennt zurückkehrende Mitglieder anhand der Discord-ID und postet eine interaktive Karte in `#📜admin-logs` mit `[✅ Account reaktivieren]` und `[✖️ Inaktiv lassen]`.
+  4. **Self-Service Opt-Out**: Spieler können sich im Kanal `#📝anmeldung` über den Button `[🚪 Abmelden]` oder per Slash-Command `/abmelden` selbstständig abmelden.
+
+---
+
+### Vorfall F: Kanal-Benennung, Emojis & resilienter Channel-Lookup
+- **Anforderung:**  
+  Eindeutige Benennung des Admin-Prüfkanals und visuelle Angleichung aller Kanäle mit Emojis passend zum Serverstil.
+- **Lösung:**  
+  1. `#admin-anmeldungen` umbenannt in **`#📋admin-anträge`** (Prüfung von Aufnahmeanträgen AND Entbannungen).
+  2. Alle Kanäle unter Kategorie `Weihnachtsdorf 7` mit führenden Emojis versehen:
+     `#📝anmeldung`, `#⚖entbannung`, `#📋admin-anträge`, `#✉admin-einladungen`, `#🎛admin-steuerung`, `#📜admin-logs`.
+  3. Channel-Lookup-Logik im Bot gehärtet (`any(k in ch.name.lower() ...)`), sodass Emoji-Präfixe den Namensabgleich niemals stören.
+
+---
+
+## 2. Infrastruktur- & Komponenten-Übersicht
+
+| Service | Host / IP | Status | Beschreibung |
+| :--- | :--- | :--- | :--- |
+| **Authentik IdP** | `idp-01` (`192.168.1.150:9000`) | **Aktiv** | Zentrales SSO & Identity Management (`https://auth.tigimax.mooo.com`) |
+| **OpenLDAP** | `ldap-01` (`192.168.1.164:636`) | **Aktiv** | Zentraler Verzeichnisdienst für Rollen & Identitäten |
+| **Planka Kanban** | `usrv01` (`192.168.1.174:3000`) | **Aktiv** | Staff-Planung (`https://tigimax.mooo.com`) mit Forward-Auth Auto-Login |
+| **Pterodactyl Wings** | `mc-node1` (`192.168.1.149:8080`) | **Aktiv** | Minecraft Node 2 Daemon, RCON & Telemetrie-Schnittstelle |
+| **BlueMap** | `mc-node1` (`192.168.1.148:8123`) | **Aktiv** | Web-Weltkarte (`https://map.tigimax.mooo.com`), geschützt via `wd-bluemap-access-policy` |
+| **WHD Discord Bot** | `idp-01` (`wd-bot.service`) | **Aktiv** | Discord-Bot (`WHD Privileges`) mit 22 Slash Commands & Audit Logging |
+| **WD Identity API** | `idp-01` (`wd-identity.service`) | **Aktiv** | Webhook & CLI-Backend (`/opt/wd-identity`), Port 8000 |
+
+---
+
+## 3. Discord-Channels (Kategorie "Weihnachtsdorf 7")
+
+| Kanal | ID | Berechtigung | Funktion |
+|---|---|---|---|
+| **`#📋admin-anträge`** | `1565033844535722085` | Nur Admins | Prüfung aller Aufnahme- und Entbannungsanträge mit Schnell-Aktionen |
+| **`#✉admin-einladungen`** | `1565288748718100552` | Nur Admins | Interaktive Erstellung von Authentik-Einladungen (Admin-Rolle nur für Discord-Admins) |
+| **`#🎛admin-steuerung`** | `1565299837522673674` | Nur Admins | Admin-Steuerungszentrale & Index aller 22 Slash-Befehle |
+| **`#📜admin-logs`** | `1565288746088402974` | Nur Admins | Vollständiges System- & Sicherheits-Audit-Log (Echtzeit-REST) |
+| **`#📝anmeldung`** | `1565033506227355838` | Öffentlich | Aufnahme-Bewerbung (`[📝 Jetzt bewerben]`) & Self-Opt-Out (`[🚪 Abmelden]`) |
+| **`#⚖entbannung`** | `1565291901156851722` | Öffentlich | Entbannungs- & Einspruchsantrag (`[⚖️ Einspruch / Entbannung beantragen]`) |
+| **`#📝teilnehmerliste`** | `1565283582593998888` | Öffentlich | Live-Board aller registrierten Spieler und Rollen (30s Sync) |
+
+---
+
+## 4. Vollständige Suite der 22 Discord Slash-Befehle
+
+1. `/projekt-start` – Schaltet alle registrierten Spieler auf der Minecraft-Whitelist frei.
+2. `/projekt-sperren` – Versetzt den Server in den Wartungs-/Pre-Launch-Modus (Spieler gesperrt, Staff aktiv).
+3. `/zugang-entziehen` – Entzieht einem Nutzer alle Zugriffsrechte restlos.
+4. `/spieler-bannen` – Bannt einen Spieler auf dem Minecraft-Server und sperrt BlueMap.
+5. `/spieler-entbannen` – Hebt Sperren auf Minecraft und BlueMap wieder auf.
+6. `/spieler-kick` – Kickt einen Spieler sofort vom Server mit Angabe eines Grundes.
+7. `/spieler-zurücksetzen` – Sendet einen Authentik-Passwort-Recoverylink per DM.
+8. `/einladung` – Generiert manuell einen Authentik-Registrierungslink per DM.
+9. `/einladung-abbrechen` – Entwertet alle offenen Einladungen eines Nutzers.
+10. `/rolle-zuweisen` – Ändert die Rolle eines Nutzers (Admin, Moderator, Spieler).
+11. `/admin-spieler` – Detaillierte Sicherheits- und Datenbankauskunft über einen Nutzer.
+12. `/sync-alle` – Erzwingt sofortigen Abgleich von LDAP, Whitelist und LuckPerms.
+13. `/spielerliste-aktualisieren` – Synchronisiert sofort das Live-Board in `#📝teilnehmerliste`.
+14. `/live-status` – Echtzeit-Abfrage von CPU, RAM, Festplatte, Uptime und TPS.
+15. `/online-spieler` – Zeigt alle aktuell ingame verbundenen Spieler und TPS an.
+16. `/wartung-timer` – Startet einen Ingame-Countdown mit Audio-Cues und schaltet danach die Whitelist um.
+17. `/wartung-abbrechen` – Bricht einen laufenden Wartungscountdown sofort ab.
+18. `/mc-befehl` – Führt einen beliebigen RCON-Befehl direkt auf der Hauptwelt aus.
+19. `/admin-rundruf` – Sendet Ingame-Nachrichten (Chat, Titel oder Actionbar) an alle Spieler.
+20. `/anmelden` – Öffnet das interaktive Bewerbungsmodal für Spieler.
+21. `/abmelden` – Ermöglicht Spielern die selbstständige Abmeldung vom Projekt.
+22. `/entbannen` – Öffnet das Einspruchsmodal für abgelehnte oder gesperrte Nutzer.
+
+---
+
+## 5. Verifizierte Test-Fälle
+
+- **Entbannungsantrag #1 (Troll / Ridiculous):**  
+  Eingespeist von `xX_ShadowGamer_2013_HD_Xx`. Verifiziert für Ablehnung mit variablem Cooldown Modal (`[❌ Ablehnen & Sperre setzen]`).
+- **Entbannungsantrag #2 (Ehrenhaft / Demütig):**  
+  Eingespeist von `Maximilian_Von_Ehrenstein`. Verifiziert für Annahme mit automatischem Pardon/Invite (`[✅ Entbannen / Annehmen]`).
+- **Audit-Logging:**  
+  Beide Anträge und zukünftige Entscheidungen werden lückenlos in `#📜admin-logs` protokolliert.

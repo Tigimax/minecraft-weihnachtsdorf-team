@@ -17,12 +17,19 @@ Das Paket **`wd-identity`** bildet das zentrale administrative Steuerungs-Backen
   - Abfrage des Minecraft Ingame-Namens (IGN) direkt im Webformular.
   - Generierung von zeitlich begrenzten Einmal-Recoverylinks für Passwort-Resets.
 - **Discord Bot (`WHD Privileges`)**:
-  - Slash Commands: `/passwort-reset`, `/status`, `/links`.
+  - **22 Guild Slash Commands**: Vollständige Suite zur Server-, Moderations- und Projektsteuerung (`/projekt-start`, `/live-status`, `/spieler-kick`, `/admin-rundruf`, etc.).
+  - **Admin Command Center (`#🎛admin-steuerung`)**: Interaktives Steuerungs-Panel mit Direktzugriff und Befehlserklärungen.
+  - **Antragsprüfung (`#📋admin-anträge`)**: Interaktive Abarbeitung von Aufnahme- und Entbannungsanträgen (`[✅ Annehmen]`, `[❌ Ablehnen & Sperre setzen]` mit Cooldown-Modal).
+  - **Audit Logger (`#📜admin-logs`)**: Zentrales, synchrones REST-basiertes Event-Logging (`audit_logger.py`).
+  - **Membership Lifecycle (`membership.py`)**: Automatischer Privilegien-Entzug bei Server-Leave (`on_member_remove`) und interaktive Reaktivierung bei Rejoin (`on_member_join`).
+  - **Player Self-Service (`#📝anmeldung`)**: Bewerbungs- und Abmelde-Modal (`/anmelden`, `/abmelden`).
   - Multi-Guild Discovery: Durchsucht automatisch alle Server des Bots, um Nutzer anhand ihres Namens, Nicks oder ihrer Snowflake-ID aufzulösen.
   - Synchroner REST-Dispatcher für 100% zuverlässige DM-Zustellung aus CLI, Webhooks und Systemd-Diensten.
-- **Minecraft Privilege Sync**:
+- **Minecraft Privilege Sync & Telemetrie**:
   - Mojang API-Client zur kanonischen Auflösung von Spielername und offizieller UUID.
   - Pterodactyl Wings Node 2 API Integration (`192.168.1.149:8080`).
+  - Live-Telemetrie (`get_server_telemetry()`), Live-TPS (`get_live_tps()`), Online-Spielerliste (`get_online_players()`).
+  - Ingame-Broadcasts (`broadcast_ingame()` für Chat, Actionbar und Titel).
   - Steuerung von `whitelist add/remove` und LuckPerms Parent-Gruppen (`admin`/`mod`).
   - Idempotentes State-Tracking (`mc_sync_state.json`) verhindert Konsolen-Spam und Lock-Contention.
 - **Planka Kanban Provisioning**:
@@ -54,13 +61,18 @@ tools/wd-identity/
 │   └── test_utils.py
 ├── wd_identity/
 │   ├── __init__.py
+│   ├── applications.py           # SQLite Lifecycle für Bewerbungen, Entbannungen & Cooldowns
+│   ├── audit_logger.py           # Zentraler REST Logger für #📜admin-logs
 │   ├── authentik_client.py       # API Client für Authentik Invitations, Users & Recovery
 │   ├── cli.py                    # Click CLI Implementierung (wd-admin)
 │   ├── config.py                 # Pydantic Settings & Environment Parsing
-│   ├── discord_bot.py            # Discord Bot & REST DM Dispatcher
+│   ├── discord_bot.py            # Discord Bot, 22 Slash Commands & Persistent Views
+│   ├── invitations.py            # Einladungs-Generator & Permissions-Guard
 │   ├── ldap_client.py            # OpenLDAP Client mit wdAccount Schema & Group Management
-│   ├── mc_sync.py                # Wings API Client & LuckPerms/Whitelist Synchronizer
+│   ├── mc_sync.py                # Wings API Client, Telemetrie, TPS & RCON Broadcast
+│   ├── membership.py             # Automatischer Rechteentzug bei Server-Leave & Rejoin
 │   ├── mojang_client.py          # Mojang API Resolver mit Fallback
+│   ├── playerlist.py             # Teilnehmerlisten-Aggregator für #📝teilnehmerliste
 │   ├── planka_sync.py            # Planka PostgreSQL Sync Client
 │   ├── utils.py                  # Input-Sanitization (LDAP Injection, SQL Escaping, IGN Validation)
 │   └── webhook.py                # FastAPI Webhook Server für Authentik Enrollment Triggers

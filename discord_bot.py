@@ -3078,15 +3078,13 @@ async def on_ready():
     bot.add_view(AdminControlDashboardView())
     bot.add_view(MaintenanceAbortView())
 
-    # Sync slash commands
+    # Sync slash commands (guild-only to avoid duplicate global preview)
     try:
         if settings.DISCORD_GUILD_ID:
             guild_obj = discord.Object(id=int(settings.DISCORD_GUILD_ID))
             tree.copy_global_to(guild=guild_obj)
             synced_guild = await tree.sync(guild=guild_obj)
             logger.info(f"Synced {len(synced_guild)} slash commands to guild {settings.DISCORD_GUILD_ID}")
-        synced = await tree.sync()
-        logger.info(f"Synced {len(synced)} application commands globally.")
     except Exception as e:
         logger.error(f"Failed to sync slash commands: {e}")
 

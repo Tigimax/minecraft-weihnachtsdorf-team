@@ -275,6 +275,15 @@ class ApplyStartView(discord.ui.View):
     async def btn_apply(self, interaction: discord.Interaction, button: discord.ui.Button):
         await trigger_application_modal(interaction)
 
+    @discord.ui.button(
+        label="Abmelden",
+        style=discord.ButtonStyle.secondary,
+        emoji="🚪",
+        custom_id="wd_optout_start_btn",
+    )
+    async def btn_optout(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await trigger_optout_flow(interaction)
+
 
 class AppealStartView(discord.ui.View):
     def __init__(self):
@@ -312,6 +321,31 @@ class AdminActionRow(discord.ui.View):
                 style=discord.ButtonStyle.danger,
                 emoji="❌",
                 custom_id=f"{prefix}:reject:{app_id}",
+            )
+        )
+
+
+class ReclaimAccountView(discord.ui.View):
+    """View sent to #admin-logs when a departed member rejoins the Discord server."""
+    def __init__(self, target_uid: str, discord_id: str, ign: str):
+        super().__init__(timeout=None)
+        self.target_uid = target_uid
+        self.discord_id = discord_id
+        self.ign = ign
+        self.add_item(
+            discord.ui.Button(
+                label="Account reaktivieren",
+                style=discord.ButtonStyle.success,
+                emoji="✅",
+                custom_id=f"reclaim:accept:{target_uid}:{discord_id}",
+            )
+        )
+        self.add_item(
+            discord.ui.Button(
+                label="Inaktiv lassen",
+                style=discord.ButtonStyle.secondary,
+                emoji="✖️",
+                custom_id=f"reclaim:dismiss:{target_uid}:{discord_id}",
             )
         )
 
@@ -371,6 +405,90 @@ async def trigger_application_modal(interaction: discord.Interaction):
         return
 
     await interaction.response.send_modal(ApplicationModal())
+
+
+class OptOutModal(discord.ui.Modal, title="Vom Weihnachtsdorf 7 abmelden"):
+    """Modal presented to players who want to deregister from the project."""
+    reason_input = discord.ui.TextInput(
+        label="Grund für deine Abmeldung (optional)",
+        placeholder="z. B. Zeitmangel, Schul-/Unistress, Pause...",
+        required=False,
+        max_length=200,
+        style=discord.TextStyle.paragraph,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        user_reason = self.reason_input.value.strip() or "Keine Begründung angegeben"
+        discord_id = str(interaction.user.id)
+
+        ldap = LDAPClient()
+        user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(interaction.user.name)
+        status = applications.get_user_status(discord_id)
+
+        if not user and not status.get("has_pending"):
+            await interaction.followup.send(
+                "❌ Du bist aktuell nicht als Teilnehmer registriert und hast keine offene Bewerbung.",
+                ephemeral=True,
+            )
+            return
+
+        res = await asyncio.to_thread(
+            revoke_user_privileges,
+            target=user if user else discord_id,
+            reason=f"Selbstabmeldung: {user_reason}",
+            initiator=f"{interaction.user.name} (Selbstabmeldung)",
+        )
+
+        ign = res.get("minecraft_name")
+        uid = res.get("username") or interaction.user.name
+
+        try:
+            log_admin_event(
+                title="👋 Spieler hat sich selbst abgemeldet",
+                description=f"**{interaction.user.name}** ({interaction.user.mention}) hat sich selbstständig vom Weihnachtsdorf 7 abgemeldet.",
+                color=COLOR_INFO,
+                fields=[
+                    {"name": "Discord-Nutzer", "value": f"{interaction.user.name} (`{interaction.user.id}`)", "inline": True},
+                    {"name": "Account / IGN", "value": f"`{uid}` (IGN: `{ign}`)" if ign else f"`{uid}`", "inline": True},
+                    {"name": "Grund", "value": user_reason, "inline": False},
+                    {"name": "Status", "value": "🔒 Berechtigungen & Whitelist entzogen (Account bleibt erhalten)", "inline": False},
+                ],
+                author_name="Selbstabmeldung",
+            )
+        except Exception as e:
+            logger.error(f"Error logging self-optout event: {e}")
+
+        await sync_playerlist_bot(bot, force=True)
+
+        await interaction.followup.send(
+            "✅ **Du hast dich erfolgreich vom Weihnachtsdorf 7 abgemeldet.**\n\n"
+            "Deine Whitelist und deine Rollen wurden vorübergehend deaktiviert.\n"
+            "Dein Account und deine bisherigen Daten bleiben sicher im System gespeichert.\n"
+            "Wenn du später wieder mitmachen möchtest, kannst du dich jederzeit wieder bei den Admins melden. Danke für deine Teilnahme! 🎄",
+            ephemeral=True,
+        )
+
+
+async def trigger_optout_flow(interaction: discord.Interaction):
+    """Validates user eligibility and displays the opt-out modal."""
+    if interaction.response.is_done():
+        return
+
+    discord_id = str(interaction.user.id)
+    ldap = LDAPClient()
+    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(interaction.user.name)
+    status = applications.get_user_status(discord_id)
+
+    if not user and not status.get("has_pending"):
+        await interaction.response.send_message(
+            "❌ **Du bist aktuell nicht für Weihnachtsdorf 7 registriert und hast keine offene Bewerbung.**\n"
+            "Eine Abmeldung ist daher nicht notwendig.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.send_modal(OptOutModal())
 
 
 async def trigger_unban_modal(interaction: discord.Interaction):
@@ -872,6 +990,102 @@ async def handle_manual_invite_submit(
     await interaction.followup.send(embed=embed)
 
 
+async def handle_reclaim_accept(interaction: discord.Interaction, target_uid: str, discord_id: str):
+    """Admin clicks [Account reaktivieren] for a returned user."""
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren dürfen Accounts reaktivieren.", ephemeral=True)
+        return
+
+    await interaction.response.defer()
+
+    try:
+        # Verify if returning user has Discord Admin permissions
+        is_discord_admin = False
+        if discord_id and interaction.guild:
+            member = interaction.guild.get_member(int(discord_id))
+            if member:
+                is_discord_admin = is_admin_user(member)
+
+        target_role = "admin" if is_discord_admin else "player"
+
+        res = await asyncio.to_thread(
+            restore_user_privileges,
+            target=target_uid,
+            role=target_role,
+            initiator=f"{interaction.user.name} ({interaction.user.id})",
+        )
+
+        disabled_view = discord.ui.View()
+        if interaction.message and interaction.message.components:
+            for row in interaction.message.components:
+                for child in row.children:
+                    btn = discord.ui.Button(
+                        label=child.label,
+                        style=child.style,
+                        emoji=child.emoji,
+                        disabled=True,
+                    )
+                    disabled_view.add_item(btn)
+
+        embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed(title="Account reaktiviert")
+        embed.color = discord.Color.green()
+        embed.add_field(
+            name="✅ Reaktiviert von",
+            value=f"{interaction.user.mention} (Rolle: `{target_role}`)",
+            inline=False,
+        )
+        embed.set_footer(text=f"Reaktiviert von {interaction.user.name} • {datetime.now(timezone.utc).strftime('%d.%m.%Y %H:%M')}")
+        await interaction.edit_original_response(embed=embed, view=disabled_view)
+
+        if discord_id:
+            ign = res.get("minecraft_name") or target_uid
+            dm_msg = (
+                f"🎄 **Willkommen zurück im Weihnachtsdorf 7!** 🎄\n\n"
+                f"Ein Administrator ({interaction.user.name}) hat deinen Account erfolgreich **reaktiviert**!\n\n"
+                f"🎮 **Status:**\n"
+                f"• Rolle: `{target_role.upper()}`\n"
+                f"• Whitelist & Rechte auf dem Minecraft-Server (`tigimax.mooo.com`) sind wieder aktiv.\n"
+                f"• Deine Portale & SSO-Logins sind wieder freigeschaltet.\n\n"
+                f"Viel Spaß wieder auf dem Server! 🎅"
+            )
+            send_dm(discord_id, dm_msg)
+
+        await sync_playerlist_bot(bot, force=True)
+
+    except Exception as e:
+        logger.error(f"Error reclaiming account for {target_uid}: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Fehler bei der Reaktivierung: {e}", ephemeral=True)
+
+
+async def handle_reclaim_dismiss(interaction: discord.Interaction, target_uid: str, discord_id: str):
+    """Admin clicks [Inaktiv lassen] for a returned user."""
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können diese Aktion ausführen.", ephemeral=True)
+        return
+
+    disabled_view = discord.ui.View()
+    if interaction.message and interaction.message.components:
+        for row in interaction.message.components:
+            for child in row.children:
+                btn = discord.ui.Button(
+                    label=child.label,
+                    style=child.style,
+                    emoji=child.emoji,
+                    disabled=True,
+                )
+                disabled_view.add_item(btn)
+
+    embed = interaction.message.embeds[0] if (interaction.message and interaction.message.embeds) else discord.Embed(title="Account nicht reaktiviert")
+    embed.color = discord.Color.dark_grey()
+    embed.add_field(
+        name="✖️ Inaktiv belassen",
+        value=f"Von {interaction.user.mention} als inaktiv belassen.",
+        inline=False,
+    )
+    embed.set_footer(text=f"Inaktiv belassen von {interaction.user.name} • {datetime.now(timezone.utc).strftime('%d.%m.%Y %H:%M')}")
+    await interaction.response.edit_message(embed=embed, view=disabled_view)
+
+
 # ---------------------------------------------------------------------------
 # Global Interaction Listener for Dynamic Buttons
 # ---------------------------------------------------------------------------
@@ -887,10 +1101,25 @@ async def on_interaction(interaction: discord.Interaction):
         # Persistent view buttons (handled by views directly)
         if custom_id in (
             "wd_apply_start_btn",
+            "wd_optout_start_btn",
             "wd_appeal_start_btn",
             "wd_manual_invite_start_btn",
             "wd_manual_invite_refresh_list_btn",
         ):
+            return
+
+        if custom_id.startswith("reclaim:accept:"):
+            parts = custom_id.split(":")
+            target_uid = parts[2]
+            discord_id = parts[3] if len(parts) > 3 else ""
+            await handle_reclaim_accept(interaction, target_uid, discord_id)
+            return
+
+        if custom_id.startswith("reclaim:dismiss:"):
+            parts = custom_id.split(":")
+            target_uid = parts[2]
+            discord_id = parts[3] if len(parts) > 3 else ""
+            await handle_reclaim_dismiss(interaction, target_uid, discord_id)
             return
 
         if custom_id.startswith("app:accept:"):
@@ -985,24 +1214,35 @@ async def ensure_channels_and_pins():
             logger.warning(f"Could not create #anmeldung channel: {e}")
 
     if anmeldung_ch:
-        # Check if pinned guide message exists
+        embed = discord.Embed(
+            title="🎄 Anmeldung für Weihnachtsdorf 7 🎄",
+            description=(
+                "Willkommen im weihnachtlichen SMP-Projekt! Hier kannst du deine Teilnahme verwalten.\n\n"
+                "📝 **So funktioniert die Anmeldung:**\n"
+                "1. Klicke unten auf den Button **„Jetzt bewerben“** oder nutze den Befehl `/anmelden`.\n"
+                "2. Gib eine kurze Nachricht an das Team ein (wer du bist, warum du mitmachen möchtest).\n"
+                "3. Dein Antrag wird vertraulich an die Administratoren übermittelt.\n"
+                "4. Nach der Annahme erhältst du eine Direktnachricht (DM) mit deinem persönlichen Registrierungs-Link.\n\n"
+                "🚪 **Teilnahme beenden / Abmelden:**\n"
+                "Falls du deine Teilnahme beenden oder pausieren möchtest, kannst du dich unten über **„Abmelden“** (oder `/abmelden`) jederzeit selbstständig austragen. Dein Account und deine Bauwerke bleiben dabei sicher gespeichert!"
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text="Weihnachtsdorf 7 Identity System • WHD Privileges")
+
+        guide_msg = None
         pins = [p async for p in anmeldung_ch.pins()]
-        has_guide = any(p.author.id == bot.user.id and "Anmeldung für Weihnachtsdorf 7" in (p.embeds[0].title if p.embeds else "") for p in pins)
-        if not has_guide:
-            embed = discord.Embed(
-                title="🎄 Anmeldung für Weihnachtsdorf 7 🎄",
-                description=(
-                    "Willkommen im weihnachtlichen SMP-Projekt! Hier kannst du deine Teilnahme beantragen.\n\n"
-                    "📝 **So funktioniert die Anmeldung:**\n"
-                    "1. Klicke unten auf den Button **„Jetzt bewerben“** oder nutze den Befehl `/anmelden`.\n"
-                    "2. Gib eine kurze Nachricht an das Team ein (wer du bist, warum du mitmachen möchtest).\n"
-                    "3. Dein Antrag wird vertraulich an die Administratoren übermittelt.\n"
-                    "4. Nach der Annahme erhältst du eine Direktnachricht (DM) mit deinem persönlichen Registrierungs-Link.\n\n"
-                    "*(Deinen Minecraft-Namen gibst du erst nach der Zusage bei der Accounterstellung an!)*"
-                ),
-                color=discord.Color.gold(),
-            )
-            embed.set_footer(text="Weihnachtsdorf 7 Identity System • WHD Privileges")
+        for p in pins:
+            if p.author.id == bot.user.id and "Anmeldung für Weihnachtsdorf 7" in (p.embeds[0].title if p.embeds else ""):
+                guide_msg = p
+                break
+
+        if guide_msg:
+            try:
+                await guide_msg.edit(embed=embed, view=ApplyStartView())
+            except Exception as e:
+                logger.warning(f"Failed to update pinned guide in #anmeldung: {e}")
+        else:
             msg = await anmeldung_ch.send(embed=embed, view=ApplyStartView())
             try:
                 await msg.pin()
@@ -1127,6 +1367,14 @@ async def ensure_channels_and_pins():
 )
 async def cmd_anmelden(interaction: discord.Interaction):
     await trigger_application_modal(interaction)
+
+
+@tree.command(
+    name="abmelden",
+    description="Melde dich selbstständig von Weihnachtsdorf 7 ab (beendet Teilnahme, behält Account).",
+)
+async def cmd_abmelden(interaction: discord.Interaction):
+    await trigger_optout_flow(interaction)
 
 
 @tree.command(
@@ -1548,6 +1796,79 @@ async def playerlist_sync_loop():
 @playerlist_sync_loop.before_loop
 async def before_playerlist_sync_loop():
     await bot.wait_until_ready()
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    """
+    Triggered when a member joins the Discord server.
+    If the user already has an existing project account in LDAP (which was deactivated when they left),
+    alerts admins in #admin-logs with an interactive [Account reaktivieren] button.
+    """
+    if settings.DISCORD_GUILD_ID and member.guild.id != int(settings.DISCORD_GUILD_ID):
+        return
+
+    if member.bot:
+        return
+
+    logger.info(f"Member joined guild {member.guild.name}: {member.name} (ID: {member.id}, Display: {member.display_name})")
+
+    # Search for existing account in LDAP
+    ldap = LDAPClient()
+    user = await asyncio.to_thread(ldap.search_by_discord, str(member.id))
+    if not user:
+        user = await asyncio.to_thread(ldap.search_by_discord, member.name)
+    if not user and member.display_name != member.name:
+        user = await asyncio.to_thread(ldap.search_by_discord, member.display_name)
+
+    if not user:
+        try:
+            log_admin_event(
+                title="🟢 Neues Mitglied beigetreten",
+                description=f"**{member.name}** ({member.mention}) ist dem Discord-Server beigetreten.\n*(Neuer Nutzer, noch kein Projekt-Account)*",
+                color=COLOR_INFO,
+                fields=[
+                    {"name": "Discord-Nutzer", "value": f"{member.name} (`{member.id}`)", "inline": True},
+                ],
+                author_name="Discord Gateway",
+            )
+        except Exception as e:
+            logger.error(f"Error logging new member join: {e}")
+        return
+
+    # Existing account found!
+    username = user["uid"]
+    ign = user.get("minecraftName")
+    mc_uuid = user.get("minecraftUuid")
+
+    logger.info(f"Departed member {member.name} rejoined! Found existing account: {username} (IGN: {ign})")
+
+    view = ReclaimAccountView(target_uid=username, discord_id=str(member.id), ign=ign or "")
+
+    embed = discord.Embed(
+        title="🔄 Ehemaliger Nutzer wieder beigetreten",
+        description=(
+            f"**{member.name}** ({member.mention}) ist dem Discord-Server wieder beigetreten!\n"
+            f"Sein Projekt-Account existiert bereits im System, ist aber derzeit **deaktiviert** (ohne Berechtigungen)."
+        ),
+        color=discord.Color.gold(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="Account (UID)", value=f"`{username}`", inline=True)
+    embed.add_field(name="Discord", value=f"{member.name} (`{member.id}`)", inline=True)
+    embed.add_field(name="Minecraft IGN", value=f"`{ign}`" if ign else "*(Kein IGN hinterlegt)*", inline=True)
+    embed.add_field(
+        name="Aktion erforderlich",
+        value="Klicke unten auf **„Account reaktivieren“**, um seine Whitelist und Rechte mit einem Klick wiederherzustellen.",
+        inline=False,
+    )
+    embed.set_footer(text="Weihnachtsdorf 7 Identity System • WHD Privileges")
+
+    logs_ch_id = getattr(settings, "DISCORD_CHANNEL_LOGS_ID", "")
+    if logs_ch_id:
+        channel = member.guild.get_channel(int(logs_ch_id))
+        if channel:
+            await channel.send(embed=embed, view=view)
 
 
 @bot.event

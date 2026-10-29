@@ -10,10 +10,10 @@ Features:
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import urllib.parse
 import urllib.request
 import discord
@@ -266,7 +266,7 @@ class ManualInviteStartView(discord.ui.View):
 class BroadcastModal(discord.ui.Modal, title="📢 Admin-Rundruf senden"):
     """Modal for sending broadcasts / DMs to project roles or individual users."""
     target_input = discord.ui.TextInput(
-        label="Empfänger (all, player, staff, admin ODER User)",
+        label="Empfänger (all/player/staff/admin/User)",
         placeholder="all, player, staff, admin ODER @Nutzer / Username",
         default="all",
         required=True,
@@ -442,6 +442,192 @@ class AdminControlDashboardView(discord.ui.View):
             await interaction.response.send_message("❌ Nur Administratoren können Rundrufe senden.", ephemeral=True)
             return
         await interaction.response.send_modal(BroadcastModal())
+
+
+# ---------------------------------------------------------------------------
+# Maintenance Countdown State & Automation
+# ---------------------------------------------------------------------------
+
+active_maintenance: Optional[Dict[str, Any]] = None
+
+
+class MaintenanceAbortView(discord.ui.View):
+    """View attached to active maintenance countdown embed with abort button."""
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Wartungs-Countdown abbrechen",
+        style=discord.ButtonStyle.danger,
+        emoji="🛑",
+        custom_id="wd_maint_abort_btn",
+    )
+    async def btn_abort(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin_user(interaction.user):
+            await interaction.response.send_message("❌ Nur Administratoren können den Countdown abbrechen.", ephemeral=True)
+            return
+        await cancel_maintenance_countdown(interaction)
+
+
+async def cancel_maintenance_countdown(interaction: discord.Interaction):
+    global active_maintenance
+    if not active_maintenance:
+        if interaction.response.is_done():
+            await interaction.followup.send("ℹ️ Aktuell läuft kein Wartungs-Countdown.", ephemeral=True)
+        else:
+            await interaction.response.send_message("ℹ️ Aktuell läuft kein Wartungs-Countdown.", ephemeral=True)
+        return
+
+    task = active_maintenance.get("task")
+    msg = active_maintenance.get("message")
+    active_maintenance = None
+
+    if task and not task.done():
+        task.cancel()
+
+    mc = MinecraftSyncClient()
+    await asyncio.to_thread(
+        mc.broadcast_ingame,
+        message="Die geplante Serverwartung wurde abgebrochen. Normaler Spielbetrieb!",
+        title="Wartung abgebrochen",
+        subtitle="Viel Spaß weiterhin!",
+    )
+
+    log_admin_event(
+        title="🛑 Wartungs-Countdown abgebrochen",
+        description=f"Administrator {interaction.user.mention} hat den laufenden Wartungs-Countdown abgebrochen.",
+        color=COLOR_SUCCESS,
+        author_name=interaction.user.name,
+    )
+
+    if msg:
+        try:
+            embed = discord.Embed(
+                title="🛑 Serverwartung abgebrochen",
+                description=f"Der Countdown wurde von {interaction.user.mention} vorzeitig gestoppt.\nDer Server bleibt normal geöffnet.",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.set_footer(text=f"Abgebrochen von {interaction.user.name}")
+            await msg.edit(embed=embed, view=None)
+        except Exception:
+            pass
+
+    if interaction.response.is_done():
+        await interaction.followup.send("✅ Der Wartungs-Countdown wurde erfolgreich abgebrochen.", ephemeral=True)
+    else:
+        await interaction.response.send_message("✅ Der Wartungs-Countdown wurde erfolgreich abgebrochen.", ephemeral=True)
+
+
+async def run_maintenance_countdown(duration_minutes: int, reason: str, initiator: discord.Member, message: discord.Message):
+    global active_maintenance
+    mc = MinecraftSyncClient()
+    total_seconds = duration_minutes * 60
+    end_time = datetime.now(timezone.utc) + timedelta(seconds=total_seconds)
+
+    # Initial announcement
+    await asyncio.to_thread(
+        mc.broadcast_ingame,
+        message=f"Serverwartung in {duration_minutes} Minuten! Grund: {reason}",
+        title=f"Wartung in {duration_minutes} Min",
+        subtitle=reason,
+    )
+
+    milestones = {
+        1800: "30 Minuten",
+        900: "15 Minuten",
+        600: "10 Minuten",
+        300: "5 Minuten",
+        180: "3 Minuten",
+        120: "2 Minuten",
+        60: "1 Minute",
+        30: "30 Sekunden",
+        10: "10 Sekunden",
+        5: "5 Sekunden",
+    }
+
+    try:
+        while True:
+            remaining = int((end_time - datetime.now(timezone.utc)).total_seconds())
+            if remaining <= 0:
+                break
+
+            if remaining in milestones:
+                label = milestones[remaining]
+                await asyncio.to_thread(
+                    mc.broadcast_ingame,
+                    message=f"Achtung: Serverwartung in {label}! Bitte bringt euch in Sicherheit.",
+                    title=f"Wartung in {label}",
+                    subtitle="Bitte ausloggen!",
+                )
+
+            # Update Discord embed
+            if remaining % 30 == 0 or remaining in (60, 30, 10):
+                try:
+                    mins = remaining // 60
+                    secs = remaining % 60
+                    embed = discord.Embed(
+                        title="⏳ Geplante Serverwartung • Countdown läuft",
+                        description=(
+                            f"**Verbleibende Zeit:** `{mins:02d}:{secs:02d}` Minuten\n"
+                            f"**Grund:** {reason}\n"
+                            f"**Geplant von:** {initiator.mention}\n\n"
+                            f"⚠️ *Bei Ablauf werden alle Spieler gekickt und der Server in den Wartungsmodus versetzt.*"
+                        ),
+                        color=discord.Color.red() if remaining <= 60 else discord.Color.orange(),
+                        timestamp=datetime.now(timezone.utc),
+                    )
+                    embed.set_footer(text="Klicke auf den Button unten, um den Countdown vorzeitig abzubrechen.")
+                    await message.edit(embed=embed, view=MaintenanceAbortView())
+                except Exception:
+                    pass
+
+            await asyncio.sleep(1)
+
+        # Countdown finished!
+        active_maintenance = None
+
+        # 1. Final Ingame Kick & Lock
+        kick_reason = f"Geplante Serverwartung: {reason}"
+        await asyncio.to_thread(
+            mc.execute_commands,
+            [f'kick @a "{kick_reason}"']
+        )
+        await asyncio.to_thread(mc.lock_project)
+
+        # 2. Audit log
+        log_admin_event(
+            title="🔒 Serverwartung aktiviert (Countdown abgelaufen)",
+            description=f"Der Countdown von {initiator.mention} ist abgelaufen. Server wurde gesperrt und alle Spieler gekickt.",
+            color=COLOR_WARNING,
+            fields=[
+                {"name": "Dauer", "value": f"{duration_minutes} Minuten", "inline": True},
+                {"name": "Grund", "value": reason, "inline": True},
+                {"name": "Status", "value": "🔒 Wartungsmodus aktiv", "inline": True},
+            ],
+            author_name=initiator.name,
+        )
+
+        # 3. Update playerlist & Discord message
+        await sync_playerlist_bot(bot, force=True)
+
+        embed = discord.Embed(
+            title="🔒 Serverwartung aktiv (Gesperrt)",
+            description=(
+                f"**Der Countdown ist abgelaufen.**\n\n"
+                f"• Alle Spieler wurden mit Grund `{reason}` gekickt.\n"
+                f"• Die Server-Whitelist wurde geschlossen (nur Teammitglieder).\n"
+                f"• BlueMap befindet sich im Wartungsmodus."
+            ),
+            color=discord.Color.dark_red(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_footer(text=f"Wartung ausgeführt von {initiator.name}")
+        await message.edit(embed=embed, view=None)
+
+    except asyncio.CancelledError:
+        logger.info("Maintenance countdown task was cancelled.")
+        raise
 
 
 class ApplyStartView(discord.ui.View):
@@ -1292,6 +1478,7 @@ async def on_interaction(interaction: discord.Interaction):
             "wd_ctrl_sync_btn",
             "wd_ctrl_invite_btn",
             "wd_ctrl_broadcast_btn",
+            "wd_maint_abort_btn",
         ):
             return
 
@@ -1558,14 +1745,19 @@ async def ensure_channels_and_pins():
                 title="🛠️ Weihnachtsdorf 7 • Admin-Steuerungszentrale",
                 description=(
                     "Willkommen in der **Admin-Leitstelle**! Hier kannst du das gesamte Projekt, Server, "
-                    "Accounts und Synchronisierungen direkt per Slash-Command (`/`) oder Schnellzugriffs-Buttons steuern.\n\n"
+                    "Accounts, Live-Metriken und Spieler direkt per Slash-Command (`/`) oder Schnellzugriffs-Buttons steuern.\n\n"
                     "📋 **Wichtige Management-Befehle (`/`):**\n\n"
                     "🚀 **Projekt- & Server-Verwaltung:**\n"
+                    "• `/live-status` — Echtzeit-Metriken (CPU, RAM, Uptime, TPS, Spielerzahl via Wings-API).\n"
+                    "• `/online-spieler` — Zeigt alle aktuell verbundenen Spieler mit Rolle & Discord-Tag.\n"
+                    "• `/wartung-timer <minuten> [grund]` — Startet automatisierten Countdown (Chat/Title + Auto-Kick & Lock).\n"
+                    "• `/wartung-abbrechen` — Bricht den laufenden Wartungs-Countdown sofort ab.\n"
                     "• `/projekt-start` — Startet Weihnachtsdorf 7: Öffnet die Whitelist für alle registrierten Spieler.\n"
                     "• `/projekt-sperren` — Wartungsmodus aktivieren: Nimmt normale Spieler von der Whitelist.\n"
                     "• `/mc-befehl <befehl>` — Führt Konsolenbefehle via RCON aus (z. B. `/mc-befehl befehl:weather clear`).\n"
                     "• `/sync-alle` — Forciert den sofortigen Komplett-Sync aller Dienste (LDAP, Authentik, MC, Planka).\n\n"
-                    "👥 **Benutzer- & Rechte-Management:**\n"
+                    "👥 **Benutzer- & Moderations-Management:**\n"
+                    "• `/spieler-kick <ziel> [grund]` — Kickt einen Spieler sofort vom Server.\n"
                     "• `/einladen <discord_nutzer> [rolle] [ign]` — Erstellt eine Einladung (Admin-Check aktiv).\n"
                     "• `/zugang-entziehen <ziel> [account_behalten]` — Entzieht Zugänge (wie `wd-admin revoke`).\n"
                     "• `/ban-spieler <ziel> <grund>` — Sperrt einen Spieler auf Minecraft und blockiert BlueMap.\n"
@@ -2460,6 +2652,257 @@ async def cmd_admin_spieler(interaction: discord.Interaction, ziel: str):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@tree.command(
+    name="live-status",
+    description="Echtzeit-Hardware- und Servermetriken (CPU, RAM, Disk, Uptime, TPS, Spielerzahl).",
+)
+async def cmd_live_status(interaction: discord.Interaction):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können den Live-Status abrufen.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    mc = MinecraftSyncClient()
+    tel = await asyncio.to_thread(mc.get_server_telemetry)
+    tps = await asyncio.to_thread(mc.get_live_tps)
+    online_count, max_p, players = await asyncio.to_thread(mc.get_online_players)
+    is_live = mc.is_project_launched()
+
+    state = tel.get("state", "unknown").upper()
+    cpu = tel.get("cpu_percent", 0.0)
+    ram_used = tel.get("memory_used_mb", 0.0)
+    ram_max = tel.get("memory_max_mb", 0.0)
+    ram_pct = tel.get("memory_percent", 0.0)
+    disk_used = tel.get("disk_used_mb", 0.0)
+    uptime_s = tel.get("uptime_seconds", 0)
+
+    days = uptime_s // 86400
+    hours = (uptime_s % 86400) // 3600
+    minutes = (uptime_s % 3600) // 60
+    uptime_str = f"{days}d {hours}h {minutes}m" if days > 0 else f"{hours}h {minutes}m"
+
+    embed = discord.Embed(
+        title="📊 Minecraft Live-Servermetriken",
+        description=f"Status: **{state}** | Modus: **{'🟢 LIVE (Offen)' if is_live else '🔒 WARTUNG (Gesperrt)'}**",
+        color=discord.Color.green() if state == "RUNNING" else discord.Color.red(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="⚡ TPS (5s, 1m, 5m, 15m)", value=f"`{tps}`", inline=False)
+    embed.add_field(name="👥 Spieler Online", value=f"**{online_count}** / {max_p}", inline=True)
+    embed.add_field(name="⏱️ Server-Uptime", value=f"`{uptime_str}`", inline=True)
+    embed.add_field(name="🖥️ CPU-Last", value=f"`{cpu}%`", inline=True)
+    embed.add_field(name="🧠 RAM-Verbrauch", value=f"`{ram_used:.0f} MB` / `{ram_max:.0f} MB` ({ram_pct}%)", inline=True)
+    embed.add_field(name="💾 Festplatte", value=f"`{disk_used:.0f} MB`", inline=True)
+    embed.add_field(name="🎮 Engine", value="`Purpur 26.3 (Java 25)`", inline=True)
+    embed.set_footer(text=f"Abgerufen von {interaction.user.name} • Pterodactyl Wings Telemetry")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="online-spieler",
+    description="Zeigt alle aktuell auf dem Minecraft-Server verbundenen Spieler mit Discord-Verknüpfung.",
+)
+async def cmd_online_spieler(interaction: discord.Interaction):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können die Spielerliste abrufen.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    mc = MinecraftSyncClient()
+    ldap = LDAPClient()
+    count, max_p, names = await asyncio.to_thread(mc.get_online_players)
+
+    admins, mods = ldap.get_admins_and_mods()
+    admin_uids = {a.get("minecraftName", "").lower() for a in admins if a.get("minecraftName")}
+    mod_uids = {m.get("minecraftName", "").lower() for m in mods if m.get("minecraftName")}
+
+    embed = discord.Embed(
+        title=f"👥 Aktuell verbundene Spieler ({count}/{max_p})",
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    if not names:
+        embed.description = "Aktuell befindet sich **kein Spieler** auf dem Server."
+    else:
+        lines = []
+        for ign in names:
+            ign_clean = ign.strip()
+            u = ldap.search_by_minecraft(ign_clean)
+            discord_tag = f"<@{u['discordId']}>" if (u and u.get("discordId")) else (f"`{u['discordName']}`" if (u and u.get("discordName")) else "*Nicht verknüpft*")
+            
+            if ign_clean.lower() in admin_uids:
+                badge = "👑 `Admin`"
+            elif ign_clean.lower() in mod_uids:
+                badge = "🛡️ `Mod`"
+            else:
+                badge = "🎮 `Spieler`"
+
+            lines.append(f"• **{ign_clean}** — {badge} — Discord: {discord_tag}")
+        embed.description = "\n".join(lines)
+
+    embed.set_footer(text=f"Abgerufen von {interaction.user.name}")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="spieler-kick",
+    description="Kickt einen Spieler sofort mit Begründung vom Minecraft-Server.",
+)
+@app_commands.describe(
+    ziel="Minecraft-Name oder Discord @Mention / ID",
+    grund="Begründung für den Kick (erscheint auf dem Kick-Screen)",
+)
+async def cmd_spieler_kick(interaction: discord.Interaction, ziel: str, grund: Optional[str] = "Vom Administrator gekickt"):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können Spieler kicken.", ephemeral=True)
+        return
+
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+    clean_reason = (grund or "Vom Administrator gekickt").strip()
+
+    ldap = LDAPClient()
+    user = None
+    if clean_target.isdigit():
+        user = ldap.search_by_discord(clean_target)
+    if not user:
+        user = ldap.get_user(clean_target) or ldap.search_by_discord(clean_target) or ldap.search_by_minecraft(clean_target)
+
+    ign = user.get("minecraftName") if user else clean_target
+    if not ign:
+        await interaction.response.send_message(f"❌ Für '{ziel}' konnte kein Minecraft Ingame-Name ermittelt werden.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    mc = MinecraftSyncClient()
+    kick_cmd = f'kick {ign} "{clean_reason}"'
+    ok = await asyncio.to_thread(mc.execute_commands, [kick_cmd])
+
+    log_admin_event(
+        title="👢 Spieler vom Server gekickt",
+        description=f"Spieler **{ign}** wurde von {interaction.user.mention} vom Minecraft-Server gekickt.",
+        color=COLOR_WARNING,
+        fields=[
+            {"name": "Minecraft-Name", "value": f"`{ign}`", "inline": True},
+            {"name": "Begründung", "value": clean_reason, "inline": True},
+            {"name": "Gekickt von", "value": interaction.user.mention, "inline": True},
+        ],
+        author_name=interaction.user.name,
+    )
+
+    embed = discord.Embed(
+        title="👢 Spieler gekickt",
+        description=f"Befehl für **{ign}** wurde an den Server übermittelt.",
+        color=discord.Color.orange(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="Minecraft-Name", value=f"`{ign}`", inline=True)
+    embed.add_field(name="Begründung", value=clean_reason, inline=True)
+    embed.add_field(name="Status", value="✅ Ausgeführt" if ok else "⚠️ Übertragungsfehler", inline=True)
+    embed.set_footer(text=f"Ausgeführt von {interaction.user.name}")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="wartung-timer",
+    description="Startet einen automatisierten Countdown für geplante Serverwartung.",
+)
+@app_commands.describe(
+    minuten="Countdown-Dauer in Minuten (z. B. 1, 5, 10, 15)",
+    grund="Optionale Begründung für den Wartungs-Kick",
+)
+@app_commands.choices(
+    minuten=[
+        app_commands.Choice(name="1 Minute (Schnelltest)", value=1),
+        app_commands.Choice(name="2 Minuten", value=2),
+        app_commands.Choice(name="5 Minuten (Standard)", value=5),
+        app_commands.Choice(name="10 Minuten", value=10),
+        app_commands.Choice(name="15 Minuten", value=15),
+        app_commands.Choice(name="30 Minuten", value=30),
+    ]
+)
+async def cmd_wartung_timer(
+    interaction: discord.Interaction,
+    minuten: app_commands.Choice[int],
+    grund: Optional[str] = "Geplante Serverwartung",
+):
+    global active_maintenance
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können den Wartungs-Timer starten.", ephemeral=True)
+        return
+
+    if active_maintenance:
+        await interaction.response.send_message(
+            "⚠️ Es läuft bereits ein Wartungs-Countdown! Nutze `/wartung-abbrechen` oder den roten Button, um ihn zu stoppen.",
+            ephemeral=True,
+        )
+        return
+
+    dur = minuten.value
+    clean_reason = grund.strip() if grund else "Geplante Serverwartung"
+
+    embed = discord.Embed(
+        title="⏳ Geplante Serverwartung • Countdown gestartet",
+        description=(
+            f"**Dauer:** `{dur}` Minuten\n"
+            f"**Grund:** {clean_reason}\n"
+            f"**Gestartet von:** {interaction.user.mention}\n\n"
+            f"📢 *Warnungen werden wiederholt im Minecraft-Chat & Title gesendet.*\n"
+            f"🔒 *Bei 0 Minuten werden alle Spieler gekickt und der Server automatisch gesperrt.*"
+        ),
+        color=discord.Color.orange(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_footer(text="Klicke unten, um den Countdown vorzeitig abzubrechen.")
+    view = MaintenanceAbortView()
+
+    await interaction.response.send_message(embed=embed, view=view)
+    msg = await interaction.original_response()
+
+    task = asyncio.create_task(
+        run_maintenance_countdown(
+            duration_minutes=dur,
+            reason=clean_reason,
+            initiator=interaction.user,
+            message=msg,
+        )
+    )
+
+    active_maintenance = {
+        "task": task,
+        "message": msg,
+        "end_time": datetime.now(timezone.utc) + timedelta(minutes=dur),
+        "reason": clean_reason,
+        "initiator": interaction.user,
+    }
+
+    log_admin_event(
+        title="⏳ Wartungs-Countdown gestartet",
+        description=f"Administrator {interaction.user.mention} hat einen Wartungs-Timer über **{dur} Minuten** gestartet.",
+        color=COLOR_WARNING,
+        fields=[
+            {"name": "Dauer", "value": f"{dur} Minuten", "inline": True},
+            {"name": "Grund", "value": clean_reason, "inline": True},
+        ],
+        author_name=interaction.user.name,
+    )
+
+
+@tree.command(
+    name="wartung-abbrechen",
+    description="Bricht einen aktuell laufenden Wartungs-Countdown sofort ab.",
+)
+async def cmd_wartung_abbrechen(interaction: discord.Interaction):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können den Countdown abbrechen.", ephemeral=True)
+        return
+
+    await cancel_maintenance_countdown(interaction)
+
+
 @tasks.loop(seconds=30)
 async def playerlist_sync_loop():
     """Background task to keep #spielerliste continuously up-to-date."""
@@ -2633,6 +3076,7 @@ async def on_ready():
     bot.add_view(AppealStartView())
     bot.add_view(ManualInviteStartView())
     bot.add_view(AdminControlDashboardView())
+    bot.add_view(MaintenanceAbortView())
 
     # Sync slash commands
     try:

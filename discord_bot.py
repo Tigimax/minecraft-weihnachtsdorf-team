@@ -35,6 +35,7 @@ from wd_identity.invitations import create_user_invitation
 from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.membership import restore_user_privileges, revoke_user_privileges
+from wd_identity.planka_sync import PlankaSyncClient
 from wd_identity.playerlist import sync_playerlist_bot, sync_playerlist_rest
 from wd_identity.utils import send_dm, send_dm_rest
 
@@ -260,6 +261,187 @@ class ManualInviteStartView(discord.ui.View):
             await interaction.followup.send("✅ Die `#spielerliste` wurde erfolgreich mit allen Systemen synchronisiert.", ephemeral=True)
         else:
             await interaction.followup.send("⚠️ Fehler bei der Synchronisierung der Spielerliste.", ephemeral=True)
+
+
+class BroadcastModal(discord.ui.Modal, title="📢 Admin-Rundruf senden"):
+    """Modal for sending broadcasts / DMs to project roles or individual users."""
+    target_input = discord.ui.TextInput(
+        label="Empfänger (all, player, staff, admin ODER User)",
+        placeholder="all, player, staff, admin ODER @Nutzer / Username",
+        default="all",
+        required=True,
+        max_length=100,
+        style=discord.TextStyle.short,
+    )
+    message_input = discord.ui.TextInput(
+        label="Nachricht",
+        placeholder="Inhalt der Ankündigung oder Benachrichtigung...",
+        required=True,
+        max_length=1000,
+        style=discord.TextStyle.paragraph,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        role_or_user = self.target_input.value.strip().lower()
+        clean_msg = self.message_input.value.strip()
+
+        ldap = LDAPClient()
+        recipients = []
+        target_label = role_or_user
+
+        if role_or_user in ("all", "player", "staff", "admin", "mod"):
+            admins, mods = ldap.get_admins_and_mods()
+            players = ldap.get_players()
+            if role_or_user == "admin":
+                ul = admins
+            elif role_or_user == "mod":
+                ul = mods
+            elif role_or_user == "staff":
+                ul = admins + mods
+            elif role_or_user == "player":
+                ul = players
+            else:
+                ul = admins + mods + players
+            for r in ul:
+                h = r.get("discordId") or r.get("discordName") or r.get("uid")
+                if h and h not in recipients:
+                    recipients.append(h)
+        else:
+            clean_u = role_or_user.replace("<@", "").replace(">", "").replace("!", "")
+            u = ldap.search_by_discord(clean_u) or ldap.get_user(clean_u)
+            recipients.append(clean_u if not u else (u.get("discordId") or u.get("discordName") or u["uid"]))
+
+        if not recipients:
+            await interaction.followup.send(f"⚠️ Keine Empfänger für '{role_or_user}' gefunden.", ephemeral=True)
+            return
+
+        dm_text = (
+            f"📢 **Wichtige Mitteilung • Weihnachtsdorf 7** 🎄\n\n"
+            f"{clean_msg}\n\n"
+            f"*Gesendet von Administrator {interaction.user.name} via Admin-Steuerung.*"
+        )
+
+        succ = 0
+        fail = 0
+        for rec in recipients:
+            ok = await asyncio.to_thread(send_dm, rec, dm_text)
+            if ok:
+                succ += 1
+            else:
+                fail += 1
+
+        log_admin_event(
+            title="📢 Rundruf versendet",
+            description=f"Administrator {interaction.user.mention} hat einen Rundruf an **{target_label}** versendet.",
+            color=COLOR_SUCCESS if fail == 0 else COLOR_WARNING,
+            fields=[
+                {"name": "Ziel", "value": target_label, "inline": True},
+                {"name": "Status", "value": f"✅ {succ} zugestellt / ⚠️ {fail} fehlgeschlagen", "inline": True},
+                {"name": "Nachricht", "value": clean_msg[:400], "inline": False},
+            ],
+            author_name=interaction.user.name,
+        )
+
+        await interaction.followup.send(
+            f"📢 **Rundruf abgeschlossen!**\n"
+            f"• Zugestellt: ✅ **{succ}**\n"
+            f"• Fehlgeschlagen (DMs geschlossen): ⚠️ **{fail}**\n"
+            f"• Zielgruppe: `{target_label}`",
+            ephemeral=True,
+        )
+
+
+class AdminControlDashboardView(discord.ui.View):
+    """Interactive control dashboard pinned in #admin-steuerung."""
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Projekt starten",
+        style=discord.ButtonStyle.success,
+        emoji="🚀",
+        custom_id="wd_ctrl_launch_btn",
+    )
+    async def btn_launch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin_user(interaction.user):
+            await interaction.response.send_message("❌ Nur Administratoren können diese Aktion ausführen.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        mc = MinecraftSyncClient()
+        await asyncio.to_thread(mc.launch_project)
+        log_admin_event(
+            title="🎉 Projekt gestartet (via Dashboard)",
+            description=f"Administrator {interaction.user.mention} hat das Projekt gestartet.",
+            color=COLOR_SUCCESS,
+            author_name=interaction.user.name,
+        )
+        await sync_playerlist_bot(bot, force=True)
+        await interaction.followup.send("🚀 **Weihnachtsdorf 7 wurde gestartet!** Whitelist für alle Spieler geöffnet.", ephemeral=True)
+
+    @discord.ui.button(
+        label="Projekt sperren",
+        style=discord.ButtonStyle.danger,
+        emoji="🔒",
+        custom_id="wd_ctrl_lock_btn",
+    )
+    async def btn_lock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin_user(interaction.user):
+            await interaction.response.send_message("❌ Nur Administratoren können diese Aktion ausführen.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        mc = MinecraftSyncClient()
+        await asyncio.to_thread(mc.lock_project)
+        log_admin_event(
+            title="🔒 Projekt gesperrt (via Dashboard)",
+            description=f"Administrator {interaction.user.mention} hat das Projekt in den Wartungsmodus versetzt.",
+            color=COLOR_WARNING,
+            author_name=interaction.user.name,
+        )
+        await sync_playerlist_bot(bot, force=True)
+        await interaction.followup.send("🔒 **Projekt gesperrt!** Server ist im Wartungsmodus (nur Team).", ephemeral=True)
+
+    @discord.ui.button(
+        label="Sync forstieren",
+        style=discord.ButtonStyle.primary,
+        emoji="🔄",
+        custom_id="wd_ctrl_sync_btn",
+    )
+    async def btn_sync(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin_user(interaction.user):
+            await interaction.response.send_message("❌ Nur Administratoren können diese Aktion ausführen.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        mc = MinecraftSyncClient()
+        authentik = AuthentikClient()
+        await asyncio.to_thread(mc.sync_all, True)
+        await asyncio.to_thread(authentik.trigger_ldap_sync)
+        await sync_playerlist_bot(bot, force=True)
+        await interaction.followup.send("🔄 **Komplett-Synchronisierung erfolgreich abgeschlossen!**", ephemeral=True)
+
+    @discord.ui.button(
+        label="Nutzer einladen",
+        style=discord.ButtonStyle.success,
+        emoji="✉️",
+        custom_id="wd_ctrl_invite_btn",
+    )
+    async def btn_invite(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin_user(interaction.user):
+            await interaction.response.send_message("❌ Nur Administratoren können Nutzer einladen.", ephemeral=True)
+            return
+        await interaction.response.send_modal(ManualInviteModal())
+
+    @discord.ui.button(
+        label="Rundruf / Broadcast",
+        style=discord.ButtonStyle.secondary,
+        emoji="📢",
+        custom_id="wd_ctrl_broadcast_btn",
+    )
+    async def btn_broadcast(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin_user(interaction.user):
+            await interaction.response.send_message("❌ Nur Administratoren können Rundrufe senden.", ephemeral=True)
+            return
+        await interaction.response.send_modal(BroadcastModal())
 
 
 class ApplyStartView(discord.ui.View):
@@ -1105,6 +1287,11 @@ async def on_interaction(interaction: discord.Interaction):
             "wd_appeal_start_btn",
             "wd_manual_invite_start_btn",
             "wd_manual_invite_refresh_list_btn",
+            "wd_ctrl_launch_btn",
+            "wd_ctrl_lock_btn",
+            "wd_ctrl_sync_btn",
+            "wd_ctrl_invite_btn",
+            "wd_ctrl_broadcast_btn",
         ):
             return
 
@@ -1355,6 +1542,63 @@ async def ensure_channels_and_pins():
                 logger.info(f"Initialized manual invite dashboard in #{invite_ch.name}")
         except Exception as e:
             logger.warning(f"Failed to setup manual invite panel: {e}")
+
+    # 6. Admin Steuerung Channel & Pinned Management Dashboard
+    steuerung_ch_id = getattr(settings, "DISCORD_CHANNEL_STEURUNG_ID", "1565299837522673674")
+    steuerung_ch = guild.get_channel(int(steuerung_ch_id)) if steuerung_ch_id and steuerung_ch_id.isdigit() else None
+    if not steuerung_ch:
+        for ch in guild.text_channels:
+            if any(k in ch.name.lower() for k in ("admin-steuerung", "admin-konsole", "steuerung")):
+                steuerung_ch = ch
+                break
+
+    if steuerung_ch:
+        try:
+            embed = discord.Embed(
+                title="🛠️ Weihnachtsdorf 7 • Admin-Steuerungszentrale",
+                description=(
+                    "Willkommen in der **Admin-Leitstelle**! Hier kannst du das gesamte Projekt, Server, "
+                    "Accounts und Synchronisierungen direkt per Slash-Command (`/`) oder Schnellzugriffs-Buttons steuern.\n\n"
+                    "📋 **Wichtige Management-Befehle (`/`):**\n\n"
+                    "🚀 **Projekt- & Server-Verwaltung:**\n"
+                    "• `/projekt-start` — Startet Weihnachtsdorf 7: Öffnet die Whitelist für alle registrierten Spieler.\n"
+                    "• `/projekt-sperren` — Wartungsmodus aktivieren: Nimmt normale Spieler von der Whitelist.\n"
+                    "• `/mc-befehl <befehl>` — Führt Konsolenbefehle via RCON aus (z. B. `/mc-befehl befehl:weather clear`).\n"
+                    "• `/sync-alle` — Forciert den sofortigen Komplett-Sync aller Dienste (LDAP, Authentik, MC, Planka).\n\n"
+                    "👥 **Benutzer- & Rechte-Management:**\n"
+                    "• `/einladen <discord_nutzer> [rolle] [ign]` — Erstellt eine Einladung (Admin-Check aktiv).\n"
+                    "• `/zugang-entziehen <ziel> [account_behalten]` — Entzieht Zugänge (wie `wd-admin revoke`).\n"
+                    "• `/ban-spieler <ziel> <grund>` — Sperrt einen Spieler auf Minecraft und blockiert BlueMap.\n"
+                    "• `/pardon-spieler <ziel>` — Hebt die Sperre eines Spielers wieder auf.\n"
+                    "• `/admin-spieler <ziel>` — Zeigt die vollständige Identitäts- und Rechtedatenakte an.\n"
+                    "• `/admin-rundruf <nachricht> [rolle] [nutzer]` — Sendet Direktnachrichten an Rollen oder Spieler.\n"
+                    "• `/passwort-reset <ziel>` — Generiert einen Authentik-Passwort-Resetlink.\n"
+                    "• `/status [ziel]` — Prüft Systemstatus oder Profil.\n\n"
+                    "⚡ **Schnellzugriff (One-Click Actions):**\n"
+                    "Nutze die Buttons unten, um häufige Aufgaben blitzschnell ohne Tippen auszulösen!"
+                ),
+                color=discord.Color.from_rgb(46, 204, 113),
+            )
+            embed.set_footer(text="Weihnachtsdorf 7 Identity & Operations System • WHD Privileges")
+
+            guide_msg = None
+            pins = [p async for p in steuerung_ch.pins()]
+            for p in pins:
+                if p.author.id == bot.user.id and "Admin-Steuerungszentrale" in (p.embeds[0].title if p.embeds else ""):
+                    guide_msg = p
+                    break
+
+            if guide_msg:
+                await guide_msg.edit(embed=embed, view=AdminControlDashboardView())
+            else:
+                msg = await steuerung_ch.send(embed=embed, view=AdminControlDashboardView())
+                try:
+                    await msg.pin()
+                except Exception:
+                    pass
+            logger.info(f"Initialized admin control center in #{steuerung_ch.name}")
+        except Exception as e:
+            logger.warning(f"Failed to setup admin control panel: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1784,6 +2028,438 @@ async def cmd_links(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@tree.command(
+    name="projekt-start",
+    description="Startet Weihnachtsdorf 7: Öffnet Whitelist für alle registrierten Spieler und schaltet BlueMap frei.",
+)
+async def cmd_projekt_start(interaction: discord.Interaction):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren dürfen das Projekt starten.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    mc = MinecraftSyncClient()
+    res = await asyncio.to_thread(mc.launch_project)
+
+    log_admin_event(
+        title="🎉 WEIHNACHTSDORF 7 GESTARTET! 🎄",
+        description=f"Das Projekt wurde von {interaction.user.mention} offiziell gestartet! Whitelist für alle Teilnehmer ist aktiv.",
+        color=COLOR_SUCCESS,
+        fields=[
+            {"name": "Status", "value": "🟢 LIVE", "inline": True},
+            {"name": "Ausgeführt von", "value": interaction.user.mention, "inline": True},
+        ],
+        author_name=interaction.user.name,
+    )
+
+    await sync_playerlist_bot(bot, force=True)
+
+    embed = discord.Embed(
+        title="🎄 WEIHNACHTSDORF 7 WURDE GESTARTET! 🎄",
+        description=(
+            "**Das Projekt ist nun offiziell eröffnet!**\n\n"
+            "• Die Whitelist-Schranke wurde aufgehoben.\n"
+            "• Alle registrierten Spieler sind freigeschaltet und können verbinden.\n"
+            "• BlueMap Live-Karte ist öffentlich zugänglich."
+        ),
+        color=discord.Color.green(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_footer(text=f"Gestartet von {interaction.user.name}")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="projekt-sperren",
+    description="Versetzt den Server in Wartungsmodus (entfernt Spieler-Whitelist, Team bleibt aktiv).",
+)
+async def cmd_projekt_sperren(interaction: discord.Interaction):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren dürfen das Projekt sperren.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    mc = MinecraftSyncClient()
+    res = await asyncio.to_thread(mc.lock_project)
+
+    log_admin_event(
+        title="🔒 Projekt gesperrt (Wartungsmodus)",
+        description=f"Das Projekt wurde von {interaction.user.mention} in den Wartungsmodus versetzt.",
+        color=COLOR_WARNING,
+        fields=[
+            {"name": "Status", "value": "🔒 GESPERRT (Pre-Launch / Wartung)", "inline": True},
+            {"name": "Ausgeführt von", "value": interaction.user.mention, "inline": True},
+        ],
+        author_name=interaction.user.name,
+    )
+
+    await sync_playerlist_bot(bot, force=True)
+
+    embed = discord.Embed(
+        title="🔒 Projekt gesperrt / Wartungsmodus",
+        description=(
+            "**Der Server befindet sich nun im Wartungsmodus.**\n\n"
+            "• Reguläre Spieler wurden von der Whitelist genommen.\n"
+            "• Teammitglieder (Admins & Mods) behalten weiterhin Zugang zur Vorbereitung/Wartung.\n"
+            "• Spieler-Verbindungen sind bis zum Neustart blockiert."
+        ),
+        color=discord.Color.orange(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_footer(text=f"Gesperrt von {interaction.user.name}")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="zugang-entziehen",
+    description="Entzieht einem Nutzer alle Projekt-Zugänge und Berechtigungen.",
+)
+@app_commands.describe(
+    ziel="Discord @Mention, ID, Minecraft-Name oder Benutzername",
+    account_behalten="True = Rechte entziehen & sperren (Account behalten); False = Komplett löschen",
+)
+async def cmd_zugang_entziehen(
+    interaction: discord.Interaction, ziel: str, account_behalten: bool = True
+):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können Zugänge entziehen.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+
+    if account_behalten:
+        res = await asyncio.to_thread(
+            revoke_user_privileges,
+            target=clean_target,
+            reason="Admin Slash-Command /zugang-entziehen",
+            initiator=f"{interaction.user.name} ({interaction.user.mention})",
+        )
+        if not res.get("found"):
+            await interaction.followup.send(f"⚠️ Ziel '{ziel}' konnte in der Datenbank / LDAP nicht gefunden werden.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🔒 Zugang & Rechte entzogen",
+            description=f"Dem Nutzer **{ziel}** (`{res.get('username')}`) wurden alle Berechtigungen entzogen.",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="OpenLDAP", value="Rollen & Gruppen entfernt (Account bleibt erhalten)", inline=True)
+        embed.add_field(name="Authentik / SSO", value="Deaktiviert & BlueMap gesperrt", inline=True)
+        embed.add_field(name="Minecraft", value="Whitelist & Permissions entfernt", inline=True)
+        embed.add_field(name="Ausgeführt von", value=interaction.user.mention, inline=False)
+        embed.set_footer(text="Weihnachtsdorf 7 Identity System")
+        await interaction.followup.send(embed=embed)
+    else:
+        ldap = LDAPClient()
+        authentik = AuthentikClient()
+        planka = PlankaSyncClient()
+        mc = MinecraftSyncClient()
+
+        user = ldap.search_by_discord(clean_target) if clean_target.isdigit() else None
+        if not user:
+            user = ldap.get_user(clean_target) or ldap.search_by_discord(clean_target) or ldap.search_by_minecraft(clean_target)
+
+        username = user["uid"] if user else clean_target
+        ign = user.get("minecraftName") if user else clean_target
+        mc_uuid = user.get("minecraftUuid") if user else None
+
+        if user:
+            ldap.delete_user(username)
+        authentik.delete_user(username)
+        authentik.delete_invitations(username)
+        planka.delete_user(username)
+        if ign:
+            mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
+            mc.execute_commands([f"whitelist remove {ign}", f"lp user {ign} clear", f'kick {ign} "Zugang vollständig gelöscht"'])
+
+        log_admin_event(
+            title="🗑️ Account vollständig gelöscht (Purge)",
+            description=f"Account **{clean_target}** (`{username}`) wurde über `/zugang-entziehen` gelöscht.",
+            color=COLOR_ERROR,
+            fields=[
+                {"name": "Ziel", "value": clean_target, "inline": True},
+                {"name": "Ausgeführt von", "value": interaction.user.mention, "inline": True},
+            ],
+            author_name=interaction.user.name,
+        )
+        await sync_playerlist_bot(bot, force=True)
+
+        embed = discord.Embed(
+            title="🗑️ Account vollständig gelöscht",
+            description=f"Der Account **{clean_target}** (`{username}`) wurde vollständig aus OpenLDAP, Authentik, Planka und Minecraft gelöscht.",
+            color=discord.Color.red(),
+        )
+        await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="admin-rundruf",
+    description="Sendet eine Direktnachricht an alle Mitglieder einer Rolle oder einen bestimmten Nutzer.",
+)
+@app_commands.describe(
+    nachricht="Der Inhalt der Nachricht",
+    rolle="Zielgruppe (all, player, staff, admin, mod)",
+    nutzer="Optional: Bestimmter Nutzer (@Mention, ID oder Name)",
+)
+@app_commands.choices(
+    rolle=[
+        app_commands.Choice(name="Alle Teilnehmer (all)", value="all"),
+        app_commands.Choice(name="Nur Spieler (player)", value="player"),
+        app_commands.Choice(name="Gesamtes Team (staff)", value="staff"),
+        app_commands.Choice(name="Nur Admins (admin)", value="admin"),
+        app_commands.Choice(name="Nur Moderatoren (mod)", value="mod"),
+    ]
+)
+async def cmd_admin_rundruf(
+    interaction: discord.Interaction,
+    nachricht: str,
+    rolle: Optional[app_commands.Choice[str]] = None,
+    nutzer: Optional[str] = None,
+):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren dürfen Rundrufe versenden.", ephemeral=True)
+        return
+
+    clean_msg = nachricht.strip()
+    if not clean_msg:
+        await interaction.response.send_message("❌ Bitte gib eine Nachricht an.", ephemeral=True)
+        return
+
+    if not rolle and not nutzer:
+        await interaction.response.send_message("❌ Bitte gib entweder eine Zielrolle oder einen bestimmten Nutzer an.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    ldap = LDAPClient()
+    recipients = []
+    target_label = ""
+
+    if nutzer:
+        clean_user = nutzer.strip().replace("<@", "").replace(">", "").replace("!", "")
+        u = ldap.search_by_discord(clean_user) or ldap.get_user(clean_user)
+        target_label = f"Nutzer `{clean_user}`"
+        recipients.append(clean_user if not u else (u.get("discordId") or u.get("discordName") or u["uid"]))
+    elif rolle:
+        role_val = rolle.value
+        target_label = f"Rolle `{role_val}`"
+        admins, mods = ldap.get_admins_and_mods()
+        players = ldap.get_players()
+
+        if role_val == "admin":
+            user_list = admins
+        elif role_val == "mod":
+            user_list = mods
+        elif role_val == "staff":
+            user_list = admins + mods
+        elif role_val == "player":
+            user_list = players
+        else:
+            user_list = admins + mods + players
+
+        for r in user_list:
+            handle = r.get("discordId") or r.get("discordName") or r.get("uid")
+            if handle and handle not in recipients:
+                recipients.append(handle)
+
+    if not recipients:
+        await interaction.followup.send(f"⚠️ Keine aktiven Empfänger für {target_label} gefunden.", ephemeral=True)
+        return
+
+    dm_text = (
+        f"📢 **Wichtige Mitteilung • Weihnachtsdorf 7** 🎄\n\n"
+        f"{clean_msg}\n\n"
+        f"*Gesendet von Administrator {interaction.user.name} via Admin-Steuerung.*"
+    )
+
+    success_count = 0
+    fail_count = 0
+
+    for rec in recipients:
+        sent = await asyncio.to_thread(send_dm, rec, dm_text)
+        if sent:
+            success_count += 1
+        else:
+            fail_count += 1
+
+    log_admin_event(
+        title="📢 Rundruf versendet",
+        description=f"Administrator {interaction.user.mention} hat einen Rundruf an **{target_label}** versendet.",
+        color=COLOR_SUCCESS if fail_count == 0 else COLOR_WARNING,
+        fields=[
+            {"name": "Empfänger-Ziel", "value": target_label, "inline": True},
+            {"name": "Zugestellt", "value": f"✅ {success_count} / {len(recipients)}", "inline": True},
+            {"name": "Nachricht", "value": f"{clean_msg[:500]}..." if len(clean_msg) > 500 else clean_msg, "inline": False},
+        ],
+        author_name=interaction.user.name,
+    )
+
+    embed = discord.Embed(
+        title="📢 Rundruf abgeschlossen",
+        description=f"Nachricht an **{target_label}** wurde versendet.",
+        color=discord.Color.green() if fail_count == 0 else discord.Color.orange(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="Erfolgreich", value=f"✅ {success_count}", inline=True)
+    embed.add_field(name="Fehlgeschlagen", value=f"⚠️ {fail_count}", inline=True)
+    embed.add_field(name="Nachricht", value=clean_msg, inline=False)
+    embed.set_footer(text=f"Initiiert von {interaction.user.name}")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="mc-befehl",
+    description="Führt einen Konsolenbefehl direkt auf dem Minecraft-Server via RCON/Wings aus.",
+)
+@app_commands.describe(
+    befehl="Minecraft-Konsolenbefehl (z. B. weather clear, time set day, whitelist list, tps)"
+)
+async def cmd_mc_befehl(interaction: discord.Interaction, befehl: str):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren dürfen Minecraft-Serverbefehle ausführen.", ephemeral=True)
+        return
+
+    clean_cmd = befehl.strip()
+    if clean_cmd.startswith("/"):
+        clean_cmd = clean_cmd[1:].strip()
+
+    if not clean_cmd:
+        await interaction.response.send_message("❌ Bitte gib einen gültigen Konsolenbefehl an.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    mc = MinecraftSyncClient()
+    ok = await asyncio.to_thread(mc.execute_commands, [clean_cmd])
+
+    log_admin_event(
+        title="💻 Minecraft-Konsolenbefehl ausgeführt",
+        description=f"Administrator {interaction.user.mention} hat einen Konsolenbefehl ausgeführt.",
+        color=COLOR_INFO,
+        fields=[
+            {"name": "Befehl", "value": f"`/{clean_cmd}`", "inline": True},
+            {"name": "Status", "value": "✅ Gesendet" if ok else "❌ Fehler bei Ausführung", "inline": True},
+            {"name": "Ausgeführt von", "value": interaction.user.mention, "inline": True},
+        ],
+        author_name=interaction.user.name,
+    )
+
+    embed = discord.Embed(
+        title="💻 Minecraft Konsole",
+        description=f"Befehl: `/{clean_cmd}`",
+        color=discord.Color.green() if ok else discord.Color.red(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="Status", value="✅ Befehl erfolgreich an Server gesendet." if ok else "❌ Übertragungsfehler zur Server-Konsole.", inline=False)
+    embed.set_footer(text=f"Ausgeführt von {interaction.user.name}")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="sync-alle",
+    description="Führt einen sofortigen Komplett-Sync aller Dienste (LDAP, Authentik, Minecraft, Planka) durch.",
+)
+async def cmd_sync_alle(interaction: discord.Interaction):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren dürfen die Synchronisierung ausführen.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    mc = MinecraftSyncClient()
+    authentik = AuthentikClient()
+
+    mc_res = await asyncio.to_thread(mc.sync_all, True)
+    auth_ok = await asyncio.to_thread(authentik.trigger_ldap_sync)
+    list_ok = await sync_playerlist_bot(bot, force=True)
+
+    embed = discord.Embed(
+        title="🔄 Vollständige System-Synchronisierung",
+        description="Alle Dienste wurden erfolgreich mit OpenLDAP abgeglichen.",
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="Minecraft & Whitelist", value="✅ Synchronisiert" if mc_res else "⚠️ Fehler", inline=True)
+    embed.add_field(name="Authentik IdP", value="✅ LDAP-Task getriggert" if auth_ok else "⚠️ Fehler", inline=True)
+    embed.add_field(name="Live-Spielerliste", value="✅ Embed aktualisiert" if list_ok else "⚠️ Unverändert", inline=True)
+    embed.set_footer(text=f"Ausgeführt von {interaction.user.name}")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="admin-spieler",
+    description="Detaillierte Account- und Statusabfrage eines Spielers über alle Systeme.",
+)
+@app_commands.describe(
+    ziel="Minecraft IGN, Discord @Mention, ID oder Benutzername"
+)
+async def cmd_admin_spieler(interaction: discord.Interaction, ziel: str):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können Spielerdaten abfragen.", ephemeral=True)
+        return
+
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+    ldap = LDAPClient()
+    authentik = AuthentikClient()
+
+    user = None
+    if clean_target.isdigit():
+        user = ldap.search_by_discord(clean_target)
+    if not user:
+        user = ldap.get_user(clean_target) or ldap.search_by_discord(clean_target) or ldap.search_by_minecraft(clean_target)
+
+    if not user:
+        await interaction.response.send_message(f"❌ Kein Benutzer zu '{ziel}' in OpenLDAP gefunden.", ephemeral=True)
+        return
+
+    username = user["uid"]
+    ign = user.get("minecraftName") or "Nicht hinterlegt"
+    mc_uuid = user.get("minecraftUuid") or "Nicht hinterlegt"
+    discord_name = user.get("discordName") or "-"
+    discord_id = user.get("discordId") or "-"
+    email = user.get("mail") or "-"
+
+    admin_dns = set(ldap.get_group_members(ldap.admin_group_dn))
+    mod_dns = set(ldap.get_group_members(ldap.mod_group_dn))
+    player_dns = set(ldap.get_group_members(ldap.player_group_dn))
+
+    groups = []
+    if user["dn"] in admin_dns:
+        groups.append("wd_admins")
+    if user["dn"] in mod_dns:
+        groups.append("wd_mods")
+    if user["dn"] in player_dns:
+        groups.append("wd_players")
+    if not groups:
+        groups.append("Keine (Inaktiv / Quarantäne)")
+
+    auth_user = authentik.get_user_by_username(username)
+    auth_active = auth_user.get("is_active", False) if auth_user else "Kein Auth-User"
+    auth_banned = (auth_user.get("attributes") or {}).get("is_banned", False) if auth_user else False
+
+    status = applications.get_user_status(discord_id) if discord_id != "-" else {}
+
+    embed = discord.Embed(
+        title=f"👤 Profil: {username}",
+        description=f"Vollständige technische Identitätsübersicht für **{username}**.",
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="Minecraft IGN", value=f"`{ign}`", inline=True)
+    embed.add_field(name="Minecraft UUID", value=f"`{mc_uuid}`", inline=True)
+    embed.add_field(name="Discord", value=f"{discord_name} (`{discord_id}`)", inline=True)
+    embed.add_field(name="E-Mail", value=f"`{email}`", inline=True)
+    embed.add_field(name="LDAP Gruppen", value=f"`{', '.join(groups)}`", inline=True)
+    embed.add_field(name="Authentik Status", value=f"Aktiv: `{auth_active}` | Ban: `{auth_banned}`", inline=True)
+    embed.add_field(name="Bewerbungs-DB", value=f"Gesperrt: `{status.get('is_banned', False)}` | Cooldown: `{status.get('in_cooldown', False)}`", inline=True)
+    embed.set_footer(text=f"Abgerufen von {interaction.user.name}")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @tasks.loop(seconds=30)
 async def playerlist_sync_loop():
     """Background task to keep #spielerliste continuously up-to-date."""
@@ -1956,6 +2632,7 @@ async def on_ready():
     bot.add_view(ApplyStartView())
     bot.add_view(AppealStartView())
     bot.add_view(ManualInviteStartView())
+    bot.add_view(AdminControlDashboardView())
 
     # Sync slash commands
     try:

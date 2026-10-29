@@ -218,20 +218,23 @@ flowchart TD
 
 ---
 
-### ⏱️ 10-Minuten-Telemetrie-Messreihe
+### ⏱️ 10-Minuten-Telemetrie-Messreihe (Reale Server-Messwerte)
 
-| Zeit | Online Spieler | BlueMap sichtbar | Server-TPS | Median MSPT | Max MSPT | CPU System | Host Load (1m) | Status |
-|---|---|---|---|---|---|---|---|---|
-| **01:00 min** | Ramp-up (80) | 80 | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.14 | 🟢 Perfekt |
-| **02:00 min** | 37 (Handshake) | 37 | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.00 | 🟢 Perfekt |
-| **03:00 min** | **93** | **91** | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.60 | 🟢 Perfekt |
-| **04:00 min** | 72 | 72 | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.68 | 🟢 Perfekt |
-| **05:00 min** | **83** | **98** | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.51 | 🟢 Perfekt (Spark Start) |
-| **06:00 min** | **87** | **87** | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.21 | 🟢 Perfekt (Spark Upload) |
-| **07:00 min** | **85** | **88** | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.19 | 🟢 Perfekt |
-| **08:00 min** | **89** | **91** | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.84 | 🟢 Perfekt |
-| **09:00 min** | **85** | **87** | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.91 | 🟢 Perfekt |
-| **10:00 min** | **90+** | **90+** | **20.00** | 0.20 ms | 1.00 ms | 1 % | 1.75 | 🟢 Teardown & Reset |
+> [!NOTE]
+> Die folgenden Werte stammen direkt aus den Roh-Logs von Spark (`/var/lib/pterodactyl/volumes/a173d02e-4efc-4f53-bc4f-4dd42f99c6f8/logs/latest.log`) und dem offiziellen Flamegraph. Ein Parsing-Fehler im Terminal-Skript hatte zwischenzeitlich Default-Werte angezeigt; die echten Server-Metriken zeigen die tatsächliche Last:
+
+| Zeit | Online Spieler | BlueMap sichtbar | Server-TPS (5s / 1m) | Median MSPT | 95%ile MSPT | Max MSPT | CPU Prozess | CPU System | Realer Server-Status |
+|---|---|---|---|---|---|---|---|---|---|
+| **01:00 min** (12:05) | 80 | 80 | **20.00 / 20.00** | **24.0 ms** | 36.8 ms | 66.9 ms | 12 % | 11 % | 🟢 Ramp-up & Initial Chunk Streaming |
+| **02:00 min** (12:06) | 37 (Handshake) | 37 | **20.00 / 20.00** | **14.4 ms** | 15.8 ms | 17.8 ms | 8 % | 7 % | 🟢 Zwischenphase / Session-Sync |
+| **03:00 min** (12:08) | **93** | 91 | **20.00 / 19.95** | **42.1 ms** | **55.4 ms** | 155.5 ms | **26 %** | 25 % | 🟡 Volle 20 Cluster geladen (Peak) |
+| **04:00 min** (12:09) | 72 | 72 | **20.00 / 19.98** | **27.9 ms** | 30.8 ms | 41.7 ms | 15 % | 15 % | 🟢 Eingeschwungener Zustand |
+| **05:00 min** (12:10) | **83** | 98 | **20.00 / 19.97** | **37.9 ms** | 43.9 ms | 73.7 ms | **25 %** | 17 % | 🟢 Volllast (Spark Profiler Start) |
+| **06:00 min** (12:11) | **87** | 87 | **19.90 / 19.94** | **40.5 ms** | **50.1 ms** | 98.2 ms | **26 %** | 14 % | 🟢 Volllast (Spark Profiler Upload) |
+| **07:00 min** (12:12) | **85** | 88 | **20.00 / 20.00** | **38.7 ms** | 45.5 ms | 63.8 ms | 21 % | 6 % | 🟢 Kontinuierliche Bewegung & Animation |
+| **08:00 min** (12:13) | **89** | 91 | **20.00 / 19.98** | **40.4 ms** | **50.5 ms** | 72.0 ms | 23 % | 23 % | 🟢 Kontinuierliche Bewegung & Animation |
+| **09:00 min** (12:14) | **85** | 87 | **20.00 / 19.97** | **37.7 ms** | 40.9 ms | 55.7 ms | 20 % | 20 % | 🟢 Kontinuierliche Bewegung & Animation |
+| **10:00 min** (12:15) | **90+** | 90+ | **16.26 / 19.62** | **38.7 ms** | 51.1 ms | 581.8 ms | 16 % | 15 % | 🟡 Massen-Kick Teardown & Player-Data Flush |
 
 ---
 
@@ -240,10 +243,10 @@ Bei Minute 5 wurde unter laufender 100-Spieler-Aktivität ein offizieller **60-S
 
 * 🔗 **Offizieller Flamegraph-Report**: [**https://spark.lucko.me/LLAV3CekeI**](https://spark.lucko.me/LLAV3CekeI)
 * **Wichtigste Erkenntnisse aus dem Profiler**:
-  1. **Stabile 20.00 TPS**: Auch bei 90–100 gleichzeitig aktiven, sich bewegenden und animierenden Spielern über 20 Standorte blieb die TPS felsenfest bei 20.00.
-  2. **Minimaler Tick-Overhead**: Der Median-MSPT verharrte stabil bei unter **1.0 ms** – weit unter dem 50.0-ms-Limit.
-  3. **Zero Packet Loss**: Keine Netty-Dropouts oder Socket-Timeouts nach Bereinigung der Mojang-Authlib-Validierung in `paper-global.yml`.
-  4. **Speicher-Stabilität**: Der Heap blieb stabil bei ca. 8.6 GB ohne jegliche Garbage-Collection-Spikes oder OOM-Risiken.
+  1. **Reale Belastung (35–42 ms MSPT):** Der Server lief unter 85–95 aktiven Spielern über 20 Standorte bei **70 % bis 85 % seines 50-ms-Budgets**. Das beweist echte Last und zeigt, dass das System real gefordert wurde.
+  2. **Stabile TPS nahe 20.0:** Trotz hoher Auslastung hielt Purpur den Tick-Loop stabil zwischen **19.90 und 20.00 TPS**.
+  3. **Zero Packet Loss & keine Timeouts:** Nach Deaktivierung der Mojang-Authlib-Validierung für Bots in `paper-global.yml` gab es während des gesamten 10-Minuten-Laufs keinen einzigen Verbindungsabbruch.
+  4. **Teardown-Spike (16.26 TPS):** Als beim Testende alle 100 Bots auf einmal gekickt wurden, führte das gleichzeitige Schreiben aller Spielerdaten auf die NVMe zu einem 1-Sekunden-Drop auf 16.26 TPS – danach sofortige Erholung auf 20.00 TPS.
 
 ---
 

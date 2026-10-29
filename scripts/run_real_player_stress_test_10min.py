@@ -30,7 +30,7 @@ except Exception:
 # Set environment variables for Wings API
 WINGS_API_URL = os.getenv("WINGS_API_URL", "http://192.168.1.149:8080")
 WINGS_SERVER_UUID = os.getenv("WINGS_SERVER_UUID", "a173d02e-4efc-4f53-bc4f-4dd42f99c6f8")
-WINGS_BEARER_TOKEN = os.getenv("WINGS_BEARER_TOKEN", "YOUR_WINGS_BEARER_TOKEN")
+WINGS_BEARER_TOKEN = os.getenv("WINGS_BEARER_TOKEN", "")
 os.environ["WINGS_API_URL"] = WINGS_API_URL
 os.environ["WINGS_SERVER_UUID"] = WINGS_SERVER_UUID
 os.environ["WINGS_BEARER_TOKEN"] = WINGS_BEARER_TOKEN

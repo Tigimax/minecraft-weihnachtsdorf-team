@@ -193,6 +193,7 @@ ansible-playbook -i ansible/inventory.ini ansible/playbooks/<PLAYBOOK>.yml
 | Dokument | Schwerpunkte & Inhalt |
 |---|---|
 | 📖 **[Admin & Operations Handbook](docs/admin_operations_handbook.md)** | **Tägliche Wartung, Service-Lifecycle, `wd-admin` Referenz, Spark Profiling, Backups & Incident-Runbook** |
+| 📊 **[Hauptnode Benchmark & Stresstest-Report](docs/benchmark_hauptnode_stress_test_report.md)** | **Sysbench CPU/RAM/NVMe, Chunky 35.721 Chunks Pre-Gen, 3.500-Mob Stresstest & Spark Flamegraph** |
 | 🚨 **[Offene Probleme & Action Items](docs/open_issues_and_action_items.md)** | **Aktuelle Risiken, CoreProtect Fix, Chunky/Worldborder, Bot- & SSO-Sync To-Dos** |
 | 🌐 **[Network, DNS & Firewall Guide](docs/network_dns_firewall_guide.md)** | **Topologie, Ingress TLS, Kernel DNAT (`minecraft-portforward`), Pi-hole Split-DNS & UFW/Docker Chains** |
 | 🔐 **[Identity, SSO, LDAP & Discord Guide](docs/identity_sso_ldap_discord_guide.md)** | **Vollständige Auth-Architektur, OpenLDAP `wdAccount` Schema, Discord Bot & Planka Provisioning** |

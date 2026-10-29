@@ -375,6 +375,10 @@ Falls Authentik oder der Discord-Bot temporär ausfallen:
 
 ## 4. Performance-Monitoring & Profiling
 
+> [!NOTE]
+> Ein detaillierter Härtetest- und Kapazitätsreport für 80–120 Spieler mit Sysbench-, Chunky- und Entity-Stresstests (inkl. Spark-Flamegraph) ist dokumentiert in:  
+> 📊 **[`docs/benchmark_hauptnode_stress_test_report.md`](benchmark_hauptnode_stress_test_report.md)**
+
 ### ⚡ Spark Profiler Leitfaden
 
 Spark ist auf Purpur integriert und bietet Live-Metriken:

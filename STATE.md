@@ -135,3 +135,27 @@
   Eingespeist von `Maximilian_Von_Ehrenstein`. Verifiziert für Annahme mit automatischem Pardon/Invite (`[✅ Entbannen / Annehmen]`).
 - **Audit-Logging:**  
   Beide Anträge und zukünftige Entscheidungen werden lückenlos in `#📜admin-logs` protokolliert.
+
+---
+
+## 6. Hauptnode Härtetest & Benchmark-Ergebnisse (29. Oktober 2026)
+
+Ein umfassender Belastungstest auf `mc-main` (VM 120, i5-9400F 6C/6T, 12GB RAM, NVMe) hat die volle Belastbarkeit für 80–120 Spieler bestätigt:
+
+1. **Hardware-Throughput (Sysbench & Direct I/O):**
+   - Single-Core CPU: `526.58 events/s`, `1.90 ms avg` (stabile Single-Thread-Leistung für Tick-Loop).
+   - Multi-Core CPU: `3.082.28 events/s` (nahezu lineare 5.85x Skalierung auf 6 physischen Kernen).
+   - Speicher-Bandbreite: `23.246,95 MB/s` (DDR4 Dual-Channel).
+   - NVMe-Schreibgeschwindigkeit: `424 MB/s` (direkter Flush via `fdatasync`).
+2. **Chunk-Vorabgenerierung (Chunky):**
+   - Alle **35.721 Chunks** im 3000x3000er Worldborder sind zu **100 % vorab generiert** (Terralith + Terratonic). Keine Echtzeit-Generierungslags beim Launch!
+3. **Entity-Stresstest & Belastungsgrenzen:**
+   - Idle-Baseline: `0.3 ms MSPT`, `20.00 TPS`, `< 1 % CPU`.
+   - 1.000 aktive Mobs: `11.5 ms MSPT`, `20.00 TPS`, `8 % CPU`.
+   - 2.000 aktive Mobs: `28.4 ms MSPT`, `20.00 TPS`, `15 % CPU` (Spark-Report: `https://spark.lucko.me/N6OMr3E67S`).
+   - Breaking Point: ~ 3.500 Mobs (MSPT > 50 ms, TPS-Drop auf 14.81).
+   - Erholung: Sofortige Rückkehr auf `20.00 TPS` und `0.1 ms MSPT` innerhalb von 3 Sekunden.
+4. **Java 25 G1GC & Heap:**
+   - Young Gen Pausenzeit: `33.7 ms avg` (74 % schneller als 130 ms SLA).
+   - Old Gen Full GCs: **0 Kollektionen** (keine Stop-the-World Hänger).
+   - Details: Siehe [`docs/benchmark_hauptnode_stress_test_report.md`](docs/benchmark_hauptnode_stress_test_report.md).

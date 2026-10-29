@@ -721,7 +721,7 @@ async def resolve_admin_channel(guild: Optional[discord.Guild]) -> Optional[disc
     candidates = ["admin-anträge", "admin-antraege", "admin-anmeldungen", "anmeldungen-admin", "anträge-admin", "mod-chat"]
     for name in candidates:
         for ch in guild.text_channels:
-            if ch.name.lower() == name:
+            if name in ch.name.lower():
                 return ch
     return None
 
@@ -749,7 +749,7 @@ async def ensure_channels_and_pins():
     # 1. Anmeldung Channel
     anmeldung_ch = None
     for ch in guild.text_channels:
-        if ch.name.lower() in ("anmeldung", "anmeldungen") and (not category or ch.category_id == category.id):
+        if any(k in ch.name.lower() for k in ("anmeldung", "anmeldungen")) and (not category or ch.category_id == category.id):
             anmeldung_ch = ch
             break
 
@@ -792,7 +792,7 @@ async def ensure_channels_and_pins():
     # 2. Entbannung Channel
     entbannung_ch = None
     for ch in guild.text_channels:
-        if ch.name.lower() in ("entbannung", "entbannungsanträge", "entbannungsantrag") and (not category or ch.category_id == category.id):
+        if any(k in ch.name.lower() for k in ("entbannung", "entbannungsanträge", "entbannungsantrag")) and (not category or ch.category_id == category.id):
             entbannung_ch = ch
             break
 

@@ -22,7 +22,12 @@ from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.mojang_client import get_player_profile
 from wd_identity.planka_sync import PlankaSyncClient
-from wd_identity.utils import sanitize_email, sanitize_username, validate_minecraft_ign
+from wd_identity.utils import (
+    check_is_discord_admin,
+    sanitize_email,
+    sanitize_username,
+    validate_minecraft_ign,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +96,19 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
         (req.discord_id or "").strip()
         or (existing.get("discordId") if existing else None)
     )
+
+    # Sicherheitsprüfung: Rolle 'admin' darf nur vergeben werden, wenn der Nutzer tatsächlich Discord-Admin ist
+    if clean_role == "admin":
+        is_admin, admin_reason = check_is_discord_admin(discord_id or discord_tag)
+        if not is_admin:
+            logger.warning(
+                f"SICHERHEITSWARNUNG: Onboarding als 'admin' für '{clean_user}' ({discord_tag}) verweigert! "
+                f"Nutzer ist kein Discord-Administrator ({admin_reason}). Rolle wird auf 'player' heruntergestuft."
+            )
+            clean_role = "player"
+        else:
+            logger.info(f"Admin-Onboarding für {clean_user} verifiziert: {admin_reason}")
+
     user_email = sanitize_email(clean_user, raw_email=req.email or (existing.get("mail") if existing else None))
 
     # 1. Resolve Mojang profile (canonical IGN and UUID)
@@ -157,6 +175,33 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     dm_target = discord_id or discord_tag
     send_dm(dm_target, welcome_text)
 
+    # 5.5 Dispatch Audit Log to #admin-logs
+    try:
+        from wd_identity.audit_logger import log_admin_event, COLOR_SUCCESS
+        log_admin_event(
+            title="🎉 Onboarding erfolgreich abgeschlossen",
+            description=f"Spieler **{clean_user}** (`{canonical_ign}`) hat die Registrierung abgeschlossen und ist einsatzbereit!",
+            color=COLOR_SUCCESS,
+            fields=[
+                {"name": "Benutzername (UID)", "value": f"`{clean_user}`", "inline": True},
+                {"name": "Minecraft IGN", "value": f"`{canonical_ign}` ({mc_uuid})", "inline": True},
+                {"name": "Discord", "value": f"<@{discord_id}>" if discord_id else f"`@{discord_tag}`", "inline": True},
+                {"name": "Rolle", "value": f"`{clean_role}`", "inline": True},
+                {"name": "Minecraft Server", "value": "✅ Whitelist & LuckPerms synchronisiert" if mc_ok else "⚠️ Sync-Warnung", "inline": True},
+                {"name": "Planka Board", "value": "✅ Bereitgestellt" if planka_ok else "ℹ️ Übersprungen (Spieler)", "inline": True},
+            ],
+            author_name="Authentik Onboarding Webhook",
+        )
+    except Exception as e:
+        logger.warning(f"Failed to post onboarding audit log: {e}")
+
+    # 6. Synchronize Discord Playerlist
+    try:
+        from wd_identity.playerlist import sync_playerlist_rest
+        sync_playerlist_rest(force=True)
+    except Exception as e:
+        logger.warning(f"Failed to update Discord playerlist on onboarding: {e}")
+
     return {
         "status": "success",
         "username": clean_user,
@@ -188,6 +233,11 @@ def trigger_full_sync():
     """Triggers Minecraft server admin/mod synchronization."""
     mc = MinecraftSyncClient()
     report = mc.sync_all()
+    try:
+        from wd_identity.playerlist import sync_playerlist_rest
+        sync_playerlist_rest(force=True)
+    except Exception as e:
+        logger.warning(f"Failed to update Discord playerlist during sync: {e}")
     return report
 
 

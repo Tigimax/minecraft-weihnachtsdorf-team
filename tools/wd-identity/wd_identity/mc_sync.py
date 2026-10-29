@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from wd_identity.config import settings
@@ -360,6 +360,85 @@ class MinecraftSyncClient:
             "revoked_users": revoked_users,
             "skipped_users": skipped_users,
         }
+
+    def get_server_telemetry(self) -> Dict[str, Any]:
+        """Fetches utilization metrics from Pterodactyl Wings API."""
+        url = f"{self.api_url}/api/servers/{self.server_uuid}"
+        try:
+            r = requests.get(url, headers=self._headers, timeout=5)
+            if not r.ok:
+                return {}
+            data = r.json()
+            util = data.get("utilization", {})
+            mem_bytes = util.get("memory_bytes", 0)
+            mem_limit = util.get("memory_limit_bytes", 0)
+            return {
+                "state": util.get("state") or data.get("state", "unknown"),
+                "cpu_percent": round(util.get("cpu_absolute", 0.0), 1),
+                "memory_used_mb": round(mem_bytes / (1024 * 1024), 1),
+                "memory_max_mb": round(mem_limit / (1024 * 1024), 1),
+                "memory_percent": round((mem_bytes / mem_limit) * 100, 1) if mem_limit else 0.0,
+                "disk_used_mb": round(util.get("disk_bytes", 0) / (1024 * 1024), 1),
+                "uptime_seconds": round(util.get("uptime", 0) / 1000),
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch server telemetry: {e}")
+            return {}
+
+    def get_live_tps(self) -> str:
+        """Fetches current Purpur TPS via console."""
+        self.execute_commands(["tps"])
+        import time
+        time.sleep(0.5)
+        url = f"{self.api_url}/api/servers/{self.server_uuid}/logs"
+        try:
+            r = requests.get(url, headers=self._headers, timeout=5)
+            if not r.ok:
+                return "20.0 (Normal)"
+            logs = r.json().get("data", [])
+            for line in reversed(logs):
+                if "TPS from last" in line:
+                    return line.split("TPS from last")[-1].split(":", 1)[-1].strip()
+            return "20.0, 20.0, 20.0 (Normal)"
+        except Exception:
+            return "Unbekannt"
+
+    def get_online_players(self) -> Tuple[int, int, List[str]]:
+        """Queries currently connected players."""
+        self.execute_commands(["list"])
+        import time, re
+        time.sleep(0.5)
+        url = f"{self.api_url}/api/servers/{self.server_uuid}/logs"
+        try:
+            r = requests.get(url, headers=self._headers, timeout=5)
+            if not r.ok:
+                return (0, 120, [])
+            logs = r.json().get("data", [])
+            for line in reversed(logs):
+                if "players online" in line:
+                    m = re.search(r"There are (\d+) (?:out of maximum|of a max of) (\d+) players online(?:\: (.*))?", line)
+                    if m:
+                        count = int(m.group(1))
+                        max_p = int(m.group(2))
+                        names_raw = m.group(3) or ""
+                        names = [n.strip() for n in names_raw.split(",") if n.strip()]
+                        return (count, max_p, names)
+            return (0, 120, [])
+        except Exception:
+            return (0, 120, [])
+
+    def broadcast_ingame(self, message: str, title: Optional[str] = None, subtitle: Optional[str] = None) -> bool:
+        """Sends chat notification and optional title to all online players."""
+        cmds = []
+        clean_msg = message.replace('"', '\\"')
+        cmds.append(f'tellraw @a {{"text":"[Weihnachtsdorf] {clean_msg}","color":"gold"}}')
+        if title:
+            clean_title = title.replace('"', '\\"')
+            cmds.append(f'title @a title {{"text":"{clean_title}","color":"red","bold":true}}')
+        if subtitle:
+            clean_sub = subtitle.replace('"', '\\"')
+            cmds.append(f'title @a subtitle {{"text":"{clean_sub}","color":"yellow"}}')
+        return self.execute_commands(cmds)
 
 
 def main():

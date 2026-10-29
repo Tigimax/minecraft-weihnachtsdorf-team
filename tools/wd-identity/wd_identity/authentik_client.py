@@ -110,6 +110,21 @@ class AuthentikClient:
 
         return self._replace_with_public_url(raw_link)
 
+    def activate_user(self, username: str) -> bool:
+        """Activates user in Authentik."""
+        user = self.get_user_by_username(username)
+        if not user:
+            return False
+        user_pk = user["pk"]
+        url = f"{self.api_url}/api/v3/core/users/{user_pk}/"
+        res = requests.patch(
+            url,
+            headers=self._headers,
+            json={"is_active": True},
+            timeout=10,
+        )
+        return res.ok
+
     def deactivate_user(self, username: str) -> bool:
         """Deactivates user in Authentik."""
         user = self.get_user_by_username(username)

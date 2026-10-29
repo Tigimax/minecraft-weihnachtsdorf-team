@@ -362,7 +362,7 @@ class LDAPClient:
         discord_name: str,
         discord_id: Optional[str] = None,
         email: Optional[str] = None,
-        role: str = "admin",
+        role: str = "player",
         minecraft_name: Optional[str] = None,
         minecraft_uuid: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -433,7 +433,7 @@ class LDAPClient:
                     conn.modify(user_dn, modifications)
 
             # Assign group
-            clean_role = role.lower().strip() if role else "admin"
+            clean_role = role.lower().strip() if role else "player"
             if clean_role == "admin":
                 target_group = self.admin_group_dn
                 remove_groups = [self.mod_group_dn, self.player_group_dn]

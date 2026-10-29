@@ -13,15 +13,22 @@ import time
 from typing import Optional, Tuple
 import click
 
+from wd_identity.audit_logger import COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING, log_admin_event
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity import applications
 from wd_identity.config import settings
 from wd_identity.discord_bot import send_dm
+from wd_identity.invitations import create_user_invitation
 from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.mojang_client import get_player_profile
 from wd_identity.planka_sync import PlankaSyncClient
-from wd_identity.utils import sanitize_email, sanitize_username, validate_minecraft_ign
+from wd_identity.utils import (
+    check_is_discord_admin,
+    sanitize_email,
+    sanitize_username,
+    validate_minecraft_ign,
+)
 
 
 @click.group()
@@ -58,116 +65,55 @@ def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optio
     Invites a new player, mod, or admin to Weihnachtsdorf 7.
     Creates LDAP entry, generates Authentik enrollment link, and sends Discord DM.
     """
-    clean_role = role.lower().strip()
-    clean_discord = discord_name.strip()
-    clean_username = (
-        sanitize_username(username)
-        if username
-        else sanitize_username(clean_discord)
-    )
-    user_email = sanitize_email(clean_username)
-
-    click.echo(f"[*] Preparing invitation for '{clean_discord}' (Role: {clean_role}, UID: {clean_username})...")
-
-    ldap = LDAPClient()
-    authentik = AuthentikClient()
-
-    # Resolve Minecraft IGN if provided
-    canonical_ign = None
-    mc_uuid = None
-    if ign:
-        raw_ign = ign.strip()
-        if not validate_minecraft_ign(raw_ign):
-            click.secho(f"[-] Invalid Minecraft IGN: '{raw_ign}'. Must be 1-16 alphanumeric chars or underscores.", fg="red")
-            sys.exit(1)
-        try:
-            canonical_ign, mc_uuid = get_player_profile(raw_ign)
-            click.echo(f"[*] Resolved Minecraft IGN: {canonical_ign} ({mc_uuid})")
-        except Exception as e:
-            click.secho(f"[-] Minecraft IGN resolution failed: {e}", fg="red")
-            sys.exit(1)
-
-    # 1. Create / Update LDAP Entry
-    discord_id = clean_discord if clean_discord.isdigit() else None
     try:
-        user_entry = ldap.create_or_update_user(
-            username=clean_username,
-            discord_name=clean_discord,
-            discord_id=discord_id,
-            email=user_email,
-            role=clean_role,
-            minecraft_name=canonical_ign,
-            minecraft_uuid=mc_uuid,
+        res = create_user_invitation(
+            discord_name=discord_name,
+            role=role,
+            ign=ign,
+            username=username,
+            inviter="CLI (wd-admin)",
         )
-        click.echo(f"[+] LDAP entry configured: {user_entry.get('dn', clean_username)}")
-    except Exception as e:
-        click.secho(f"[-] Failed to configure LDAP entry: {e}", fg="red")
+    except PermissionError as e:
+        click.secho(f"\n[-] {e}\n", fg="red", bold=True)
+        sys.exit(1)
+    except (ValueError, RuntimeError) as e:
+        click.secho(f"\n[-] Fehler: {e}\n", fg="red")
         sys.exit(1)
 
-    # 2. Ensure user does not already exist in Authentik (avoids 'Username is already taken' in enrollment)
-    authentik.delete_user(clean_username)
+    clean_discord = res["discord_name"]
+    clean_username = res["username"]
+    clean_role = res["role"]
+    invite_link = res["invite_link"]
+    dm_sent = res["dm_sent"]
 
-    # 3. Generate Authentik Invitation Link
-    fixed_data = {
-        "username": clean_username,
-        "email": user_email,
-        "role": clean_role,
-        "discord_name": clean_discord,
-    }
-    if discord_id:
-        fixed_data["discord_id"] = discord_id
-    if canonical_ign:
-        fixed_data["minecraft_name"] = canonical_ign
+    click.secho(f"\n[+] Einladung für '{clean_discord}' ({clean_username}) erfolgreich erstellt!", fg="green", bold=True)
+    click.echo(f"    Rolle:            {clean_role}")
+    if res.get("minecraft_name"):
+        click.echo(f"    Minecraft IGN:    {res['minecraft_name']}")
+    click.echo(f"    Einladungslink:   {invite_link}\n")
 
-    try:
-        invite_link = authentik.create_invitation(
-            name=f"invite-{clean_username}",
-            fixed_data=fixed_data,
-        )
-        click.echo("[+] Single-use Authentik Enrollment Link generated successfully:")
-        click.echo(f"    {invite_link}\n")
-    except Exception as e:
-        click.secho(f"[-] Failed to generate Authentik enrollment link: {e}", fg="red")
-        sys.exit(1)
-
-    # 4. Dispatch Discord DM
-    if clean_role == "player":
-        dm_message = (
-            f"🎅 **Einladung zum Weihnachtsdorf 7!** 🎄\n\n"
-            f"Du wurdest als **Spieler** eingeladen.\n"
-            f"Bitte schließe deine Vorab-Registrierung über folgenden Link ab (Passwort & 2FA-Einrichtung):\n"
-            f"👉 {invite_link}\n\n"
-            f"*Nach der Registrierung ist dein Account startklar. Die Freischaltung auf dem Server erfolgt zum Projektstart!*\n"
-            f"*Dieser Link ist einmalig gültig und verfällt in 24 Stunden.*"
-        )
-    else:
-        dm_message = (
-            f"🎅 **Einladung zum Weihnachtsdorf 7 Team!** 🎄\n\n"
-            f"Du wurdest als **{clean_role.upper()}** eingeladen.\n"
-            f"Bitte schließe deine Registrierung über folgenden Link ab (Passwort & 2FA-Einrichtung):\n"
-            f"👉 {invite_link}\n\n"
-            f"*Dieser Link ist einmalig gültig und verfällt in 24 Stunden.*"
-        )
-    sent = send_dm(clean_discord, dm_message)
-    if sent:
-        click.secho(f"[+] Discord DM successfully dispatched to {clean_discord}!", fg="green")
+    if dm_sent:
+        click.secho(f"[+] Discord DM erfolgreich an {clean_discord} zugestellt!\n", fg="green")
     else:
         if force_manual:
             click.secho(
-                f"[!] Discord DM could not be sent directly (bot offline or DM closed). "
-                f"--force-manual angegeben: Bitte Einladungslink manuell teilen.",
+                f"[!] Discord DM konnte nicht direkt zugestellt werden (Bot offline oder DM geschlossen).\n"
+                f"    --force-manual angegeben: Bitte Einladungslink manuell teilen:\n"
+                f"    👉 {invite_link}\n",
                 fg="yellow",
             )
         else:
             click.secho(
-                f"[-] Discord DM konnte nicht zugestellt werden (Privatsphäre-Einstellungen des Users blockieren DMs oder Bot kann keine DM senden).",
+                f"[-] Discord DM konnte nicht zugestellt werden (Privatsphäre-Einstellungen des Users blockieren DMs).\n"
+                f"    Rollback: Bereinige angelegte Daten...",
                 fg="red",
             )
-            click.secho("[*] Rollback: Breche ab und bereinige angelegte Daten...", fg="yellow")
+            ldap = LDAPClient()
+            authentik = AuthentikClient()
             ldap.delete_user(clean_username)
             authentik.delete_user(clean_username)
             authentik.delete_invitations(clean_username)
-            click.secho(f"[-] Account '{clean_username}' wurde NICHT erstellt. Bitte den Nutzer bitten, Direktnachrichten von Servermitgliedern zu erlauben, und dann erneut einladen.", fg="red")
+            click.secho(f"[-] Account '{clean_username}' wurde zurückgerollt. Bitte nutze --force-manual für manuelle Link-Weitergabe.\n", fg="red")
             sys.exit(1)
 
 
@@ -582,6 +528,17 @@ def project_launch_cmd():
         for p in report.get("synced_players", []):
             click.echo(f"    [Player Whitelisted] {p['uid']} -> IGN: {p['ign']}")
         click.echo("")
+        try:
+            log_admin_event(
+                title="🚀 Weihnachtsdorf 7 ist LIVE!",
+                description=f"Projekt wurde gestartet. {len(report.get('synced_players', []))} Spieler wurden auf dem Server freigeschaltet.",
+                color=COLOR_SUCCESS,
+                author_name="wd-admin CLI",
+            )
+            from wd_identity.playerlist import sync_playerlist_rest
+            sync_playerlist_rest(force=True)
+        except Exception:
+            pass
     else:
         click.secho("[-] Failed to launch project: Minecraft Wings API error.", fg="red")
         sys.exit(1)
@@ -601,6 +558,17 @@ def project_lock_cmd():
             bold=True,
         )
         click.echo("")
+        try:
+            log_admin_event(
+                title="🔒 Projekt in Wartungsmodus versetzt (Pre-Launch Lock)",
+                description="Projekt wurde gesperrt. Normale Spieler wurden von der Whitelist entfernt; Staff bleibt aktiv.",
+                color=COLOR_WARNING,
+                author_name="wd-admin CLI",
+            )
+            from wd_identity.playerlist import sync_playerlist_rest
+            sync_playerlist_rest(force=True)
+        except Exception:
+            pass
     else:
         click.secho("[-] Failed to lock project: Minecraft Wings API error.", fg="red")
         sys.exit(1)
@@ -661,9 +629,18 @@ def revoke_cmd(target: str, keep_ldap: bool):
     # 1. OpenLDAP Clean Up
     if user:
         if keep_ldap:
-            ldap.revoke_roles(username)
-            ldap.remove_member_from_group(ldap.player_group, user["dn"])
-            click.echo("[+] OpenLDAP: Group memberships revoked (user entry kept).")
+            from wd_identity.membership import revoke_user_privileges
+            revoke_user_privileges(user, reason="Admin Revoke (--keep-ldap)", initiator="wd-admin CLI")
+            click.secho(
+                f"\n[+] Alle Berechtigungen für '{username}' wurden erfolgreich entzogen!\n"
+                f"    • OpenLDAP: Gruppen wd_admins, wd_mods, wd_players entfernt (Account bleibt erhalten)\n"
+                f"    • Authentik: Deaktiviert & BlueMap gesperrt (Account bleibt erhalten)\n"
+                f"    • Planka: Deaktiviert (Account bleibt erhalten)\n"
+                f"    • Minecraft: Whitelist & LuckPerms entfernt\n"
+                f"    • Spielerliste: Aktualisiert\n",
+                fg="green",
+            )
+            return
         else:
             ldap_ok = ldap.delete_user(username)
             click.echo(f"[+] OpenLDAP: Account '{username}' deleted: {'OK' if ldap_ok else 'FAILED'}")
@@ -710,6 +687,21 @@ def revoke_cmd(target: str, keep_ldap: bool):
             click.echo(f"[+] SQLite: Pending application #{status['pending_app']['id']} cancelled.")
 
     click.secho(f"\n[+] Komplettes Cleanup erfolgreich abgeschlossen für '{clean_target}'!\n", fg="green")
+    try:
+        log_admin_event(
+            title="🗑️ Zugang widerrufen (Purge)",
+            description=f"Der Zugang für **{clean_target}** wurde vollständig widerrufen und alle Berechtigungen bereinigt.",
+            color=COLOR_ERROR,
+            fields=[
+                {"name": "Ziel", "value": clean_target, "inline": True},
+                {"name": "LDAP erhalten", "value": "Ja" if keep_ldap else "Nein (Gelöscht)", "inline": True},
+            ],
+            author_name="wd-admin CLI",
+        )
+        from wd_identity.playerlist import sync_playerlist_rest
+        sync_playerlist_rest(force=True)
+    except Exception:
+        pass
 
 
 @cli.command("ban")
@@ -764,6 +756,23 @@ def ban_cmd(target: str, reason: str):
         reason=reason,
     )
     click.secho(f"\n[+] Spieler '{clean_target}' erfolgreich gesperrt!\n", fg="green")
+    try:
+        log_admin_event(
+            title="🔨 Spieler gesperrt",
+            description=f"Spieler **{clean_target}** wurde gesperrt.",
+            color=COLOR_ERROR,
+            fields=[
+                {"name": "Ziel", "value": clean_target, "inline": True},
+                {"name": "Grund", "value": reason, "inline": True},
+                {"name": "Minecraft Ban", "value": "✅ Ausgeführt" if (ign and mc_ok) else "⚠️ Kein IGN / Fehler", "inline": True},
+                {"name": "BlueMap Ban", "value": "✅ Gesperrt" if bm_ok else "⚠️ Kein Account", "inline": True},
+            ],
+            author_name="wd-admin CLI",
+        )
+        from wd_identity.playerlist import sync_playerlist_rest
+        sync_playerlist_rest(force=True)
+    except Exception:
+        pass
 
 
 @cli.command("pardon")
@@ -807,6 +816,18 @@ def pardon_cmd(target: str):
     count = applications.lift_ban(discord_id=discord_id, minecraft_ign=ign)
     click.echo(f"[*] Active ban records lifted in database: {count}")
     click.secho(f"\n[+] Spieler '{clean_target}' erfolgreich entbannt!\n", fg="green")
+    try:
+        log_admin_event(
+            title="✨ Spieler entbannt",
+            description=f"Sperre für **{clean_target}** wurde aufgehoben.",
+            color=COLOR_SUCCESS,
+            fields=[{"name": "Ziel", "value": clean_target}],
+            author_name="wd-admin CLI",
+        )
+        from wd_identity.playerlist import sync_playerlist_rest
+        sync_playerlist_rest(force=True)
+    except Exception:
+        pass
 
 
 @cli.group("apps")

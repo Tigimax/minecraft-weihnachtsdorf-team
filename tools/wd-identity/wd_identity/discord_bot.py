@@ -718,7 +718,7 @@ async def resolve_admin_channel(guild: Optional[discord.Guild]) -> Optional[disc
             return c
 
     # Search by matching name
-    candidates = ["admin-anmeldungen", "anmeldungen-admin", "anträge-admin", "mod-chat"]
+    candidates = ["admin-anträge", "admin-antraege", "admin-anmeldungen", "anmeldungen-admin", "anträge-admin", "mod-chat"]
     for name in candidates:
         for ch in guild.text_channels:
             if ch.name.lower() == name:
@@ -843,14 +843,14 @@ async def ensure_channels_and_pins():
                 overwrites[admin_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
             admin_ch = await guild.create_text_channel(
-                name="admin-anmeldungen",
+                name="admin-anträge",
                 category=category,
                 overwrites=overwrites,
                 topic="Prüfung eingehender Aufnahme- und Entbannungsanträge.",
             )
             logger.info(f"Created admin channel #{admin_ch.name} (ID: {admin_ch.id})")
         except Exception as e:
-            logger.warning(f"Could not create #admin-anmeldungen channel: {e}")
+            logger.warning(f"Could not create #admin-anträge channel: {e}")
 
 
 # ---------------------------------------------------------------------------

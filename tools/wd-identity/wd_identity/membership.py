@@ -141,13 +141,31 @@ def revoke_user_privileges(
 
     # 6. Audit Logging to #admin-logs
     try:
-        log_admin_event(
-            title="🚪 Discord verlassen: Rechte entzogen (Account erhalten)",
-            description=(
+        if "verlassen" in reason.lower():
+            log_title = "🚪 Discord verlassen: Rechte entzogen (Account erhalten)"
+            log_desc = (
                 f"Dem Nutzer **{discord_name or username}** wurden alle Zugriffsrechte entzogen, "
                 f"da der Discord-Server verlassen wurde.\n"
                 f"Der Account bleibt inaktiv im System erhalten."
-            ),
+            )
+        elif "selbstabmeldung" in reason.lower():
+            log_title = "👋 Selbstabmeldung: Rechte entzogen (Account erhalten)"
+            log_desc = (
+                f"Dem Nutzer **{discord_name or username}** wurden alle Zugriffsrechte entzogen (Selbstabmeldung).\n"
+                f"**Grund:** {reason}\n"
+                f"Der Account bleibt inaktiv im System erhalten."
+            )
+        else:
+            log_title = "🔒 Admin-Eingriff: Rechte entzogen (Account erhalten)"
+            log_desc = (
+                f"Dem Nutzer **{discord_name or username}** wurden alle Projekt-Zugriffsrechte durch **{initiator}** entzogen.\n"
+                f"**Auslöser / Grund:** {reason}\n"
+                f"Der Account bleibt inaktiv im System erhalten."
+            )
+
+        log_admin_event(
+            title=log_title,
+            description=log_desc,
             color=COLOR_WARNING,
             fields=[
                 {"name": "Benutzername", "value": f"`{username}`", "inline": True},
@@ -156,6 +174,8 @@ def revoke_user_privileges(
                 {"name": "OpenLDAP", "value": "Rollen & Gruppen entzogen (Account bleibt bestehen)", "inline": True},
                 {"name": "Authentik / SSO", "value": "Deaktiviert (`is_active=False`, BlueMap gesperrt)", "inline": True},
                 {"name": "Planka", "value": "Konto deaktiviert", "inline": True},
+                {"name": "Ausgeführt von", "value": f"{initiator}", "inline": True},
+                {"name": "Grund / Auslöser", "value": f"`{reason}`", "inline": True},
             ],
             author_name=initiator,
         )

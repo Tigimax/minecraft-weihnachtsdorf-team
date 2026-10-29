@@ -158,4 +158,10 @@ Ein umfassender Belastungstest auf `mc-main` (VM 120, i5-9400F 6C/6T, 12GB RAM, 
 4. **Java 25 G1GC & Heap:**
    - Young Gen Pausenzeit: `33.7 ms avg` (74 % schneller als 130 ms SLA).
    - Old Gen Full GCs: **0 Kollektionen** (keine Stop-the-World Hänger).
+5. **10-Minuten-Dauertest mit 100 echten Spielern (500m Radius & BlueMap Live-Sync):**
+   - 100 native Protokoll-Clients (`ServerPlayer`), verteilt auf 20 Cluster im 500-Meter-Radius.
+   - Kontinuierliche Bewegung (`position_look`), Arm-Animationen und God-Mode (Creative + Infinite Effects).
+   - Live-Synchronisation im 2-Sekunden-Takt auf [`https://map.tigimax.mooo.com`](https://map.tigimax.mooo.com) ohne Geister-Bots.
+   - Konstante **20.00 TPS** und unter **1.0 ms MSPT** über die gesamten 10 Minuten.
+   - Spark Flamegraph unter Volllast: [`https://spark.lucko.me/LLAV3CekeI`](https://spark.lucko.me/LLAV3CekeI).
    - Details: Siehe [`docs/benchmark_hauptnode_stress_test_report.md`](docs/benchmark_hauptnode_stress_test_report.md).

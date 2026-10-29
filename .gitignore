@@ -38,6 +38,9 @@ forwarding.secret
 tools/wd-identity/etc/default/wd-identity
 /etc/default/wd-identity
 
+# Node.js
+node_modules/
+
 # OS / Editor files
 .DS_Store
 *.swp

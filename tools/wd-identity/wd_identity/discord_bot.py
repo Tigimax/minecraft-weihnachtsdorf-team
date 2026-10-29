@@ -1159,6 +1159,8 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
     user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_name)
     was_previously_enrolled = user is not None and user.get("minecraftName")
 
+    dm_sent = False
+    invite_link = None
     if was_previously_enrolled:
         ign = user.get("minecraftName")
         # 1. Pardon Minecraft server
@@ -1173,7 +1175,7 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
             f"Deine Sperre auf dem Minecraft-Server (`{ign}`) und der BlueMap Live-Karte wurde aufgehoben.\n"
             f"Willkommen zurück im Weihnachtsdorf! 🎅"
         )
-        send_dm_rest(discord_id, dm_msg)
+        dm_sent = send_dm_rest(discord_id, dm_msg)
     else:
         # User was rejected initially and had no account yet: Send Authentik invite link
         clean_user = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_")) or f"user{discord_id[-4:]}"
@@ -1188,7 +1190,7 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
             f"👉 {invite_link}\n\n"
             f"*Dieser Link verfällt nach 24 Stunden.*"
         )
-        send_dm_rest(discord_id, dm_msg)
+        dm_sent = send_dm_rest(discord_id, dm_msg)
 
     applications.accept_application(app_id, str(interaction.user.id), interaction.user.name)
 
@@ -1196,15 +1198,23 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
         now_ts = int(datetime.now(timezone.utc).timestamp())
         new_embed = interaction.message.embeds[0]
         new_embed.color = discord.Color.green()
-        detail_msg = f"Minecraft & BlueMap freigeschaltet ({user.get('minecraftName')})" if was_previously_enrolled else "Einladungslink per DM versendet"
+        if was_previously_enrolled:
+            detail_msg = f"Minecraft & BlueMap freigeschaltet ({user.get('minecraftName')})"
+        else:
+            detail_msg = "📨 Einladungslink per DM versendet" if dm_sent else "⚠️ DM fehlgeschlagen (bitte Link manuell übermitteln)"
         new_embed.add_field(
             name="Status",
             value=f"✅ **Entbannt / Angenommen** von {interaction.user.mention} (<t:{now_ts}:R>)\n{detail_msg}",
             inline=False,
         )
+        if not was_previously_enrolled and not dm_sent and invite_link:
+            new_embed.add_field(name="Einladungslink (Backup)", value=f"`{invite_link}`", inline=False)
         await interaction.message.edit(embed=new_embed, view=None)
 
-    await interaction.followup.send(f"✅ Entbannungsantrag #{app_id} angenommen!", ephemeral=True)
+    msg = f"✅ Entbannungsantrag #{app_id} angenommen!"
+    if not was_previously_enrolled and invite_link:
+        msg += f" Einladungslink {'per DM versendet.' if dm_sent else f': {invite_link}'}"
+    await interaction.followup.send(msg, ephemeral=True)
 
     log_admin_event(
         title="🕊️ Entbannungsantrag angenommen",

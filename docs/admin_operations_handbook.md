@@ -303,7 +303,7 @@ Neben der CLI bietet der Bot `WHD Privileges` eine vollwertige Administration ü
 | `/einladung <user> [rolle]` | Erstellt 24h-Einladung (Admin-Rolle nur durch Discord-Admins) | Staff/Admin |
 | `/einladung-abbrechen <user>` | Entwertet alle offenen Einladungen eines Nutzers | Admin |
 | `/rolle-zuweisen <user> <rolle>` | Weist LDAP- und Authentik-Rolle zu (`admin`, `mod`, `player`) | Admin |
-| `/admin-spieler <user>` | Detailauskunft aus LDAP, Authentik, Bans & SQLite-DB | Staff |
+| `/admin-spieler <discord_nutzer>` | Detailauskunft aus LDAP, Authentik, Bans & SQLite-DB per Discord-Userauswahl | Staff |
 | `/sync-alle` | Erzwingt sofortige Whitelist- & LuckPerms-Synchronisation | Admin |
 | `/spielerliste-aktualisieren` | Aktualisiert sofort das Live-Board in `#📝teilnehmerliste` | Staff |
 | `/live-status` | Zeigt CPU-, RAM-, Disk- und Uptime-Telemetrie via Wings API | Staff |

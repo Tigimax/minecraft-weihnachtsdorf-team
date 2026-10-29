@@ -1772,7 +1772,7 @@ async def ensure_channels_and_pins():
                     "• `/zugang-entziehen <ziel> [account_behalten]` — Entzieht Zugänge (wie `wd-admin revoke`).\n"
                     "• `/ban-spieler <ziel> <grund>` — Sperrt einen Spieler auf Minecraft und blockiert BlueMap.\n"
                     "• `/pardon-spieler <ziel>` — Hebt die Sperre eines Spielers wieder auf.\n"
-                    "• `/admin-spieler <ziel>` — Zeigt die vollständige Identitäts- und Rechtedatenakte an.\n"
+                    "• `/admin-spieler <discord_nutzer>` — Zeigt die vollständige Identitäts- und Rechtedatenakte per Discord-Auswahl an.\n"
                     "• `/admin-rundruf <nachricht> [rolle] [nutzer]` — Sendet Direktnachrichten an Rollen oder Spieler.\n"
                     "• `/passwort-reset <ziel>` — Generiert einen Authentik-Passwort-Resetlink.\n"
                     "• `/status [ziel]` — Prüft Systemstatus oder Profil.\n\n"
@@ -2594,28 +2594,98 @@ async def cmd_sync_alle(interaction: discord.Interaction):
 
 @tree.command(
     name="admin-spieler",
-    description="Detaillierte Account- und Statusabfrage eines Spielers über alle Systeme.",
+    description="Detaillierte Account- und Statusabfrage eines Spielers über Discord oder Textsuche.",
 )
 @app_commands.describe(
-    ziel="Minecraft IGN, Discord @Mention, ID oder Benutzername"
+    discord_nutzer="Discord-Benutzer direkt auswählen (empfohlen – findet den Account garantiert)",
+    suchbegriff="Alternativ: Freitext-Suche nach Minecraft IGN, LDAP-UID oder Discord-ID",
 )
-async def cmd_admin_spieler(interaction: discord.Interaction, ziel: str):
+async def cmd_admin_spieler(
+    interaction: discord.Interaction,
+    discord_nutzer: Optional[discord.User] = None,
+    suchbegriff: Optional[str] = None,
+):
     if not is_admin_user(interaction.user):
         await interaction.response.send_message("❌ Nur Administratoren können Spielerdaten abfragen.", ephemeral=True)
         return
 
-    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+    if not discord_nutzer and not suchbegriff:
+        await interaction.response.send_message(
+            "❌ Bitte wähle entweder einen Discord-Benutzer aus (`discord_nutzer`) oder gib einen Suchbegriff ein (`suchbegriff`).",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
     ldap = LDAPClient()
     authentik = AuthentikClient()
 
     user = None
-    if clean_target.isdigit():
-        user = ldap.search_by_discord(clean_target)
-    if not user:
-        user = ldap.get_user(clean_target) or ldap.search_by_discord(clean_target) or ldap.search_by_minecraft(clean_target)
+    target_discord_id = None
+    target_discord_name = None
+
+    if discord_nutzer:
+        target_discord_id = str(discord_nutzer.id)
+        target_discord_name = discord_nutzer.name
+        # 1. Search by Discord Snowflake ID
+        user = ldap.search_by_discord(target_discord_id)
+        # 2. Search by Discord username
+        if not user:
+            user = ldap.search_by_discord(discord_nutzer.name)
+        # 3. Search by Discord display name
+        if not user and discord_nutzer.display_name:
+            user = ldap.search_by_discord(discord_nutzer.display_name)
+    elif suchbegriff:
+        clean = suchbegriff.strip().replace("<@", "").replace(">", "").replace("!", "")
+        # 1. If pure digit: Discord ID
+        if clean.isdigit():
+            target_discord_id = clean
+            user = ldap.search_by_discord(clean)
+
+        # 2. Search members in current guild for matching name/display_name
+        if not user and interaction.guild:
+            matched_member = discord.utils.find(
+                lambda m: m.name.lower() == clean.lower() or m.display_name.lower() == clean.lower(),
+                interaction.guild.members,
+            )
+            if matched_member:
+                target_discord_id = str(matched_member.id)
+                target_discord_name = matched_member.name
+                user = ldap.search_by_discord(target_discord_id) or ldap.search_by_discord(target_discord_name)
+
+        # 3. Direct lookup in LDAP
+        if not user:
+            user = ldap.get_user(clean) or ldap.search_by_discord(clean) or ldap.search_by_minecraft(clean)
+
+    # Check SQLite status
+    query_id = target_discord_id if target_discord_id else (user.get("discordId") if user else None)
+    status = applications.get_user_status(query_id) if query_id else {}
 
     if not user:
-        await interaction.response.send_message(f"❌ Kein Benutzer zu '{ziel}' in OpenLDAP gefunden.", ephemeral=True)
+        if discord_nutzer or target_discord_id:
+            d_name = discord_nutzer.name if discord_nutzer else (target_discord_name or suchbegriff)
+            d_id = target_discord_id or (str(discord_nutzer.id) if discord_nutzer else "-")
+            mention = discord_nutzer.mention if discord_nutzer else f"<@{target_discord_id}>"
+
+            embed = discord.Embed(
+                title=f"👤 Profil: {d_name} (Nicht in LDAP)",
+                description=f"Für {mention} (`{d_id}`) existiert noch **kein fertiger OpenLDAP-Account**.",
+                color=discord.Color.orange(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="OpenLDAP Status", value="❌ Kein aktiver Account hinterlegt", inline=False)
+            embed.add_field(name="Bewerbungs-DB", value=f"Gesperrt: `{status.get('is_banned', False)}` | Cooldown: `{status.get('in_cooldown', False)}`", inline=False)
+            if status.get("minecraft_ign"):
+                embed.add_field(name="Registrierter IGN", value=f"`{status.get('minecraft_ign')}`", inline=True)
+            embed.set_footer(text=f"Abgerufen von {interaction.user.name}")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        search_label = discord_nutzer.name if discord_nutzer else (suchbegriff or "Unbekannt")
+        await interaction.followup.send(
+            f"❌ Kein Benutzer zu '{search_label}' in OpenLDAP oder in der Bewerbungsdatenbank gefunden.",
+            ephemeral=True,
+        )
         return
 
     username = user["uid"]
@@ -2643,8 +2713,6 @@ async def cmd_admin_spieler(interaction: discord.Interaction, ziel: str):
     auth_active = auth_user.get("is_active", False) if auth_user else "Kein Auth-User"
     auth_banned = (auth_user.get("attributes") or {}).get("is_banned", False) if auth_user else False
 
-    status = applications.get_user_status(discord_id) if discord_id != "-" else {}
-
     embed = discord.Embed(
         title=f"👤 Profil: {username}",
         description=f"Vollständige technische Identitätsübersicht für **{username}**.",
@@ -2653,13 +2721,14 @@ async def cmd_admin_spieler(interaction: discord.Interaction, ziel: str):
     )
     embed.add_field(name="Minecraft IGN", value=f"`{ign}`", inline=True)
     embed.add_field(name="Minecraft UUID", value=f"`{mc_uuid}`", inline=True)
-    embed.add_field(name="Discord", value=f"{discord_name} (`{discord_id}`)", inline=True)
+    discord_display = f"<@{discord_id}> ({discord_name})" if discord_id != "-" else f"`{discord_name}`"
+    embed.add_field(name="Discord", value=discord_display, inline=True)
     embed.add_field(name="E-Mail", value=f"`{email}`", inline=True)
     embed.add_field(name="LDAP Gruppen", value=f"`{', '.join(groups)}`", inline=True)
     embed.add_field(name="Authentik Status", value=f"Aktiv: `{auth_active}` | Ban: `{auth_banned}`", inline=True)
     embed.add_field(name="Bewerbungs-DB", value=f"Gesperrt: `{status.get('is_banned', False)}` | Cooldown: `{status.get('in_cooldown', False)}`", inline=True)
     embed.set_footer(text=f"Abgerufen von {interaction.user.name}")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 @tree.command(

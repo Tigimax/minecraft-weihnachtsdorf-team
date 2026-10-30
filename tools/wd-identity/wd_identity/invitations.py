@@ -116,16 +116,27 @@ def create_user_invitation(
     authentik.delete_user(clean_username)
 
     # 6. Generate Authentik Invitation Token
+    attrs: Dict[str, Any] = {
+        "discord_name": clean_discord,
+        "role": clean_role,
+    }
     fixed_data: Dict[str, Any] = {
         "username": clean_username,
         "email": user_email,
         "role": clean_role,
         "discord_name": clean_discord,
+        "attributes.discord_name": clean_discord,
+        "attributes.role": clean_role,
     }
     if discord_id:
         fixed_data["discord_id"] = discord_id
+        fixed_data["attributes.discord_id"] = discord_id
+        attrs["discord_id"] = discord_id
     if canonical_ign:
         fixed_data["minecraft_name"] = canonical_ign
+        fixed_data["attributes.minecraft_name"] = canonical_ign
+        attrs["minecraft_name"] = canonical_ign
+    fixed_data["attributes"] = attrs
 
     try:
         invite_link = authentik.create_invitation(

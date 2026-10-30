@@ -57,6 +57,7 @@ class AuthentikWebhookEvent(BaseModel):
 
 class MFADispatchRequest(BaseModel):
     username: str
+    discord_id: Optional[str] = None
 
 
 @app.get("/health")
@@ -111,7 +112,9 @@ def mfa_auto_dispatch(req: MFADispatchRequest):
         return {"status": "error", "detail": "Account is banned"}
 
     # 2. Resolve Discord ID
-    discord_id = (user.get("discordId") if user else "") or ""
+    discord_id = (req.discord_id or "").strip()
+    if not discord_id:
+        discord_id = (user.get("discordId") if user else "") or ""
     if not discord_id:
         ak_user = ak.get_user_by_username(clean_user)
         if ak_user and ak_user.get("attributes"):

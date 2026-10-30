@@ -9,6 +9,7 @@ import subprocess
 
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity.discord_bot import handle_auth_code_request
+from wd_identity.webhook import MFADispatchRequest, mfa_auto_dispatch
 
 
 class TestAuthentikClientMFA(unittest.TestCase):
@@ -163,6 +164,52 @@ class TestDiscordBotAuthCode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(embed.title, "🔑 Dein einmaliger Login-Code")
         self.assertIn("847291", embed.description)
         self.assertIn("super_player", embed.description)
+
+
+class TestWebhookMFAAutoDispatch(unittest.TestCase):
+    @patch("wd_identity.webhook.send_dm")
+    @patch("wd_identity.webhook.AuthentikClient")
+    @patch("wd_identity.webhook.LDAPClient")
+    def test_mfa_auto_dispatch_with_req_discord_id(self, mock_ldap_cls, mock_ak_cls, mock_send_dm):
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ak = mock_ak_cls.return_value
+        mock_ldap.get_user.return_value = None  # user not yet in LDAP during enrollment
+        mock_ak.has_totp_device.return_value = False
+        mock_ak.generate_static_token_for_user.return_value = "123456"
+        mock_send_dm.return_value = True
+
+        req = MFADispatchRequest(username="newbie", discord_id="9988776655")
+        res = mfa_auto_dispatch(req)
+
+        self.assertEqual(res.get("status"), "success")
+        self.assertTrue(res.get("dispatched"))
+        mock_ak.generate_static_token_for_user.assert_called_once_with("newbie")
+        mock_send_dm.assert_called_once()
+        self.assertEqual(mock_send_dm.call_args[0][0], "9988776655")
+        self.assertIn("123456", mock_send_dm.call_args[0][1])
+
+    @patch("wd_identity.webhook.send_dm")
+    @patch("wd_identity.webhook.AuthentikClient")
+    @patch("wd_identity.webhook.LDAPClient")
+    def test_mfa_auto_dispatch_fallback_to_ak_attributes(self, mock_ldap_cls, mock_ak_cls, mock_send_dm):
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ak = mock_ak_cls.return_value
+        mock_ldap.get_user.return_value = None
+        mock_ak.has_totp_device.return_value = False
+        mock_ak.get_user_by_username.return_value = {
+            "pk": 5,
+            "username": "newbie",
+            "attributes": {"discord_id": "4455667788"},
+        }
+        mock_ak.generate_static_token_for_user.return_value = "654321"
+        mock_send_dm.return_value = True
+
+        req = MFADispatchRequest(username="newbie")
+        res = mfa_auto_dispatch(req)
+
+        self.assertEqual(res.get("status"), "success")
+        mock_send_dm.assert_called_once()
+        self.assertEqual(mock_send_dm.call_args[0][0], "4455667788")
 
 
 if __name__ == "__main__":

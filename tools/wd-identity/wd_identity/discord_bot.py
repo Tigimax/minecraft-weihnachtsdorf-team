@@ -1228,6 +1228,14 @@ async def handle_admin_accept(interaction: discord.Interaction, app_id: int):
         "discord_id": discord_id,
         "discord_name": discord_name,
         "role": "player",
+        "attributes": {
+            "discord_id": discord_id,
+            "discord_name": discord_name,
+            "role": "player",
+        },
+        "attributes.discord_id": discord_id,
+        "attributes.discord_name": discord_name,
+        "attributes.role": "player",
     }
     invite_link = None
     try:
@@ -1407,9 +1415,23 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
         if clean_user.lower() in ("tigimax", "akadmin"):
             clean_user = "tigimax_player"
         authentik.delete_user(clean_user)
+        fixed_data = {
+            "discord_id": discord_id,
+            "discord_name": discord_name,
+            "role": "player",
+            "username": clean_user,
+            "attributes": {
+                "discord_id": discord_id,
+                "discord_name": discord_name,
+                "role": "player",
+            },
+            "attributes.discord_id": discord_id,
+            "attributes.discord_name": discord_name,
+            "attributes.role": "player",
+        }
         invite_link = authentik.create_invitation(
             name=f"invite-{clean_user}",
-            fixed_data={"discord_id": discord_id, "discord_name": discord_name, "role": "player", "username": clean_user},
+            fixed_data=fixed_data,
         )
         dm_msg = (
             f"🎉 **Dein Einspruch für Weihnachtsdorf 7 wurde angenommen!** 🎄\n\n"

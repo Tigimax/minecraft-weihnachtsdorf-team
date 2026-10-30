@@ -1105,6 +1105,9 @@ async def handle_admin_accept(interaction: discord.Interaction, app_id: int):
     invite_link = None
     try:
         clean_user = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_")) or f"user{discord_id[-4:]}"
+        # Protection: Never overwrite master internal admin account 'tigimax' or 'akadmin'
+        if clean_user.lower() in ("tigimax", "akadmin"):
+            clean_user = "tigimax_player"
         authentik.delete_user(clean_user)
         invite_link = authentik.create_invitation(
             name=f"invite-{clean_user}",

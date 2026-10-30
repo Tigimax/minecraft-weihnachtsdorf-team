@@ -19,6 +19,8 @@ from wd_identity.utils import sanitize_username
 
 logger = logging.getLogger(__name__)
 
+PROTECTED_INTERNAL_ACCOUNTS = {"tigimax", "akadmin"}
+
 
 def revoke_user_privileges(
     target: Union[str, Dict[str, Any]],
@@ -52,6 +54,17 @@ def revoke_user_privileges(
                 or ldap.search_by_discord(target_str)
                 or ldap.search_by_minecraft(target_str)
             )
+
+    if user and user.get("uid", "").lower() in PROTECTED_INTERNAL_ACCOUNTS:
+        logger.warning(
+            f"Refusing to revoke privileges for protected internal account '{user['uid']}'."
+        )
+        return {
+            "found": True,
+            "target": user["uid"],
+            "protected": True,
+            "reason": "Protected internal account cannot be revoked via event lifecycle.",
+        }
 
     if not user:
         logger.info(f"Target '{target_str}' not found in LDAP for privilege revocation.")

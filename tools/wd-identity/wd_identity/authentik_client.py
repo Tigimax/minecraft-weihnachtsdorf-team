@@ -127,6 +127,9 @@ class AuthentikClient:
 
     def deactivate_user(self, username: str) -> bool:
         """Deactivates user in Authentik."""
+        if username.lower() in ("tigimax", "akadmin"):
+            logger.warning(f"Refusing to deactivate protected internal account '{username}' in Authentik.")
+            return False
         user = self.get_user_by_username(username)
         if not user:
             return False
@@ -145,6 +148,9 @@ class AuthentikClient:
         Sets or unsets the is_banned flag in Authentik user attributes.
         Keeps Authentik account active while blocking BlueMap via wd-bluemap-access-policy.
         """
+        if is_banned and username.lower() in ("tigimax", "akadmin"):
+            logger.warning(f"Refusing to ban protected internal account '{username}' in Authentik.")
+            return False
         user = self.get_user_by_username(username)
         if not user:
             return False
@@ -162,6 +168,9 @@ class AuthentikClient:
 
     def delete_user(self, username: str) -> bool:
         """Deletes user in Authentik so they can be re-enrolled."""
+        if username.lower() in ("tigimax", "akadmin"):
+            logger.warning(f"Refusing to delete protected internal account '{username}' in Authentik.")
+            return False
         user = self.get_user_by_username(username)
         if not user:
             return True

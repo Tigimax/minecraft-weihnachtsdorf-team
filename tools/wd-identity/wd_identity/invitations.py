@@ -87,6 +87,10 @@ def create_user_invitation(
         if username
         else sanitize_username(clean_discord)
     )
+    # Protection: Never overwrite or re-invite the master internal admin account 'tigimax' or 'akadmin'
+    if clean_username.lower() in ("tigimax", "akadmin") and not username:
+        clean_username = "tigimax_player"
+
     user_email = sanitize_email(clean_username)
 
     # 4. Configure OpenLDAP record

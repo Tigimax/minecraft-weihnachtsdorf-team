@@ -55,6 +55,10 @@ class AuthentikWebhookEvent(BaseModel):
     context: Optional[Dict[str, Any]] = None
 
 
+class MFADispatchRequest(BaseModel):
+    username: str
+
+
 @app.get("/health")
 def health_check():
     return {
@@ -77,6 +81,67 @@ def get_project_status():
         "mode": "live" if is_launched else "pre-launch",
         "bluemap_access": "unlocked" if is_launched else "locked_for_players",
     }
+
+
+@app.post("/api/mfa/auto-dispatch")
+def mfa_auto_dispatch(req: MFADispatchRequest):
+    """
+    Called automatically by Authentik during the MFA validation stage.
+    Generates a 6-digit static token in Authentik and dispatches it via Discord DM
+    to the player. Staff members (admin/mod) are skipped so they use TOTP.
+    """
+    clean_user = sanitize_username(req.username)
+    if not clean_user:
+        return {"status": "error", "detail": "Empty username"}
+
+    ldap = LDAPClient()
+    ak = AuthentikClient()
+
+    # 1. Fetch user from LDAP to verify role and ban status
+    user = ldap.get_user(clean_user)
+    role = (user.get("role") if user else None) or "player"
+
+    # Strict check: Staff members (admin/mod) or accounts with TOTP MUST use TOTP
+    if role in ("admin", "mod") or ak.has_totp_device(clean_user):
+        logger.info(f"MFA auto-dispatch skipped for staff/TOTP user '{clean_user}'")
+        return {"status": "skipped", "reason": "staff_or_totp"}
+
+    if user and user.get("accountStatus") == "banned":
+        logger.warning(f"Refusing MFA auto-dispatch for banned user '{clean_user}'")
+        return {"status": "error", "detail": "Account is banned"}
+
+    # 2. Resolve Discord ID
+    discord_id = (user.get("discordId") if user else "") or ""
+    if not discord_id:
+        ak_user = ak.get_user_by_username(clean_user)
+        if ak_user and ak_user.get("attributes"):
+            discord_id = str(ak_user["attributes"].get("discord_id", ""))
+
+    if not discord_id:
+        logger.warning(f"Cannot auto-dispatch MFA code for '{clean_user}': No Discord ID found")
+        return {"status": "error", "detail": "No Discord ID linked"}
+
+    # 3. Generate static token in Authentik
+    token = ak.generate_static_token_for_user(clean_user)
+    if not token:
+        logger.error(f"Failed to generate static MFA token for '{clean_user}'")
+        return {"status": "error", "detail": "Token generation failed"}
+
+    # 4. Dispatch Discord DM
+    dm_text = (
+        "🔑 **Dein Login-Code für Authentik**\n\n"
+        f"Dein 6-stelliger Einmal-Code lautet:\n"
+        f"# `{token}`\n\n"
+        "Gib diesen Code jetzt im Browser ein, um deine Anmeldung abzuschließen.\n"
+        "*Hinweis: Dieser Code ist für deinen aktuellen Login-Vorgang gültig.*"
+    )
+    dm_sent = send_dm(str(discord_id), dm_text)
+    if dm_sent:
+        logger.info(f"Automatically dispatched login code via DM to {clean_user} (Discord: {discord_id})")
+        return {"status": "success", "dispatched": True}
+    else:
+        logger.warning(f"Failed to deliver Discord DM to {discord_id} for user {clean_user}")
+        return {"status": "error", "detail": "Discord DM delivery failed"}
 
 
 def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:

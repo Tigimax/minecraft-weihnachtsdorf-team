@@ -649,33 +649,6 @@ class ApplyStartView(discord.ui.View):
     async def btn_apply(self, interaction: discord.Interaction, button: discord.ui.Button):
         await trigger_application_modal(interaction)
 
-    @discord.ui.button(
-        label="Login-Code",
-        style=discord.ButtonStyle.primary,
-        emoji="🔑",
-        custom_id="wd_auth_code_btn",
-    )
-    async def btn_auth_code(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await handle_auth_code_request(interaction)
-
-    @discord.ui.button(
-        label="Abmelden",
-        style=discord.ButtonStyle.secondary,
-        emoji="🚪",
-        custom_id="wd_optout_start_btn",
-    )
-    async def btn_optout(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await trigger_optout_flow(interaction)
-
-    @discord.ui.button(
-        label="Account löschen",
-        style=discord.ButtonStyle.danger,
-        emoji="🗑️",
-        custom_id="wd_purge_start_btn",
-    )
-    async def btn_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await trigger_purge_flow(interaction)
-
 
 class AuthCodeButtonView(discord.ui.View):
     def __init__(self):
@@ -1852,18 +1825,14 @@ async def ensure_channels_and_pins():
         embed = discord.Embed(
             title="🎄 Anmeldung für Weihnachtsdorf 7 🎄",
             description=(
-                "Willkommen im weihnachtlichen SMP-Projekt! Hier kannst du deine Teilnahme verwalten.\n\n"
-                "📝 **So funktioniert die Anmeldung:**\n"
-                "1. Klicke unten auf den Button **„Jetzt bewerben“** oder nutze den Befehl `/anmelden`.\n"
+                "Willkommen im weihnachtlichen SMP-Projekt!\n\n"
+                "📝 **So funktioniert die Bewerbung:**\n"
+                "1. Klicke unten auf den Button **„Jetzt bewerben“** oder nutze den Befehl `/anmelden` hier im Channel.\n"
                 "2. Gib eine kurze Nachricht an das Team ein (wer du bist, warum du mitmachen möchtest).\n"
                 "3. Dein Antrag wird vertraulich an die Administratoren übermittelt.\n"
                 "4. Nach der Annahme erhältst du eine Direktnachricht (DM) mit deinem persönlichen Registrierungs-Link.\n\n"
-                "🚪 **Teilnahme beenden / Abmelden:**\n"
-                "Falls du deine Teilnahme beenden oder pausieren möchtest, kannst du dich unten über **„Abmelden“** (oder `/abmelden`) jederzeit selbstständig austragen. Dein Account und deine Bauwerke bleiben dabei sicher gespeichert!\n\n"
-                "🗑️ **Account vollständig löschen:**\n"
-                "Falls du deinen Account spurlos und komplett aus allen Systemen löschen möchtest, klicke auf **„Account löschen“** oder nutze `/account-loeschen`.\n\n"
-                "🔑 **Login-Code für Authentik (nur Spieler):**\n"
-                "Bereits registrierte Spieler können jederzeit auf **„Login-Code“** klicken (oder `/auth-code` / `/code` nutzen), um sich blitzschnell einen einmaligen 6-stelligen Login-Code für das Webportal generieren zu lassen!"
+                "🔐 **Login im Webportal:**\n"
+                "Sobald du registriert bist, kannst du dich im Webportal anmelden. Wenn du nach dem 2FA-Code gefragt wirst, sendet dir dieser Bot den 6-stelligen Login-Code automatisch per Direktnachricht (DM) zu!"
             ),
             color=discord.Color.gold(),
         )
@@ -2067,30 +2036,45 @@ async def ensure_channels_and_pins():
     description="Reiche deine Bewerbung / Aufnahmeantrag für Weihnachtsdorf 7 ein.",
 )
 async def cmd_anmelden(interaction: discord.Interaction):
+    channel_name = getattr(interaction.channel, "name", "")
+    if channel_name != "anmeldung":
+        await interaction.response.send_message(
+            "❌ **Falscher Channel:** Du kannst dich ausschließlich im Kanal `#anmeldung` bewerben.",
+            ephemeral=True,
+        )
+        return
     await trigger_application_modal(interaction)
 
 
 @tree.command(
     name="abmelden",
-    description="Melde dich selbstständig von Weihnachtsdorf 7 ab (beendet Teilnahme, behält Account).",
+    description="Meldet einen Spieler vom Projekt ab (Admin).",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_abmelden(interaction: discord.Interaction):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können diesen Befehl ausführen.", ephemeral=True)
+        return
     await trigger_optout_flow(interaction)
 
 
 @tree.command(
     name="account-loeschen",
-    description="Löscht deinen Weihnachtsdorf-Account oder den eines Spielers spurlos und vollständig.",
+    description="Löscht einen Spieler-Account spurlos und vollständig aus allen Systemen (Admin).",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
-    ziel="Optional: Ziel-Nutzer (@User, Discord-ID oder Account-Name). Nur für Administratoren.",
-    grund="Optionaler Grund für die Account-Löschung.",
+    ziel="Ziel-Nutzer (@User, Discord-ID oder Account-Name)",
+    grund="Optionaler Grund für die Account-Löschung",
 )
 async def cmd_account_loeschen(
     interaction: discord.Interaction,
-    ziel: Optional[str] = None,
+    ziel: str,
     grund: Optional[str] = None,
 ):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können diesen Befehl ausführen.", ephemeral=True)
+        return
     await trigger_purge_flow(interaction, ziel=ziel, grund=grund)
 
 
@@ -2099,6 +2083,13 @@ async def cmd_account_loeschen(
     description="Stelle einen Entbannungs- oder Einspruchsantrag.",
 )
 async def cmd_entbannung(interaction: discord.Interaction):
+    channel_name = getattr(interaction.channel, "name", "")
+    if channel_name != "entbannung":
+        await interaction.response.send_message(
+            "❌ **Falscher Channel:** Entbannungsanträge können nur im Kanal `#entbannung` eingereicht werden.",
+            ephemeral=True,
+        )
+        return
     await trigger_unban_modal(interaction)
 
 
@@ -2106,6 +2097,7 @@ async def cmd_entbannung(interaction: discord.Interaction):
     name="ban-spieler",
     description="Sperrt einen Spieler vom Minecraft-Server und der BlueMap (Admin).",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     target="Discord-Nutzer (@User oder ID) oder Ingame-Name",
     grund="Begründung für die Sperre",
@@ -2199,6 +2191,7 @@ async def cmd_ban_player(interaction: discord.Interaction, target: str, grund: O
     name="pardon-spieler",
     description="Hebt die Sperre eines Spielers auf Minecraft & BlueMap auf (Admin).",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(target="Discord-Nutzer (@User oder ID) oder Ingame-Name")
 async def cmd_pardon_player(interaction: discord.Interaction, target: str):
     if not is_admin_user(interaction.user):
@@ -2240,7 +2233,7 @@ async def cmd_pardon_player(interaction: discord.Interaction, target: str):
 
     if discord_id:
         dm_msg = (
-            f"🎉 **Deine Sperre für Weihnachtsdorf 7 wurde aufgehoben!**\n"
+            f"🎉 **Deine Sperre für Weihnachtsdorf 7 wurde aufgehoben!**\n\n"
             f"Du kannst den Minecraft-Server und die BlueMap Live-Karte wieder nutzen. Willkommen zurück!"
         )
         send_dm_rest(discord_id, dm_msg)
@@ -2268,6 +2261,7 @@ async def cmd_pardon_player(interaction: discord.Interaction, target: str):
     name="einladen",
     description="Lädt einen neuen Spieler oder Administrator manuell zu Weihnachtsdorf 7 ein (Admin).",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     nutzer="Discord-Nutzername, Discord-ID oder @Mention",
     rolle="Rolle: player, mod oder admin (Admin erfordert Discord-Adminrecht)",
@@ -2301,6 +2295,7 @@ async def cmd_einladen(
     name="invite",
     description="Invite a user to Weihnachtsdorf 7 manually (Admin).",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     user="Discord username, Discord ID, or @Mention",
     role="Role: player, mod, or admin (Admin requires Discord Admin role)",
@@ -2332,8 +2327,9 @@ async def cmd_invite(
 
 @tree.command(
     name="passwort-reset",
-    description="Fordere einen einmaligen Link zum Zurücksetzen deines Passworts an.",
+    description="Fordere einen einmaligen Link zum Zurücksetzen deines Passworts an (Admin).",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_password_reset(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     ldap = LDAPClient()
@@ -2380,22 +2376,6 @@ async def cmd_password_reset(interaction: discord.Interaction):
             f"✅ Hier ist dein persönlicher Wiederherstellungs-Link (nur für dich sichtbar):\n{recovery_link}",
             ephemeral=True,
         )
-
-
-@tree.command(
-    name="auth-code",
-    description="Generiert einen einmaligen 6-stelligen Login-Code für Authentik (nur normale Spieler).",
-)
-async def cmd_auth_code(interaction: discord.Interaction):
-    await handle_auth_code_request(interaction)
-
-
-@tree.command(
-    name="code",
-    description="Kurzbefehl: Generiert einen 6-stelligen Login-Code für Authentik (nur normale Spieler).",
-)
-async def cmd_code(interaction: discord.Interaction):
-    await handle_auth_code_request(interaction)
 
 
 @tree.command(
@@ -2521,6 +2501,7 @@ async def cmd_links(interaction: discord.Interaction):
     name="projekt-start",
     description="Startet Weihnachtsdorf 7: Öffnet Whitelist für alle registrierten Spieler und schaltet BlueMap frei.",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_projekt_start(interaction: discord.Interaction):
     if not is_admin_user(interaction.user):
         await interaction.response.send_message("❌ Nur Administratoren dürfen das Projekt starten.", ephemeral=True)
@@ -2563,6 +2544,7 @@ async def cmd_projekt_start(interaction: discord.Interaction):
     name="projekt-sperren",
     description="Versetzt den Server in Wartungsmodus (entfernt Spieler-Whitelist, Team bleibt aktiv).",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_projekt_sperren(interaction: discord.Interaction):
     if not is_admin_user(interaction.user):
         await interaction.response.send_message("❌ Nur Administratoren dürfen das Projekt sperren.", ephemeral=True)
@@ -2606,6 +2588,7 @@ async def cmd_projekt_sperren(interaction: discord.Interaction):
     name="zugang-entziehen",
     description="Entzieht einem Nutzer alle Projekt-Zugänge und Berechtigungen.",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     ziel="Discord @Mention, ID, Minecraft-Name oder Benutzername",
     account_behalten="True = Rechte entziehen & sperren (Account behalten); False = Komplett löschen",
@@ -2690,6 +2673,7 @@ async def cmd_zugang_entziehen(
     name="admin-rundruf",
     description="Sendet eine Direktnachricht an alle Mitglieder einer Rolle oder einen bestimmten Nutzer.",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     nachricht="Der Inhalt der Nachricht",
     rolle="Zielgruppe (all, player, staff, admin, mod)",
@@ -2805,6 +2789,7 @@ async def cmd_admin_rundruf(
     name="mc-befehl",
     description="Führt einen Konsolenbefehl direkt auf dem Minecraft-Server via RCON/Wings aus.",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     befehl="Minecraft-Konsolenbefehl (z. B. weather clear, time set day, whitelist list, tps)"
 )
@@ -2853,6 +2838,7 @@ async def cmd_mc_befehl(interaction: discord.Interaction, befehl: str):
     name="sync-alle",
     description="Führt einen sofortigen Komplett-Sync aller Dienste (LDAP, Authentik, Minecraft, Planka) durch.",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_sync_alle(interaction: discord.Interaction):
     if not is_admin_user(interaction.user):
         await interaction.response.send_message("❌ Nur Administratoren dürfen die Synchronisierung ausführen.", ephemeral=True)
@@ -2884,6 +2870,7 @@ async def cmd_sync_alle(interaction: discord.Interaction):
     name="admin-spieler",
     description="Detaillierte Account- und Statusabfrage eines Spielers über Discord oder Textsuche.",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     discord_nutzer="Discord-Benutzer direkt auswählen (empfohlen – findet den Account garantiert)",
     suchbegriff="Alternativ: Freitext-Suche nach Minecraft IGN, LDAP-UID oder Discord-ID",
@@ -3023,6 +3010,7 @@ async def cmd_admin_spieler(
     name="live-status",
     description="Echtzeit-Hardware- und Servermetriken (CPU, RAM, Disk, Uptime, TPS, Spielerzahl).",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_live_status(interaction: discord.Interaction):
     if not is_admin_user(interaction.user):
         await interaction.response.send_message("❌ Nur Administratoren können den Live-Status abrufen.", ephemeral=True)
@@ -3070,6 +3058,7 @@ async def cmd_live_status(interaction: discord.Interaction):
     name="online-spieler",
     description="Zeigt alle aktuell auf dem Minecraft-Server verbundenen Spieler mit Discord-Verknüpfung.",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_online_spieler(interaction: discord.Interaction):
     if not is_admin_user(interaction.user):
         await interaction.response.send_message("❌ Nur Administratoren können die Spielerliste abrufen.", ephemeral=True)
@@ -3118,6 +3107,7 @@ async def cmd_online_spieler(interaction: discord.Interaction):
     name="spieler-kick",
     description="Kickt einen Spieler sofort mit Begründung vom Minecraft-Server.",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     ziel="Minecraft-Name oder Discord @Mention / ID",
     grund="Begründung für den Kick (erscheint auf dem Kick-Screen)",
@@ -3177,6 +3167,7 @@ async def cmd_spieler_kick(interaction: discord.Interaction, ziel: str, grund: O
     name="wartung-timer",
     description="Startet einen automatisierten Countdown für geplante Serverwartung.",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     minuten="Countdown-Dauer in Minuten (z. B. 1, 5, 10, 15)",
     grund="Optionale Begründung für den Wartungs-Kick",
@@ -3262,6 +3253,7 @@ async def cmd_wartung_timer(
     name="wartung-abbrechen",
     description="Bricht einen aktuell laufenden Wartungs-Countdown sofort ab.",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_wartung_abbrechen(interaction: discord.Interaction):
     if not is_admin_user(interaction.user):
         await interaction.response.send_message("❌ Nur Administratoren können den Countdown abbrechen.", ephemeral=True)

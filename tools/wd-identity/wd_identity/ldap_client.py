@@ -122,20 +122,18 @@ class LDAPClient:
             conn.unbind()
 
     def search_by_discord(self, discord_name_or_id: str) -> Optional[Dict[str, Any]]:
-        """Search user by discordName or discordId or UID."""
+        """Search user strictly by discordName or discordId (never falls back to raw uid)."""
         if not discord_name_or_id or not discord_name_or_id.strip():
             return None
         target = discord_name_or_id.strip()
         esc_val = escape_filter_chars(target)
-        clean_uid = sanitize_username(target)
-        esc_uid = escape_filter_chars(clean_uid)
 
         conn = self._get_connection()
         try:
-            # Exact match filter with escaped values
+            # Exact match filter with escaped values on discordName or discordId only
             user_filter = (
                 f"(&(objectClass=person)(|(discordName={esc_val})"
-                f"(discordId={esc_val})(uid={esc_val})(uid={esc_uid})))"
+                f"(discordId={esc_val})))"
             )
             conn.search(
                 self.user_ou,
@@ -177,8 +175,6 @@ class LDAPClient:
                 if (
                     data["discordName"].lower() == target_lower
                     or data["discordId"] == target
-                    or data["uid"].lower() == target_lower
-                    or data["uid"].lower() == clean_uid
                 ):
                     return data
             return None

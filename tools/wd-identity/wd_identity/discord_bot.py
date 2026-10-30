@@ -1403,10 +1403,13 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
     else:
         # User was rejected initially and had no account yet: Send Authentik invite link
         clean_user = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_")) or f"user{discord_id[-4:]}"
+        # Protection: Never overwrite master internal admin account 'tigimax' or 'akadmin'
+        if clean_user.lower() in ("tigimax", "akadmin"):
+            clean_user = "tigimax_player"
         authentik.delete_user(clean_user)
         invite_link = authentik.create_invitation(
             name=f"invite-{clean_user}",
-            fixed_data={"discord_id": discord_id, "discord_name": discord_name, "role": "player"},
+            fixed_data={"discord_id": discord_id, "discord_name": discord_name, "role": "player", "username": clean_user},
         )
         dm_msg = (
             f"🎉 **Dein Einspruch für Weihnachtsdorf 7 wurde angenommen!** 🎄\n\n"

@@ -97,9 +97,9 @@ Alle Spieler-, Moderatoren- und Administratoren-Berechtigungen werden zentral ü
 |---|---|---|
 | **`#📋admin-anträge`** | Antragsprüfung für Admins | Interaktive Prüfung von Bewerbungen & Entbannungen (`[✅ Annehmen]`, `[❌ Ablehnen & Sperre]`) |
 | **`#✉admin-einladungen`** | Manuelle Einladungs-Zentrale | Generierung von 24h Authentik-Registrierungslinks (Admin-Einladungen nur für Discord-Admins) |
-| **`#🎛admin-steuerung`** | Admin-Command-Center | Interaktives Steuerungs-Panel mit 22 Slash-Befehlen zur Server- & Spielerverwaltung |
+| **`#🎛admin-steuerung`** | Admin-Command-Center | Interaktives Steuerungs-Panel mit 24 Slash-Befehlen zur Server- & Spielerverwaltung |
 | **`#📜admin-logs`** | Zentrales Audit-Log | Echtzeit-Protokollierung aller Bewerbungen, Entbannungen, Leaves, Kicks und Server-Events |
-| **`#📝anmeldung`** | Öffentliches Onboarding | Pinned Guide mit `[📝 Jetzt bewerben]` und Self-Service `[🚪 Abmelden]` Button |
+| **`#📝anmeldung`** | Öffentliches Onboarding | Pinned Guide mit `[📝 Jetzt bewerben]`, `[🔑 Login-Code]` und Self-Service `[🚪 Abmelden]` Button |
 | **`#⚖entbannung`** | Einsprüche & Appeals | Pinned Leitfaden mit `[⚖️ Einspruch / Entbannung beantragen]` Modal |
 | **`#📝teilnehmerliste`** | Öffentliche Live-Übersicht | Automatischer 30s-Sync der registrierten Spieler und Rollen |
 
@@ -107,9 +107,9 @@ Alle Spieler-, Moderatoren- und Administratoren-Berechtigungen werden zentral ü
 
 | Bereich | Befehle (CLI / Discord) | Wirkung |
 |---|---|---|
-| **Projekt-Status** | `wd-admin project [status\|launch\|lock]`<br>`/projekt-start`, `/projekt-sperren` | Pre-Launch Gate: Schaltet registrierte Spieler auf Whitelist frei oder sperrt Server in Wartungsmodus |
-| **Einladungen** | `wd-admin invite <user> [--role admin\|mod\|player]`<br>`/einladung`, `/einladung-abbrechen` | Single-Use Authentik-Einladung per DM zustellen (Admins nur durch Discord-Admins einladbar) |
-| **Zugang & Sperren** | `wd-admin revoke <user>`, `wd-admin ban/pardon`<br>`/zugang-entziehen`, `/spieler-bannen`, `/spieler-entbannen` | Vollständiger Entzug über LDAP, Authentik, Planka, Whitelist und DB; Cooldown-System |
+| **Projekt-Status** | `wd-admin project [status\|launch\|lock]`<br>`/projekt-start`, `/projekt-sperren` | Pre-Launch Gate: Schaltet registrierte Spieler auf Whitelist & BlueMap frei oder sperrt Server in Wartungsmodus |
+| **Einladungen & 2FA** | `wd-admin invite <user> [--role admin\|mod\|player]`<br>`/einladen`, `/auth-code` (`/code`) | Single-Use Authentik-Einladung per DM zustellen; 6-stelliger Bot-Login-Code für Spieler |
+| **Zugang & Löschung** | `wd-admin revoke`, `wd-admin purge`, `wd-admin ban/pardon`<br>`/zugang-entziehen`, `/account-loeschen`, `/ban-spieler`, `/pardon-spieler` | Vollständiger Entzug oder Purge über LDAP, Authentik, Planka, Whitelist und DB; Cooldown-System |
 | **Server-Telemetrie** | `/live-status`, `/online-spieler` | Echtzeit-CPU, RAM, Festplatte, Uptime, TPS und Liste aller Ingame-Spieler via Wings API |
 | **Ingame-Aktionen** | `/admin-rundruf`, `/mc-befehl`, `/spieler-kick`<br>`/wartung-timer`, `/wartung-abbrechen` | Broadcasts (Chat/Title/Actionbar), RCON-Befehlsausführung und Countdown mit Audio-Cues |
 | **Mitgliedschaft** | Automatischer Event-Handler | **Server Leave**: Entzieht sofort alle Rechte, schont Account; **Rejoin**: Interaktiver Prompt in `#📜admin-logs` |
@@ -181,7 +181,7 @@ ansible-playbook -i ansible/inventory.ini ansible/playbooks/<PLAYBOOK>.yml
 │   │   ├── invitations.py  # Authentik-Einladungs- & Validierungslogik
 │   │   ├── playerlist.py   # Teilnehmerlisten-Aggregator & Sync (#📝teilnehmerliste)
 │   │   ├── applications.py # Bewerbungs- & Entbannungsantrags-Lifecycle (SQLite)
-│   │   ├── discord_bot.py  # WHD Privileges Discord Bot & 22 Slash Commands
+│   │   ├── discord_bot.py  # WHD Privileges Discord Bot & 24 Slash Commands
 │   │   ├── mc_sync.py      # Wings API Client, Telemetrie, TPS & RCON Broadcast
 │   │   └── cli.py          # wd-admin CLI Suite
 ```

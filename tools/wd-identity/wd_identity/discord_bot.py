@@ -2014,17 +2014,25 @@ async def ensure_channels_and_pins():
                     "• `/projekt-start` — Startet Weihnachtsdorf 7: Öffnet die Whitelist für alle registrierten Spieler.\n"
                     "• `/projekt-sperren` — Wartungsmodus aktivieren: Nimmt normale Spieler von der Whitelist.\n"
                     "• `/mc-befehl <befehl>` — Führt Konsolenbefehle via RCON aus (z. B. `/mc-befehl befehl:weather clear`).\n"
-                    "• `/sync-alle` — Forciert den sofortigen Komplett-Sync aller Dienste (LDAP, Authentik, MC, Planka).\n\n"
+                    "• `/sync-alle` — Forciert den sofortigen Komplett-Sync aller Dienste (LDAP, Authentik, MC, Planka).\n"
+                    "• `/spielerliste-aktualisieren` — Forciert die sofortige Aktualisierung der Teilnehmerliste.\n\n"
                     "👥 **Benutzer- & Moderations-Management:**\n"
                     "• `/spieler-kick <ziel> [grund]` — Kickt einen Spieler sofort vom Server.\n"
                     "• `/einladen <discord_nutzer> [rolle] [ign]` — Erstellt eine Einladung (Admin-Check aktiv).\n"
-                    "• `/zugang-entziehen <ziel> [account_behalten]` — Entzieht Zugänge (wie `wd-admin revoke`).\n"
-                    "• `/ban-spieler <ziel> <grund>` — Sperrt einen Spieler auf Minecraft und blockiert BlueMap.\n"
-                    "• `/pardon-spieler <ziel>` — Hebt die Sperre eines Spielers wieder auf.\n"
+                    "• `/zugang-entziehen <ziel>` — Entzieht Zugänge (wie `wd-admin revoke --keep-ldap`).\n"
+                    "• `/account-loeschen <ziel> [grund]` — Löscht einen Account spurlos aus allen Systemen (Purge).\n"
+                    "• `/ban-spieler <ziel> <grund>` — Sperrt einen Spieler auf Minecraft und blockiert BlueMap (Alias: `/spieler-bannen`).\n"
+                    "• `/pardon-spieler <ziel>` — Hebt die Sperre eines Spielers wieder auf (Alias: `/spieler-entbannen`).\n"
                     "• `/admin-spieler <discord_nutzer>` — Zeigt die vollständige Identitäts- und Rechtedatenakte per Discord-Auswahl an.\n"
                     "• `/admin-rundruf <nachricht> [rolle] [nutzer]` — Sendet Direktnachrichten an Rollen oder Spieler.\n"
-                    "• `/passwort-reset <ziel>` — Generiert einen Authentik-Passwort-Resetlink.\n"
-                    "• `/status [ziel]` — Prüft Systemstatus oder Profil.\n\n"
+                    "• `/passwort-reset` — Generiert einen Authentik-Passwort-Resetlink.\n"
+                    "• `/status` — Prüft deinen Account-Status und Rollen.\n\n"
+                    "🔑 **Spieler-Befehle (Public):**\n"
+                    "• `/anmelden` — Bewerbung für Weihnachtsdorf 7 einreichen.\n"
+                    "• `/abmelden` — Self-Service Abmeldung vom Projekt.\n"
+                    "• `/entbannung` — Einspruch / Entbannungsantrag stellen.\n"
+                    "• `/auth-code` (oder `/code`) — 6-stelligen Login-Code für Authentik anfordern.\n"
+                    "• `/links` — Übersicht aller geschützten Dienste und Server-Adressen.\n\n"
                     "⚡ **Schnellzugriff (One-Click Actions):**\n"
                     "Nutze die Buttons unten, um häufige Aufgaben blitzschnell ohne Tippen auszulösen!"
                 ),
@@ -2213,6 +2221,19 @@ async def cmd_ban_player(interaction: discord.Interaction, target: str, grund: O
 
 
 @tree.command(
+    name="spieler-bannen",
+    description="Alias für /ban-spieler: Sperrt einen Spieler vom Minecraft-Server und der BlueMap (Admin).",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    target="Discord-Nutzer (@User oder ID) oder Ingame-Name",
+    grund="Begründung für die Sperre",
+)
+async def cmd_spieler_bannen(interaction: discord.Interaction, target: str, grund: Optional[str] = None):
+    await cmd_ban_player(interaction, target=target, grund=grund)
+
+
+@tree.command(
     name="pardon-spieler",
     description="Hebt die Sperre eines Spielers auf Minecraft & BlueMap auf (Admin).",
 )
@@ -2280,6 +2301,16 @@ async def cmd_pardon_player(interaction: discord.Interaction, target: str):
         await sync_playerlist_bot(bot, force=True)
     except Exception:
         pass
+
+
+@tree.command(
+    name="spieler-entbannen",
+    description="Alias für /pardon-spieler: Hebt die Sperre eines Spielers auf Minecraft & BlueMap auf (Admin).",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(target="Discord-Nutzer (@User oder ID) oder Ingame-Name")
+async def cmd_spieler_entbannen(interaction: discord.Interaction, target: str):
+    await cmd_pardon_player(interaction, target=target)
 
 
 @tree.command(
@@ -2351,6 +2382,40 @@ async def cmd_invite(
 
 
 @tree.command(
+    name="einladung",
+    description="Alias für /einladen: Lädt einen neuen Spieler oder Administrator manuell zu Weihnachtsdorf 7 ein (Admin).",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    nutzer="Discord-Nutzername, Discord-ID oder @Mention",
+    rolle="Rolle: player, mod oder admin (Admin erfordert Discord-Adminrecht)",
+    ign="Minecraft Ingame-Name (optional)",
+    username="Wunsch-Benutzername (optional)",
+)
+@app_commands.choices(
+    rolle=[
+        app_commands.Choice(name="Spieler (Standard)", value="player"),
+        app_commands.Choice(name="Moderator", value="mod"),
+        app_commands.Choice(name="Administrator", value="admin"),
+    ]
+)
+async def cmd_einladung_alias(
+    interaction: discord.Interaction,
+    nutzer: str,
+    rolle: app_commands.Choice[str],
+    ign: Optional[str] = None,
+    username: Optional[str] = None,
+):
+    await handle_manual_invite_submit(
+        interaction,
+        target_discord=nutzer,
+        role=rolle.value,
+        ign=ign,
+        username=username,
+    )
+
+
+@tree.command(
     name="passwort-reset",
     description="Fordere einen einmaligen Link zum Zurücksetzen deines Passworts an (Admin).",
 )
@@ -2401,6 +2466,15 @@ async def cmd_password_reset(interaction: discord.Interaction):
             f"✅ Hier ist dein persönlicher Wiederherstellungs-Link (nur für dich sichtbar):\n{recovery_link}",
             ephemeral=True,
         )
+
+
+@tree.command(
+    name="spieler-zurücksetzen",
+    description="Alias für /passwort-reset: Fordere einen einmaligen Link zum Zurücksetzen deines Passworts an (Admin).",
+)
+@app_commands.default_permissions(administrator=True)
+async def cmd_spieler_zuruecksetzen(interaction: discord.Interaction):
+    await cmd_password_reset(interaction)
 
 
 @tree.command(
@@ -2520,6 +2594,22 @@ async def cmd_links(interaction: discord.Interaction):
     embed.set_footer(text="Weihnachtsdorf 7 Identity System")
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@tree.command(
+    name="auth-code",
+    description="Generiert einen 6-stelligen Login-Code für Authentik (nur für registrierte Spieler).",
+)
+async def cmd_auth_code(interaction: discord.Interaction):
+    await handle_auth_code_request(interaction)
+
+
+@tree.command(
+    name="code",
+    description="Kurzform: Generiert einen 6-stelligen Login-Code für Authentik (nur für Spieler).",
+)
+async def cmd_code(interaction: discord.Interaction):
+    await handle_auth_code_request(interaction)
 
 
 @tree.command(
@@ -2889,6 +2979,23 @@ async def cmd_sync_alle(interaction: discord.Interaction):
     embed.add_field(name="Live-Spielerliste", value="✅ Embed aktualisiert" if list_ok else "⚠️ Unverändert", inline=True)
     embed.set_footer(text=f"Ausgeführt von {interaction.user.name}")
     await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="spielerliste-aktualisieren",
+    description="Aktualisiert sofort das interaktive Live-Board in #teilnehmerliste (Admin).",
+)
+@app_commands.default_permissions(administrator=True)
+async def cmd_spielerliste_aktualisieren(interaction: discord.Interaction):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können die Spielerliste manuell aktualisieren.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    ok = await sync_playerlist_bot(bot, force=True)
+    if ok:
+        await interaction.followup.send("✅ Das Teilnehmerliste-Board wurde erfolgreich aktualisiert.", ephemeral=True)
+    else:
+        await interaction.followup.send("⚠️ Teilnehmerliste konnte nicht aktualisiert werden.", ephemeral=True)
 
 
 @tree.command(

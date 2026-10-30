@@ -1,6 +1,6 @@
 # Projekt-Status & Vorfall-Log: Weihnachtsdorf 7
 
-**Stand:** 29. Oktober 2026  
+**Stand:** 30. Oktober 2026  
 **Dokument-Zweck:** Zentrale Dokumentation des aktuellen Systemzustands, offener Aufgaben sowie aufgetretener Vorfälle (Troubleshooting-Protokoll).
 
 ---
@@ -120,6 +120,19 @@
   4. Policy-Checks verifiziert: `wd-staff-only-policy: passing=True`, `wd-bluemap-access-policy: passing=True`.
 
 
+### Vorfall J: Discord Slash Command Konsolidierung & Registrierung der MFA-Befehle
+- **Symptom:**  
+  Obwohl die 2FA-Einmalcode-Generierung für Spieler im Backend und als Button (`wd_auth_code_btn`) voll funktionsfähig war, fehlten die `@tree.command`-Deklaratoren für `/auth-code` und `/code` in `discord_bot.py`. Zudem wichen vereinzelte Befehlsnamen in der Dokumentation von den tatsächlichen Registrierungsnamen ab (z. B. `/ban-spieler` vs. `/spieler-bannen`).
+- **Behebung:**  
+  1. `@tree.command(name="auth-code")` und Kurzform `@tree.command(name="code")` nativ im Bot registriert und getestet.
+  2. Robuste Slash-Command-Aliase für volle Kompatibilität hinzugefügt:
+     - `/spieler-bannen` als Alias für `/ban-spieler`
+     - `/spieler-entbannen` als Alias für `/pardon-spieler`
+     - `/einladung` als Alias für `/einladen`
+     - `/spieler-zurücksetzen` als Alias für `/passwort-reset`
+     - `/spielerliste-aktualisieren` zur manuellen Schnell-Aktualisierung des `#📝teilnehmerliste`-Boards.
+  3. Vollständige Unittest-Suite erweitert (58 Unittests erfolgreich).
+
 ---
 
 ## 2. Infrastruktur- & Komponenten-Übersicht
@@ -131,7 +144,7 @@
 | **Planka Kanban** | `usrv01` (`192.168.1.174:3000`) | **Aktiv** | Staff-Planung (`https://tigimax.mooo.com`) mit Forward-Auth Auto-Login |
 | **Pterodactyl Wings** | `mc-node1` (`192.168.1.149:8080`) | **Aktiv** | Minecraft Node 2 Daemon, RCON & Telemetrie-Schnittstelle |
 | **BlueMap** | `mc-node1` (`192.168.1.148:8123`) | **Aktiv** | Web-Weltkarte (`https://map.tigimax.mooo.com`), geschützt via `wd-bluemap-access-policy` |
-| **WHD Discord Bot** | `idp-01` (`wd-bot.service`) | **Aktiv** | Discord-Bot (`WHD Privileges`) mit 22 Slash Commands & Audit Logging |
+| **WHD Discord Bot** | `idp-01` (`wd-bot.service`) | **Aktiv** | Discord-Bot (`WHD Privileges`) mit 24 Slash Commands & Audit Logging |
 | **WD Identity API** | `idp-01` (`wd-identity.service`) | **Aktiv** | Webhook & CLI-Backend (`/opt/wd-identity`), Port 8000 |
 
 ---
@@ -142,38 +155,40 @@
 |---|---|---|---|
 | **`#📋admin-anträge`** | `1565033844535722085` | Nur Admins | Prüfung aller Aufnahme- und Entbannungsanträge mit Schnell-Aktionen |
 | **`#✉admin-einladungen`** | `1565288748718100552` | Nur Admins | Interaktive Erstellung von Authentik-Einladungen (Admin-Rolle nur für Discord-Admins) |
-| **`#🎛admin-steuerung`** | `1565299837522673674` | Nur Admins | Admin-Steuerungszentrale & Index aller 22 Slash-Befehle |
+| **`#🎛admin-steuerung`** | `1565299837522673674` | Nur Admins | Admin-Steuerungszentrale & Index aller Slash-Befehle |
 | **`#📜admin-logs`** | `1565288746088402974` | Nur Admins | Vollständiges System- & Sicherheits-Audit-Log (Echtzeit-REST) |
-| **`#📝anmeldung`** | `1565033506227355838` | Öffentlich | Aufnahme-Bewerbung (`[📝 Jetzt bewerben]`) & Self-Opt-Out (`[🚪 Abmelden]`) |
+| **`#📝anmeldung`** | `1565033506227355838` | Öffentlich | Aufnahme-Bewerbung (`[📝 Jetzt bewerben]`), 2FA-Code (`[🔑 Login-Code]`) & Self-Opt-Out (`[🚪 Abmelden]`) |
 | **`#⚖entbannung`** | `1565291901156851722` | Öffentlich | Entbannungs- & Einspruchsantrag (`[⚖️ Einspruch / Entbannung beantragen]`) |
 | **`#📝teilnehmerliste`** | `1565283582593998888` | Öffentlich | Live-Board aller registrierten Spieler und Rollen (30s Sync) |
 
 ---
 
-## 4. Vollständige Suite der 22 Discord Slash-Befehle
+## 4. Vollständige Suite der 24 Discord Slash-Befehle & Aliase
 
-1. `/projekt-start` – Schaltet alle registrierten Spieler auf der Minecraft-Whitelist frei.
+1. `/projekt-start` – Schaltet alle registrierten Spieler auf der Minecraft-Whitelist und BlueMap frei.
 2. `/projekt-sperren` – Versetzt den Server in den Wartungs-/Pre-Launch-Modus (Spieler gesperrt, Staff aktiv).
 3. `/zugang-entziehen` – Entzieht einem Nutzer alle Zugriffsrechte restlos.
-4. `/spieler-bannen` – Bannt einen Spieler auf dem Minecraft-Server und sperrt BlueMap.
-5. `/spieler-entbannen` – Hebt Sperren auf Minecraft und BlueMap wieder auf.
-6. `/spieler-kick` – Kickt einen Spieler sofort vom Server mit Angabe eines Grundes.
-7. `/spieler-zurücksetzen` – Sendet einen Authentik-Passwort-Recoverylink per DM.
-8. `/einladung` – Generiert manuell einen Authentik-Registrierungslink per DM.
-9. `/einladung-abbrechen` – Entwertet alle offenen Einladungen eines Nutzers.
-10. `/rolle-zuweisen` – Ändert die Rolle eines Nutzers (Admin, Moderator, Spieler).
-11. `/admin-spieler` – Detaillierte Sicherheits- und Datenbankauskunft über einen Nutzer.
-12. `/sync-alle` – Erzwingt sofortigen Abgleich von LDAP, Whitelist und LuckPerms.
-13. `/spielerliste-aktualisieren` – Synchronisiert sofort das Live-Board in `#📝teilnehmerliste`.
-14. `/live-status` – Echtzeit-Abfrage von CPU, RAM, Festplatte, Uptime und TPS.
-15. `/online-spieler` – Zeigt alle aktuell ingame verbundenen Spieler und TPS an.
-16. `/wartung-timer` – Startet einen Ingame-Countdown mit Audio-Cues und schaltet danach die Whitelist um.
-17. `/wartung-abbrechen` – Bricht einen laufenden Wartungscountdown sofort ab.
-18. `/mc-befehl` – Führt einen beliebigen RCON-Befehl direkt auf der Hauptwelt aus.
-19. `/admin-rundruf` – Sendet Ingame-Nachrichten (Chat, Titel oder Actionbar) an alle Spieler.
-20. `/anmelden` – Öffnet das interaktive Bewerbungsmodal für Spieler.
-21. `/abmelden` – Ermöglicht Spielern die selbstständige Abmeldung vom Projekt.
-22. `/entbannen` – Öffnet das Einspruchsmodal für abgelehnte oder gesperrte Nutzer.
+4. `/account-loeschen` – Löscht einen Spieler-Account spurlos und vollständig aus allen Systemen (Purge).
+5. `/ban-spieler` (Alias: `/spieler-bannen`) – Bannt einen Spieler auf dem Minecraft-Server und sperrt BlueMap.
+6. `/pardon-spieler` (Alias: `/spieler-entbannen`) – Hebt Sperren auf Minecraft und BlueMap wieder auf.
+7. `/spieler-kick` – Kickt einen Spieler sofort vom Server mit Angabe eines Grundes.
+8. `/passwort-reset` (Alias: `/spieler-zurücksetzen`) – Sendet einen Authentik-Passwort-Recoverylink per DM.
+9. `/einladen` (Aliase: `/invite`, `/einladung`) – Generiert manuell einen Authentik-Registrierungslink per DM.
+10. `/admin-spieler` – Detaillierte Sicherheits- und Datenbankauskunft über einen Nutzer.
+11. `/sync-alle` – Erzwingt sofortigen Abgleich von LDAP, Whitelist, Authentik und LuckPerms.
+12. `/spielerliste-aktualisieren` – Synchronisiert sofort das Live-Board in `#📝teilnehmerliste`.
+13. `/live-status` – Echtzeit-Abfrage von CPU, RAM, Festplatte, Uptime und TPS.
+14. `/online-spieler` – Zeigt alle aktuell ingame verbundenen Spieler und TPS an.
+15. `/wartung-timer` – Startet einen Ingame-Countdown mit Audio-Cues und schaltet danach die Whitelist um.
+16. `/wartung-abbrechen` – Bricht einen laufenden Wartungscountdown sofort ab.
+17. `/mc-befehl` – Führt einen beliebigen RCON-Befehl direkt auf der Hauptwelt aus.
+18. `/admin-rundruf` – Sendet Ingame-Nachrichten (Chat, Titel oder Actionbar) an alle Spieler oder Direktnachrichten.
+19. `/status` – Zeigt deinen eigenen Account-Status, Rollen und 2FA-Status.
+20. `/links` – Übersicht aller geschützten Dienste und Server-Adressen.
+21. `/auth-code` (Kurzform: `/code`) – Fordert einen 6-stelligen Authentik-Einmalcode für Spieler an.
+22. `/anmelden` – Öffnet das interaktive Bewerbungsmodal für Spieler im Kanal `#📝anmeldung`.
+23. `/abmelden` – Ermöglicht Spielern die selbstständige Abmeldung vom Projekt.
+24. `/entbannen` – Öffnet das Einspruchsmodal für abgelehnte oder gesperrte Nutzer im Kanal `#⚖entbannung`.
 
 ---
 

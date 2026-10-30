@@ -17,12 +17,13 @@ Das Paket **`wd-identity`** bildet das zentrale administrative Steuerungs-Backen
   - Abfrage des Minecraft Ingame-Namens (IGN) direkt im Webformular.
   - Generierung von zeitlich begrenzten Einmal-Recoverylinks für Passwort-Resets.
 - **Discord Bot (`WHD Privileges`)**:
-  - **22 Guild Slash Commands**: Vollständige Suite zur Server-, Moderations- und Projektsteuerung (`/projekt-start`, `/live-status`, `/spieler-kick`, `/admin-rundruf`, etc.).
+  - **24 Guild Slash Commands & Aliase**: Vollständige Suite zur Server-, Moderations- und Projektsteuerung (`/projekt-start`, `/live-status`, `/spieler-kick`, `/account-loeschen`, `/auth-code`, `/admin-rundruf`, etc.).
   - **Admin Command Center (`#🎛admin-steuerung`)**: Interaktives Steuerungs-Panel mit Direktzugriff und Befehlserklärungen.
   - **Antragsprüfung (`#📋admin-anträge`)**: Interaktive Abarbeitung von Aufnahme- und Entbannungsanträgen (`[✅ Annehmen]`, `[❌ Ablehnen & Sperre setzen]` mit Cooldown-Modal).
   - **Audit Logger (`#📜admin-logs`)**: Zentrales, synchrones REST-basiertes Event-Logging (`audit_logger.py`).
-  - **Membership Lifecycle (`membership.py`)**: Automatischer Privilegien-Entzug bei Server-Leave (`on_member_remove`) und interaktive Reaktivierung bei Rejoin (`on_member_join`).
-  - **Player Self-Service (`#📝anmeldung`)**: Bewerbungs- und Abmelde-Modal (`/anmelden`, `/abmelden`).
+  - **Membership Lifecycle (`membership.py`)**: Automatischer Privilegien-Entzug bei Server-Leave (`on_member_remove`), Reaktivierung bei Rejoin (`on_member_join`) und vollständige Account-Löschung (`purge_user_completely`).
+  - **Player Self-Service (`#📝anmeldung`)**: Bewerbungs-, Abmelde- und 2FA-Code-Modal (`/anmelden`, `/abmelden`, `/auth-code`).
+  - **Schutz interner Admin-Konten**: Strikte Schutzlogik für `tigimax` und `akadmin` vor versehentlicher Löschung oder Revocation. Klare Trennung zwischen Admin-Infrastruktur (`tigimax`) und Event-Teilnehmer (`tigimax_player`).
   - Multi-Guild Discovery: Durchsucht automatisch alle Server des Bots, um Nutzer anhand ihres Namens, Nicks oder ihrer Snowflake-ID aufzulösen.
   - Synchroner REST-Dispatcher für 100% zuverlässige DM-Zustellung aus CLI, Webhooks und Systemd-Diensten.
 - **Minecraft Privilege Sync & Telemetrie**:
@@ -149,13 +150,34 @@ wd-admin notify nummernfeld "Hier ist dein persönlicher Einladungslink: https:/
 
 ### 6. Berechtigungen entziehen (Revoke)
 ```bash
-wd-admin revoke <discord_name>
+wd-admin revoke <discord_name> [--keep-ldap]
 ```
-- Entfernt LDAP-Gruppen (`wd_admins`/`wd_mods`/`wd_players`).
-- Deaktiviert den Nutzer in Planka (falls vorhanden).
-- Entfernt den Spieler von der Minecraft-Whitelist und setzt LuckPerms auf `default`.
+- Standardmäßig vollständiger Entzug aller Rechte.
+- Mit `--keep-ldap`: Entfernt Gruppenmitgliedschaften (`wd_admins`/`wd_mods`/`wd_players`), deaktiviert Authentik und Planka, entfernt Whitelist, belässt aber das Basis-LDAP-Konto (inaktiv).
 
-### 6. Minecraft-Synchronisation anstoßen
+### 7. Account vollständig löschen (Purge)
+```bash
+wd-admin purge <target> [--reason "Begründung"]
+```
+- Löscht das Spielerkonto spurlos und unwiderruflich aus **allen** Systemen:
+  - **OpenLDAP**: Vollständiges Löschen des User-DNs und aller Gruppenreferenzen.
+  - **Authentik**: Löschen des Benutzerkontos und Entwerten aller offenen Einladungs-Tokens.
+  - **Planka**: Löschen des Kontos, aktiver Sessions und Board-Zuordnungen.
+  - **Minecraft**: Whitelist-Bereinigung und Permission-Reset via Wings API.
+  - **SQLite-DB**: Bereinigen aller Bewerbungen, Reviews, Bans und Cooldowns.
+- **Admin-Schutz**: Interne Administratorkonten (`tigimax`, `akadmin`) sind fest gegen diesen Befehl geschützt.
+
+### 8. Spieler bannen & entbannen
+```bash
+# Spieler bannen (Minecraft Server Ban + BlueMap Sperre)
+wd-admin ban <target> [--reason "Regelverstoß"]
+
+# Spieler entbannen (Hebt Minecraft & BlueMap Sperren auf)
+wd-admin pardon <target>
+```
+- Synchronisiert Server-Bans und Authentik BlueMap-Zugriffsschranken in Echtzeit.
+
+### 9. Minecraft-Synchronisation anstoßen
 ```bash
 wd-admin sync [--force]
 ```
@@ -194,7 +216,7 @@ Oder klassisch mit virtuellem Environment / PYTHONPATH:
 ```bash
 PYTHONPATH=tools/wd-identity python3 -m unittest discover -s tools/wd-identity/tests/ -v
 ```
-Alle 18 Unittests für Input-Sanitization, SQL-Escaping, Mojang-Resolution und Idempotenz-Logik laufen vollständig durch.
+Alle 58 Unittests in 9 Test-Suites (Input-Sanitization, SQL-Escaping, Mojang-Resolution, Launch Gate, MFA-Bot-Codes, Purge-Logik und Audit-Logging) laufen vollständig durch.
 
 ---
 

@@ -165,6 +165,20 @@ class TestDiscordBotAuthCode(unittest.IsolatedAsyncioTestCase):
         self.assertIn("847291", embed.description)
         self.assertIn("super_player", embed.description)
 
+    @patch("wd_identity.discord_bot.handle_auth_code_request")
+    async def test_cmd_auth_code_delegates(self, mock_handler):
+        from wd_identity.discord_bot import cmd_auth_code
+        mock_handler.return_value = None
+        await cmd_auth_code.callback(self.interaction)
+        mock_handler.assert_called_once_with(self.interaction)
+
+    @patch("wd_identity.discord_bot.handle_auth_code_request")
+    async def test_cmd_code_delegates(self, mock_handler):
+        from wd_identity.discord_bot import cmd_code
+        mock_handler.return_value = None
+        await cmd_code.callback(self.interaction)
+        mock_handler.assert_called_once_with(self.interaction)
+
 
 class TestWebhookMFAAutoDispatch(unittest.TestCase):
     @patch("wd_identity.webhook.send_dm")

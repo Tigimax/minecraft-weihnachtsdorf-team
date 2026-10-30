@@ -1,6 +1,6 @@
 # Weihnachtsdorf 7 • Status, Behebungen & verbleibende Action Items
 
-**Stand**: 2026-10-29 (Aktualisiert nach Discord- & Identity-Sprint)  
+**Stand**: 2026-10-30 (Aktualisiert nach Sprint: BlueMap-Gate, Bot-MFA, Account-Purge & Command-Harmonisierung)  
 **Gültig für**: Minecraft SMP Weihnachtsdorf 7 (Purpur 26.3 / Velocity 3.5.1 / Authentik / OpenLDAP / Discord)  
 
 ---
@@ -14,7 +14,7 @@ flowchart TD
         VAULT["Vault 1.7.3 & Essentials hooked"]
         TAB["VelocityScoreboardAPI aktiv"]
         WB["Worldborder (3000) & Chunky Pre-Gen"]
-        CMD["Discord Slash Commands Duplikat-Fix"]
+        CMD["Discord Slash Commands (24 Kernbefehle & Aliase)"]
         LEV["Discord Server Leave Auto-Revoke"]
         REJ["Discord Rejoin Interactive Alert"]
         OPT["Player Self Opt-Out in #anmeldung"]
@@ -22,6 +22,9 @@ flowchart TD
         CTL["Admin Control Center (#🎛admin-steuerung)"]
         EMO["Channel Emojis & resilienter Lookup"]
         TEL["Wings Live Telemetry & Ingame Broadcasts"]
+        BMG["BlueMap Pre-Launch Access Gate in Authentik"]
+        MFA["Spieler 2FA Bot-Code & Staff TOTP Zwang"]
+        PUR["Vollständiger Account Purge & Admin-Schutz"]
     end
 
     subgraph OPEN["⏳ Vorbereitung vor Launch"]
@@ -71,6 +74,18 @@ flowchart TD
 
 ### 11. Wings Telemetrie & Ingame Broadcast Engine • [BEHOBEN]
 * **Lösung**: `mc_sync.py` erweitert um Live-Telemetrie (`get_server_telemetry()`), Live-TPS (`get_live_tps()`), Online-Spielerliste (`get_online_players()`) und Multi-Format Ingame-Broadcasts (`broadcast_ingame()` für Chat, Actionbar und Titel).
+
+### 12. BlueMap Launch Gate & Pre-Launch Zugriffsschutz • [BEHOBEN]
+* **Lösung**: Authentik Expression-Policy `wd-bluemap-access-policy` so konfiguriert, dass während der Pre-Launch-Phase nur Staff-Mitglieder Zugriff auf die Live-Karte haben. Bei Projektstart (`wd-admin project launch` / `/projekt-start`) wird das Gate geöffnet und für alle registrierten Spieler zugänglich gemacht.
+
+### 13. Spieler 2FA Bot-Code & strikter Staff TOTP-Zwang • [BEHOBEN]
+* **Lösung**: Für normale Spieler wurde die bequeme 2FA-Option über den Discord-Bot (`/auth-code`, `/code` oder Button `[🔑 Login-Code]`) geschaffen. Authentik Enrollment-Stage überspringt den TOTP-Scan für Spieler dynamisch, erzwingt ihn jedoch strikt für Administratoren und Moderatoren.
+
+### 14. Vollständiger Account-Purge & Admin-Schutz • [BEHOBEN]
+* **Lösung**: `purge_user_completely()` implementiert (`wd-admin purge` und `/account-loeschen` mit Bestätigungsdialog). Entfernt Konten spurlos über OpenLDAP, Authentik, Planka, Minecraft-Server und SQLite-DB. Interne Administratorkonten (`tigimax`, `akadmin`) sind fest gegen diesen Befehl geschützt. Event-Teilnehmer nutzen `tigimax_player`.
+
+### 15. Discord Slash Commands & Alias-Harmonisierung • [BEHOBEN]
+* **Lösung**: Vollständige Suite von 24 Kernbefehlen auf Guild-Ebene synchronisiert. `@tree.command(name="auth-code")` und `/code` nativ registriert. Aliase `/spieler-bannen`, `/spieler-entbannen`, `/einladung`, `/spieler-zurücksetzen` und `/spielerliste-aktualisieren` nahtlos bereitgestellt.
 
 ---
 

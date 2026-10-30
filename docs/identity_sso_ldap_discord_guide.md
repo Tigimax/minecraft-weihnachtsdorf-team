@@ -171,11 +171,22 @@ Um die Benutzerfreundlichkeit für reguläre Spieler zu maximieren, ohne Abstric
 - **Client ID**: `1564751378436456468`
 - **Intents**: `Server Members Intent` und `Message Content Intent` aktiviert.
 - **Multi-Guild Discovery**: Der Bot durchsucht automatisch alle Server, auf denen er Mitglied ist (z. B. `Minecraft Weihnachtsdorf` ID `784805552504438794` und `Weihnachtsdorf` ID `909437200125538364`), um Mitglieder anhand ihres Namens oder Nicks zielsicher aufzulösen.
-- **Slash Commands**:
+- **Slash Commands & Aliase (24 Kernbefehle)**:
   - `/auth-code` (Kurzform `/code`): Generiert für normale Spieler einen 6-stelligen Login-Code zur Authentifizierung in Authentik. Für Teammitglieder aus Sicherheitsgründen gesperrt.
-  - `/passwort-reset`: Erzeugt einen Einmal-Wiederherstellungslink und schickt ihn dem Mitglied per DM.
+  - `/passwort-reset` (Alias: `/spieler-zurücksetzen`): Erzeugt einen Einmal-Wiederherstellungslink und schickt ihn per DM.
   - `/status`: Zeigt die aktuelle Rolle, verknüpften Minecraft-Namen, UUID und 2FA-Status an.
   - `/links`: Übersicht aller geschützten Dienste und Server-Adressen.
+  - `/anmelden`: Öffnet das Bewerbungsmodal für Spieler in `#📝anmeldung`.
+  - `/abmelden`: Erlaubt Spielern die freiwillige Selbstabmeldung vom Projekt.
+  - `/entbannung`: Öffnet das Einspruchsmodal in `#⚖entbannung`.
+  - `/account-loeschen`: Vollständiger System-Purge für Spieler-Accounts (Admin).
+  - `/projekt-start` / `/projekt-sperren`: Schaltet das Whitelist- & BlueMap-Gate um.
+  - `/ban-spieler` / `/pardon-spieler`: Sperrt/Entsperrt Spieler auf MC & BlueMap (Aliase: `/spieler-bannen`, `/spieler-entbannen`).
+  - `/einladen` (Aliase: `/invite`, `/einladung`): Manuelle 24h-Einladung per DM.
+  - `/zugang-entziehen`: Entzieht Privilegien über alle Subsysteme.
+  - `/admin-spieler`: Detaillierte Sicherheits- und Datenbankauskunft.
+  - `/sync-alle` / `/spielerliste-aktualisieren`: Synchronisation aller Systeme und des Live-Boards.
+  - `/live-status`, `/online-spieler`, `/spieler-kick`, `/wartung-timer`, `/wartung-abbrechen`, `/mc-befehl`, `/admin-rundruf`.
 
 ---
 
@@ -185,11 +196,10 @@ Das CLI-Werkzeug [`wd-admin`](../tools/wd-identity/wd_identity/cli.py) (siehe au
 
 ### Befehlsübersicht:
 
-#### 1. Teammitglied einladen
+#### 1. Teammitglied oder Spieler einladen
 ```bash
-wd-admin invite <discord_name> [--role admin|mod]
+wd-admin invite <discord_name> [--role admin|mod|player] [--ign <mc_name>]
 ```
-- *Beispiel*: `wd-admin invite MaxMustermann`
 - Legt den LDAP-Benutzer an.
 - Generiert einen 24h gültigen Authentik-Einladungslink.
 - Der Bot schickt die Einladung automatisch per Discord-DM.
@@ -198,29 +208,47 @@ wd-admin invite <discord_name> [--role admin|mod]
 ```bash
 wd-admin reset <discord_name>
 ```
-- *Beispiel*: `wd-admin reset MaxMustermann`
 - Erzeugt einen zeitlich begrenzten Einmal-Recoverylink und sendet ihn per DM.
 
-#### 3. Team-Übersicht anzeigen
+#### 3. Team- & Spieler-Übersicht anzeigen
 ```bash
 wd-admin list
 ```
-- Listet alle aktiven Admins und Moderatoren mit Rolle, Discord-Tag, Minecraft-IGN und UUID auf.
+- Listet alle aktiven Admins, Moderatoren und regulären Spieler mit Rolle, Discord-Tag, Minecraft-IGN, UUID und Whitelist-Status auf.
 
 #### 4. Berechtigungen entziehen (Revoke)
 ```bash
-wd-admin revoke <discord_name>
+wd-admin revoke <discord_name> [--keep-ldap]
 ```
-- Entfernt den Benutzer aus den LDAP-Gruppen (`wd_admins` / `wd_mods`).
-- Deaktiviert das Konto im Planka Kanban-Board.
-- Entfernt den Spieler von der Minecraft-Whitelist und löscht die LuckPerms-Gruppe.
+- Entfernt den Benutzer aus LDAP-Gruppen (`wd_admins` / `wd_mods` / `wd_players`).
+- Deaktiviert das Konto im Planka Kanban-Board und Authentik IdP.
+- Entfernt den Spieler von der Minecraft-Whitelist und setzt LuckPerms auf `default`.
+- Mit `--keep-ldap` bleibt der OpenLDAP-Basis-Eintrag inaktiv erhalten.
 
-#### 5. Manuelle Minecraft-Synchronisation
+#### 5. Vollständiger Account-Purge
+```bash
+wd-admin purge <target> [--reason "Begründung"]
+```
+- Entfernt den Account restlos aus OpenLDAP, Authentik, Planka, Minecraft-Server und SQLite-DB.
+- Interne Administratorkonten (`tigimax`, `akadmin`) sind strikt geschützt.
+
+#### 6. Spieler bannen & entbannen
+```bash
+wd-admin ban <target> [--reason "Regelverstoß"]
+wd-admin pardon <target>
+```
+
+#### 7. Projekt-Status & Launch Gate
+```bash
+wd-admin project [status|launch|lock]
+```
+
+#### 8. Manuelle Minecraft-Synchronisation
 ```bash
 wd-admin sync [--force]
 ```
-- Gleicht den aktuellen Stand aller LDAP-Admins mit der Minecraft-Whitelist und LuckPerms ab.
-- Dank State-Tracking werden nur dann Konsolenbefehle an den Server gesendet, wenn sich tatsächlich etwas geändert hat (kein Konsolen-Spam).
+- Gleicht den aktuellen Stand aller LDAP-Accounts mit der Minecraft-Whitelist und LuckPerms ab.
+- Dank State-Tracking werden nur dann Konsolenbefehle an den Server gesendet, wenn sich tatsächlich etwas geändert hat.
 
 ---
 

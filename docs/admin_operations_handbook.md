@@ -255,18 +255,33 @@ wd-admin notify --role admin -y "Automatisches Update eingespielt"
 
 #### 6. Berechtigungen entziehen (Revoke)
 ```bash
-wd-admin revoke <discord_name>
+wd-admin revoke <discord_name> [--keep-ldap]
 ```
-- Entfernt den Benutzer aus LDAP-Gruppen (`wd_admins`/`wd_mods`/`wd_players`).
-- Deaktiviert das Konto in Planka (falls vorhanden).
-- Entfernt den Spieler von der Minecraft-Whitelist und setzt LuckPerms auf `default`.
+- Standardmäßig vollständiger Entzug aller Rechte.
+- Mit `--keep-ldap`: Entfernt Gruppenmitgliedschaften (`wd_admins`/`wd_mods`/`wd_players`), deaktiviert Authentik und Planka, entfernt Whitelist, belässt aber das Basis-LDAP-Konto (inaktiv).
 
-#### 6. Manuelle Synchronisation erzwingen
+#### 7. Account vollständig löschen (Purge)
+```bash
+wd-admin purge <target> [--reason "Begründung"]
+```
+- Löscht das Spielerkonto spurlos und unwiderruflich aus allen Systemen: OpenLDAP, Authentik, Planka, Minecraft-Whitelist/Rechte und SQLite-Bewerbungs-DB.
+- **Admin-Schutz**: Die internen Administratorkonten `tigimax` und `akadmin` sind fest gegen versehentliche Löschung geschützt.
+
+#### 8. Spieler bannen & entbannen
+```bash
+# Minecraft Server Ban + Authentik BlueMap Sperre:
+wd-admin ban <target> [--reason "Regelverstoß"]
+
+# Aufheben der Sperren auf Minecraft & BlueMap:
+wd-admin pardon <target>
+```
+
+#### 9. Manuelle Synchronisation erzwingen
 ```bash
 wd-admin sync [--force]
 ```
-- Gleicht alle LDAP-Mitglieder mit der Minecraft-Whitelist und LuckPerms ab. Regular Players werden nur freigeschaltet, wenn das Projekt live geschaltet ist.
-- Gleicht LDAP sofort mit Whitelist und LuckPerms ab.
+- Gleicht alle LDAP-Mitglieder mit der Minecraft-Whitelist und LuckPerms ab. Regular Players werden nur freigeschaltet, wenn das Projekt live geschaltet ist (`wd-admin project launch`).
+- Sendet Konsolenbefehle dank State-Tracking nur bei tatsächlichen Änderungen.
 
 ---
 
@@ -285,36 +300,38 @@ Neben der CLI bietet der Bot `WHD Privileges` eine vollwertige Administration ü
   - Buttons für `[🎟 Spieler-Einladung]` und `[👑 Admin-Einladung]`.
   - **Sicherheits-Schutz**: Eine Admin-Einladung kann *ausschließlich* von Nutzern mit der Discord-Rolle `Administrator` ausgelöst werden.
 - **`#🎛admin-steuerung`**:
-  Interaktives Command-Center mit Kurzbeschreibung und Direktzugriff auf alle 22 Admin Slash-Commands.
+  Interaktives Command-Center mit Kurzbeschreibung und Direktzugriff auf alle Admin Slash-Commands und Schnellzugriffs-Buttons.
 - **`#📜admin-logs`**:
   Echtzeit-Audit-Log aller Sicherheits-, Aufnahme-, Entbannungs-, Server- und Moderations-Ereignisse.
 
-#### 2. Referenz der 22 Discord Slash-Befehle
+#### 2. Referenz der 24 Discord Slash-Befehle & Aliase
 
 | Befehl | Beschreibung | Berechtigung |
 |---|---|---|
-| `/projekt-start` | Schaltet alle vorregistrierten Spieler auf der Whitelist frei | Admin |
-| `/projekt-sperren` | Versetzt Server in Pre-Launch/Wartungsmodus (Whitelist nur Staff) | Admin |
+| `/projekt-start` | Schaltet alle vorregistrierten Spieler auf der Whitelist und BlueMap frei | Admin |
+| `/projekt-sperren` | Versetzt Server in Pre-Launch/Wartungsmodus (Whitelist & BlueMap nur Staff) | Admin |
 | `/zugang-entziehen <user>` | Vollständiger Entzug über LDAP, Authentik, Planka, Whitelist & DB | Admin |
-| `/spieler-bannen <user> [grund]` | Bannt Spieler auf Minecraft und sperrt BlueMap-Zugang | Staff |
-| `/spieler-entbannen <user>` | Hebt Sperre auf Minecraft und BlueMap wieder auf | Staff |
+| `/account-loeschen <ziel> [grund]` | Löscht einen Account spurlos und vollständig aus allen Systemen (Purge) | Admin |
+| `/ban-spieler <user> [grund]` | Bannt Spieler auf Minecraft und sperrt BlueMap-Zugang (Alias: `/spieler-bannen`) | Staff |
+| `/pardon-spieler <user>` | Hebt Sperre auf Minecraft und BlueMap wieder auf (Alias: `/spieler-entbannen`) | Staff |
 | `/spieler-kick <user> [grund]` | Kickt Spieler sofort vom Server via RCON | Staff |
-| `/spieler-zurücksetzen <user>` | Sendet Authentik Passwort-Recovery-Link per DM | Admin |
-| `/einladung <user> [rolle]` | Erstellt 24h-Einladung (Admin-Rolle nur durch Discord-Admins) | Staff/Admin |
-| `/einladung-abbrechen <user>` | Entwertet alle offenen Einladungen eines Nutzers | Admin |
-| `/rolle-zuweisen <user> <rolle>` | Weist LDAP- und Authentik-Rolle zu (`admin`, `mod`, `player`) | Admin |
-| `/admin-spieler <discord_nutzer>` | Detailauskunft aus LDAP, Authentik, Bans & SQLite-DB per Discord-Userauswahl | Staff |
-| `/sync-alle` | Erzwingt sofortige Whitelist- & LuckPerms-Synchronisation | Admin |
+| `/passwort-reset` | Sendet Authentik Passwort-Recovery-Link per DM (Alias: `/spieler-zurücksetzen`) | Staff/Admin |
+| `/einladen <user> [rolle] [ign]` | Erstellt 24h-Einladung (Admin-Rolle nur durch Discord-Admins, Aliase: `/invite`, `/einladung`) | Staff/Admin |
+| `/admin-spieler [discord_user] [query]` | Detailauskunft aus LDAP, Authentik, Bans & SQLite-DB per Discord-Userauswahl | Staff |
+| `/sync-alle` | Erzwingt sofortige Whitelist-, Authentik- & LuckPerms-Synchronisation | Admin |
 | `/spielerliste-aktualisieren` | Aktualisiert sofort das Live-Board in `#📝teilnehmerliste` | Staff |
 | `/live-status` | Zeigt CPU-, RAM-, Disk- und Uptime-Telemetrie via Wings API | Staff |
 | `/online-spieler` | Zeigt aktuell verbundene Spieler und Live-TPS an | Staff |
 | `/wartung-timer <minuten> [grund]` | Startet Countdown mit Ingame-Soundcues und schaltet Whitelist um | Admin |
 | `/wartung-abbrechen` | Bricht laufenden Wartungscountdown sofort ab | Admin |
 | `/mc-befehl <befehl>` | Führt beliebigen RCON-Befehl direkt auf Hauptwelt aus | Admin |
-| `/admin-rundruf <modus> <text>` | Sendet Broadcast (Chat, Actionbar, Titel) an Ingame-Spieler | Staff |
-| `/anmelden` | Öffnet das Aufnahme-Bewerbungsmodal | Jeder |
+| `/admin-rundruf <text> [rolle] [user]` | Sendet Broadcast (Chat, Actionbar, Titel) an Ingame-Spieler oder DMs | Staff |
+| `/status` | Zeigt aktuellen Account-Status, Rollen, verknüpften IGN & UUID | Jeder |
+| `/links` | Zeigt Übersicht aller Portale & Service-Adressen | Jeder |
+| `/auth-code` | Generiert 6-stelligen Login-Code für Authentik (nur Spieler; Alias: `/code`) | Spieler |
+| `/anmelden` | Öffnet das Aufnahme-Bewerbungsmodal im Kanal `#📝anmeldung` | Jeder |
 | `/abmelden` | Öffnet das Self-Service-Abmelde-Modal für Spieler | Jeder |
-| `/entbannen` | Öffnet das Einspruchsmodal bei Ablehnung oder Ban | Jeder |
+| `/entbannung` | Öffnet das Einspruchsmodal bei Ablehnung oder Ban im Kanal `#⚖entbannung` | Jeder |
 
 #### 3. Automatischer Rechteentzug & Reaktivierung (Membership Lifecycle)
 - **Discord Leave (`on_member_remove`)**:

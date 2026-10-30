@@ -105,6 +105,20 @@
      - **Strikte Sicherheitsbarriere:** Fragt ein Administrator oder Moderator einen Code über den Bot an, wird die Anfrage sofort abgewiesen und auf die verpflichtende TOTP-App verwiesen.
   4. **Automatisierte Testabdeckung:** 10 neue Unittests in `tests/test_mfa_bot.py` sichern Rollenprüfung, Token-Generierung und SQL-Handling ab (Gesamttestsuite: 44 Tests erfolgreich).
 
+---
+
+### Vorfall I: Fehlende Admin-Gruppenberechtigung nach Registrierung (`tigimax_player`)
+- **Symptom:**  
+  Nach Annahme einer Einladung mit Rolle `admin` fehlten dem Account `tigimax_player` alle administrativen Berechtigungen für geschützte Dienste (Pterodactyl Panel, Planka Kanban, BlueMap).
+- **Root Cause:**  
+  1. Der Account war in Authentik und OpenLDAP zunächst noch der Gruppe `wd_players` statt `wd_admins` zugeordnet (`groups: ['wd_players']`).
+  2. Die Access Policies (`wd-staff-only-policy` und `wd-bluemap-access-policy`) prüfen zwingend die Mitgliedschaft in `wd_admins` bzw. `wd_mods`, wodurch der Zugriff verwehrt wurde.
+- **Behebung:**  
+  1. `tigimax_player` in Authentik der Gruppe `wd_admins` zugewiesen und aus `wd_players` entfernt. Attribut `role: admin` gesetzt.
+  2. In OpenLDAP den DN `uid=tigimax_player,ou=User,dc=ldap-01,dc=net` in `cn=wd_admins,ou=Groups,dc=ldap-01,dc=net` eingetragen und aus `cn=wd_players` entfernt.
+  3. Planka- und LuckPerms-Rollen synchronisiert (`role: admin`).
+  4. Policy-Checks verifiziert: `wd-staff-only-policy: passing=True`, `wd-bluemap-access-policy: passing=True`.
+
 
 ---
 

@@ -1,7 +1,7 @@
 """
 Discord bot for Weihnachtsdorf 7.
 Features:
-- Slash commands: /passwort-reset, /status, /links, /anmelden, /entbannung, /ban-spieler, /pardon-spieler
+- Slash commands: /auth-code, /code, /passwort-reset, /status, /links, /anmelden, /entbannung, /ban-spieler, /pardon-spieler
 - Interactive candidate applications (#anmeldung) and unban appeals (#entbannung)
 - Admin review dashboard (#admin-anmeldungen) with Accept / Reject buttons & cooldowns
 - BlueMap & Minecraft ban integration
@@ -106,9 +106,11 @@ Deine Registrierung als **Spieler** war erfolgreich.
 • Ingame-Name: `{ign}`
 • Whitelist-Status: {whitelist_status}
 
-🔒 **Sicherheitsrichtlinien:**
-• 2FA (TOTP) ist für deinen Account aktiv geschützt.
-• Bei Passwort-Verlust kannst du jederzeit hier im Discord `/passwort-reset` nutzen.
+🔒 **Zwei-Faktor-Authentifizierung (2FA):**
+• Du kannst bei jedem Login frei wählen:
+  1. **Discord-Bot Einmalcode (Empfohlen):** Nutze `/auth-code` (oder `/code`) hier im Discord, um dir sekundenschnell einen 6-stelligen Login-Code generieren zu lassen.
+  2. **Authenticator-App (TOTP):** Falls eingerichtet, kannst du alternativ jederzeit den Code deiner Authenticator-App (z. B. Google Authenticator, 2FAS) eingeben.
+• Bei Passwort-Verlust kannst du jederzeit `/passwort-reset` nutzen.
 
 Wir freuen uns auf ein unvergessliches Event mit dir! ✨"""
 
@@ -644,6 +646,15 @@ class ApplyStartView(discord.ui.View):
         await trigger_application_modal(interaction)
 
     @discord.ui.button(
+        label="Login-Code",
+        style=discord.ButtonStyle.primary,
+        emoji="🔑",
+        custom_id="wd_auth_code_btn",
+    )
+    async def btn_auth_code(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await handle_auth_code_request(interaction)
+
+    @discord.ui.button(
         label="Abmelden",
         style=discord.ButtonStyle.secondary,
         emoji="🚪",
@@ -651,6 +662,20 @@ class ApplyStartView(discord.ui.View):
     )
     async def btn_optout(self, interaction: discord.Interaction, button: discord.ui.Button):
         await trigger_optout_flow(interaction)
+
+
+class AuthCodeButtonView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Login-Code anfordern",
+        style=discord.ButtonStyle.primary,
+        emoji="🔑",
+        custom_id="wd_auth_code_btn",
+    )
+    async def btn_auth_code(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await handle_auth_code_request(interaction)
 
 
 class AppealStartView(discord.ui.View):
@@ -891,6 +916,74 @@ async def trigger_unban_modal(interaction: discord.Interaction):
         return
 
     await interaction.response.send_modal(UnbanModal())
+
+
+async def handle_auth_code_request(interaction: discord.Interaction):
+    """Generates a 6-digit one-time login code for Authentik (strictly regular players only)."""
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
+
+    ldap = LDAPClient()
+    authentik = AuthentikClient()
+
+    discord_id = str(interaction.user.id)
+    discord_tag = interaction.user.name
+
+    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
+    if not user:
+        await interaction.followup.send(
+            "❌ **Kein Account verknüpft**\n\n"
+            "Dein Discord-Account ist mit keinem registrierten Weihnachtsdorf-Account verknüpft.\n"
+            "Falls du dich für Weihnachtsdorf 7 bewerben möchtest, klicke auf **„Jetzt bewerben“** oder nutze den Befehl `/anmelden`.",
+            ephemeral=True,
+        )
+        return
+
+    # Check ban status
+    if user.get("accountStatus") == "banned":
+        await interaction.followup.send(
+            "❌ **Account gesperrt**\n\n"
+            "Dein Account ist derzeit gesperrt. Du kannst einen Entbannungsantrag mit `/entbannung` stellen.",
+            ephemeral=True,
+        )
+        return
+
+    # Strict role security check: STRICTLY PROHIBITED FOR STAFF (admin / mod)
+    role = (user.get("role") or "player").lower().strip()
+    if role in ("admin", "mod"):
+        await interaction.followup.send(
+            "⛔ **Sicherheitshinweis für Teammitglieder**\n\n"
+            "Aus Sicherheitsgründen ist die Authentifizierung per Discord-Einmalcode für Administratoren und Moderatoren **deaktiviert**.\n\n"
+            "Für Team-Accounts ist die Nutzung einer **Authenticator-App (TOTP)** (z. B. 2FAS, Google Authenticator, Aegis) verpflichtend.\n"
+            "Bitte nutze den 6-stelligen Code aus deiner Authenticator-App für die Anmeldung.\n\n"
+            "Falls du dein Gerät verloren hast, wende dich bitte direkt an die Projektleitung.",
+            ephemeral=True,
+        )
+        return
+
+    # Generate 6-digit static MFA token for regular player
+    username = user["uid"]
+    token = authentik.generate_static_token_for_user(username)
+    if not token:
+        await interaction.followup.send(
+            f"⚠️ Es konnte kein Login-Code für `{username}` generiert werden. Bitte versuche es in wenigen Momenten erneut oder kontaktiere das Team.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title="🔑 Dein einmaliger Login-Code",
+        description=(
+            f"Gib diesen 6-stelligen Code bei der Authentik-Anmeldung im Feld **Authenticator-Code** ein:\n\n"
+            f"# `{token}`\n\n"
+            f"⏱️ **Gültigkeit:** Einmalig für deinen nächsten Login (empfohlen innerhalb von 5 Minuten).\n"
+            f"👤 **Account:** `{username}`\n"
+            f"🌐 **Login-Portal:** {settings.AUTHENTIK_BASE_URL}"
+        ),
+        color=discord.Color.from_rgb(46, 204, 113),
+    )
+    embed.set_footer(text="Weihnachtsdorf 7 Security • Niemals an Dritte weitergeben")
+    await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def handle_application_submit(interaction: discord.Interaction, message_text: str):
@@ -1608,7 +1701,9 @@ async def ensure_channels_and_pins():
                 "3. Dein Antrag wird vertraulich an die Administratoren übermittelt.\n"
                 "4. Nach der Annahme erhältst du eine Direktnachricht (DM) mit deinem persönlichen Registrierungs-Link.\n\n"
                 "🚪 **Teilnahme beenden / Abmelden:**\n"
-                "Falls du deine Teilnahme beenden oder pausieren möchtest, kannst du dich unten über **„Abmelden“** (oder `/abmelden`) jederzeit selbstständig austragen. Dein Account und deine Bauwerke bleiben dabei sicher gespeichert!"
+                "Falls du deine Teilnahme beenden oder pausieren möchtest, kannst du dich unten über **„Abmelden“** (oder `/abmelden`) jederzeit selbstständig austragen. Dein Account und deine Bauwerke bleiben dabei sicher gespeichert!\n\n"
+                "🔑 **Login-Code für Authentik (nur Spieler):**\n"
+                "Bereits registrierte Spieler können jederzeit auf **„Login-Code“** klicken (oder `/auth-code` / `/code` nutzen), um sich blitzschnell einen einmaligen 6-stelligen Login-Code für das Webportal generieren zu lassen!"
             ),
             color=discord.Color.gold(),
         )
@@ -2109,6 +2204,22 @@ async def cmd_password_reset(interaction: discord.Interaction):
             f"✅ Hier ist dein persönlicher Wiederherstellungs-Link (nur für dich sichtbar):\n{recovery_link}",
             ephemeral=True,
         )
+
+
+@tree.command(
+    name="auth-code",
+    description="Generiert einen einmaligen 6-stelligen Login-Code für Authentik (nur normale Spieler).",
+)
+async def cmd_auth_code(interaction: discord.Interaction):
+    await handle_auth_code_request(interaction)
+
+
+@tree.command(
+    name="code",
+    description="Kurzbefehl: Generiert einen 6-stelligen Login-Code für Authentik (nur normale Spieler).",
+)
+async def cmd_code(interaction: discord.Interaction):
+    await handle_auth_code_request(interaction)
 
 
 @tree.command(
@@ -3153,6 +3264,7 @@ async def on_ready():
 
     # Register persistent views so buttons work across restarts
     bot.add_view(ApplyStartView())
+    bot.add_view(AuthCodeButtonView())
     bot.add_view(AppealStartView())
     bot.add_view(ManualInviteStartView())
     bot.add_view(AdminControlDashboardView())

@@ -155,6 +155,11 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
         ak.add_user_to_group(req.username, ak_group)
     logger.info(f"Assigned user {clean_user} to Authentik group {ak_group}.")
 
+    # Provision static MFA device for regular players (enables Discord bot one-time login codes)
+    if clean_role == "player":
+        ak.ensure_player_mfa_device(clean_user)
+        logger.info(f"Ensured static MFA device for player {clean_user}.")
+
     # 3. Provision in Planka (Staff only)
     planka_ok = None
     if clean_role in ("admin", "mod"):

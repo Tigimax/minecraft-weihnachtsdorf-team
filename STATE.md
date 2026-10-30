@@ -87,6 +87,24 @@
      - Bei `/projekt-sperren` bzw. `wd-admin project lock` wird `is_launched: False` gesetzt und BlueMap sofort wieder für normale Spieler gesperrt.
   3. **FastAPI Endpunkt hinzugefügt:** `GET /api/project/status` in `webhook.py` liefert den aktuellen Launch- und BlueMap-Status.
 
+---
+
+### Vorfall H: Flexible 2FA-Option für Spieler via Discord-Bot Einmalcode (`/auth-code`)
+- **Anforderung:**  
+  Normale Spieler empfanden die verpflichtende Einrichtung einer Authenticator-App (TOTP) oft als zu kompliziert. Es sollte für reguläre Spieler eine alternative, unkomplizierte Zwei-Faktor-Authentifizierung über den `WHD Privileges` Discord-Bot geschaffen werden (Anforderung eines 6-stelligen Login-Codes), während Teammitglieder (`admin`, `mod`) aus Sicherheitsgründen weiterhin zwingend eine TOTP-App nutzen müssen.
+- **Lösung:**  
+  1. **Authentik Enrollment-Flow Dynamik (`invitation-enrollment-flow`):**
+     - Neuer Prompt `wd-enrollment-prompt-mfa-method` (Auswahl: Discord-Bot Code vs. Authenticator-App). Teammitgliedern wird dynamisch nur TOTP angeboten.
+     - Expression-Policy `wd-totp-setup-gate-policy` an die TOTP-Setup-Stage (Reihenfolge 30) gebunden: Überspringt das Scannen des QR-Codes für Spieler, die den Bot-Code wählen, erzwingt es für Teammitglieder.
+  2. **Authentik Native MFA Engine (`StaticDevice` & `StaticToken`):**
+     - Bei Onboarding oder Code-Generierung wird für den Spieler ein bestätigtes `StaticDevice` in Authentiks Datenbank angelegt.
+     - Die native Stage `default-authentication-mfa-validation` prüft alle konfigurierten Geräte im selben Eingabefeld (`Authenticator-Code`), wodurch Spieler ohne Methoden-Umschaltung den 6-stelligen Code eingeben können.
+  3. **Discord Bot (`WHD Privileges`):**
+     - Befehle `/auth-code` und Kurzform `/code` implementiert.
+     - Interaktiver Button `[🔑 Login-Code]` in `#📝anmeldung` und standalone `AuthCodeButtonView`.
+     - **Strikte Sicherheitsbarriere:** Fragt ein Administrator oder Moderator einen Code über den Bot an, wird die Anfrage sofort abgewiesen und auf die verpflichtende TOTP-App verwiesen.
+  4. **Automatisierte Testabdeckung:** 10 neue Unittests in `tests/test_mfa_bot.py` sichern Rollenprüfung, Token-Generierung und SQL-Handling ab (Gesamttestsuite: 44 Tests erfolgreich).
+
 
 ---
 

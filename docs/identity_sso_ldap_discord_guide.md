@@ -130,20 +130,56 @@ olcObjectClasses: ( 1.3.6.1.4.1.99999.1.100 NAME 'wdAccount' DESC 'Weihnachtsdor
 
 ---
 
-## 6. Discord Bot (`WHD Privileges`)
+## 6. Zwei-Faktor-Authentifizierung (2FA) & Rollen-Differenzierung
+
+Um die Benutzerfreundlichkeit für reguläre Spieler zu maximieren, ohne Abstriche bei der Sicherheit der Administrationskonten zu machen, unterscheidet das Authentik-Setup strikt zwischen Teammitgliedern und Spielern:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Authentik Registrierung                         │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+               ┌────────────────────┴────────────────────┐
+               ▼                                         ▼
+   [Rolle: admin / mod]                        [Rolle: player]
+   Verpflichtend TOTP-App                      Wahlfreiheit bei Registrierung:
+   • Stage 30: QR-Code Scan                    • Discord-Bot Einmalcode (Default)
+   • Bot-Code streng verboten                  • ODER Authenticator-App (TOTP)
+               │                                         │
+               ▼                                         ▼
+   Authentik Login Prompt                     Authentik Login Prompt
+   "Authenticator-Code"                       "Authenticator-Code"
+   Eingabe aus TOTP-App                       Eingabe aus Discord-Bot (/auth-code)
+                                              ODER aus TOTP-App
+```
+
+### Rollenspezifische Richtlinien:
+1. **Teammitglieder (`wd_admins`, `wd_mods`):**
+   - **Verpflichtende Authenticator-App:** Beim Enrollment wird der TOTP-Setup-Schritt (`wd-totp-setup-gate-policy`) erzwungen.
+   - **Bot-Code-Blockade:** Anfragen an den Discord-Bot (`/auth-code`, `/code` oder Button) werden für Team-Accounts programmatisch mit einem Sicherheitshinweis abgewiesen.
+2. **Reguläre Spieler (`wd_players`):**
+   - **Wahlfreiheit:** Im Einladungs-Flow (`invitation-enrollment-flow`) kann der Spieler zwischen „💬 Discord-Bot Einmalcode“ und „📱 Authenticator-App“ wählen.
+   - **Überspringen des TOTP-QR-Scans:** Wählt der Spieler den Bot-Code, überspringt `wd-totp-setup-gate-policy` die QR-Code-Einrichtung vollständig.
+   - **Einmalcode auf Abruf:** Der Spieler kann sich jederzeit im Discord via `/auth-code`, Kurzform `/code` oder über den Button `[🔑 Login-Code]` in `#📝anmeldung` einen 6-stelligen Login-Code generieren lassen.
+   - **Authentik Native Integration:** Der Bot speichert den Code als `StaticToken` auf dem `StaticDevice` des Nutzers in Authentik. Das Anmeldefeld akzeptiert sowohl Static- als auch TOTP-Tokens gleichermaßen. Nach erfolgreichem Login wird der Einmalcode sofort entwertet.
+
+---
+
+## 7. Discord Bot (`WHD Privileges`)
 
 - **Application Name**: `WHD Privileges`
 - **Client ID**: `1564751378436456468`
 - **Intents**: `Server Members Intent` und `Message Content Intent` aktiviert.
 - **Multi-Guild Discovery**: Der Bot durchsucht automatisch alle Server, auf denen er Mitglied ist (z. B. `Minecraft Weihnachtsdorf` ID `784805552504438794` und `Weihnachtsdorf` ID `909437200125538364`), um Mitglieder anhand ihres Namens oder Nicks zielsicher aufzulösen.
 - **Slash Commands**:
-  - `/passwort-reset`: Erzeugt einen Einmal-Wiederherstellungslink und schickt ihn dem Teammitglied per DM.
+  - `/auth-code` (Kurzform `/code`): Generiert für normale Spieler einen 6-stelligen Login-Code zur Authentifizierung in Authentik. Für Teammitglieder aus Sicherheitsgründen gesperrt.
+  - `/passwort-reset`: Erzeugt einen Einmal-Wiederherstellungslink und schickt ihn dem Mitglied per DM.
   - `/status`: Zeigt die aktuelle Rolle, verknüpften Minecraft-Namen, UUID und 2FA-Status an.
   - `/links`: Übersicht aller geschützten Dienste und Server-Adressen.
 
 ---
 
-## 7. CLI-Administration (`wd-admin`)
+## 8. CLI-Administration (`wd-admin`)
 
 Das CLI-Werkzeug [`wd-admin`](../tools/wd-identity/wd_identity/cli.py) (siehe auch [wd-identity Dokumentation](../tools/wd-identity/README.md)) kann direkt im Terminal auf dem Mac (`~/.local/bin/wd-admin`) oder per SSH auf `idp-01` ausgeführt werden.
 
@@ -188,7 +224,7 @@ wd-admin sync [--force]
 
 ---
 
-## 8. Discord Bot Identity & Community Lifecycle
+## 9. Discord Bot Identity & Community Lifecycle
 
 Der Discord-Bot `WHD Privileges` ist direkt an das Identity-System gekoppelt und automatisiert den gesamten Benutzer-Lebenszyklus:
 
@@ -198,7 +234,7 @@ Der Discord-Bot `WHD Privileges` ist direkt an das Identity-System gekoppelt und
 - **`#✉admin-einladungen`**: Manuelle Erstellung von Authentik-Single-Use-Einladungen. Rollen-Check stellt sicher, dass Admin-Einladungen nur von Discord-Administratoren ausgelöst werden können.
 - **`#🎛admin-steuerung`**: Zentrale Befehlszentrale mit Live-Übersicht aller 22 Admin Slash-Commands.
 - **`#📜admin-logs`**: Zentrales Audit-Log über `audit_logger.py` (Echtzeit-REST-Anbindung ohne Gateway-Blockaden).
-- **`#📝anmeldung`**: Öffentliches Bewerbungs-Embed mit `[📝 Jetzt bewerben]` und Self-Service `[🚪 Abmelden]`.
+- **`#📝anmeldung`**: Öffentliches Bewerbungs-Embed mit `[📝 Jetzt bewerben]`, `[🔑 Login-Code]` und Self-Service `[🚪 Abmelden]`.
 - **`#⚖entbannung`**: Einspruchs-Kanal für abgelehnte oder gesperrte Nutzer mit Cooldown-Überprüfung.
 - **`#📝teilnehmerliste`**: Automatisches Live-Board aller registrierten Spieler und Rollen (30s zyklischer Sync).
 
@@ -218,20 +254,20 @@ Der Discord-Bot `WHD Privileges` ist direkt an das Identity-System gekoppelt und
 
 ---
 
-## 9. Systemd-Dienste auf `idp-01`
+## 10. Systemd-Dienste auf `idp-01`
 
 Auf VM 121 (`idp-01`) laufen drei gehärtete Hintergrunddienste:
 
 1. **`wd-identity.service`**:
    FastAPI/Uvicorn Webhook-Dienst auf Port `8000`. Nimmt Authentik-Events entgegen, validiert Mojang-Profile, provisioniert Planka und steuert den Welcome-DM-Versand.
 2. **`wd-bot.service`**:
-   Permanenter Discord-Gateway-Client. Registriert die 22 Slash-Commands (ausschließlich auf Guild-Ebene synchronisiert), verarbeitet Interaktionen und Buttons und führt den 30s-Spielerlisten-Sync aus.
+   Permanenter Discord-Gateway-Client. Registriert die 24 Slash-Commands (ausschließlich auf Guild-Ebene synchronisiert), verarbeitet Interaktionen und Buttons und führt den 30s-Spielerlisten-Sync aus.
 3. **`mc-admin-sync.timer`**:
    Trigger-Timer, der alle 60 Sekunden `mc-admin-sync.service` ausführt, um eventuelle LDAP-Änderungen vollautomatisch und idempotent auf den Purpur-Server zu spiegeln.
 
 ---
 
-## 10. Fehlerbehebung & Runbook
+## 11. Fehlerbehebung & Runbook
 
 ### Problem: Einladungslink meldet "Internal Server Error /setup"
 - **Ursache**: Authentik prüft intern das System-Flag `Setup`.
@@ -258,7 +294,7 @@ Auf VM 121 (`idp-01`) laufen drei gehärtete Hintergrunddienste:
 
 ---
 
-## 10. Relevante Handbücher & Dokumentation
+## 12. Relevante Handbücher & Dokumentation
 
 - 📖 [Admin & Operations Handbook](admin_operations_handbook.md) – Umfassendes Betriebshandbuch für Admins, Troubleshooting & Spark Profiling.
 - 🌐 [Network, DNS & Firewall Guide](network_dns_firewall_guide.md) – Ingress-Netzwerk, Kernel DNAT, Pi-hole DNS & UFW Firewall-Regeln.

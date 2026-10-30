@@ -109,9 +109,14 @@ def set_channel_message_id(app_id: int, channel_msg_id: str):
     conn.close()
 
 
-def get_application(app_id: int) -> Optional[Dict[str, Any]]:
+def get_application(app_id: Optional[int] = None, discord_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     conn = get_connection()
-    row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+    if app_id is not None:
+        row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+    elif discord_id is not None:
+        row = conn.execute("SELECT * FROM applications WHERE discord_id = ? ORDER BY id DESC LIMIT 1", (str(discord_id),)).fetchone()
+    else:
+        row = None
     conn.close()
     return dict(row) if row else None
 

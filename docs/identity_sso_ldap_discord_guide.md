@@ -90,7 +90,7 @@ Alle administrativen Webanwendungen befinden sich hinter dem zentralen Authentik
 | Dienst | Öffentliche URL | Backend-Ziel | Schutzmechanismus |
 |---|---|---|---|
 | **SSO Portal** | `https://auth.tigimax.mooo.com` | `idp-01:9000` | Authentik IdP (Let's Encrypt TLS) |
-| **Live-Karte** | `https://map.tigimax.mooo.com` | `mc-node1:8123` | Nginx Forward-Auth (`wd-bluemap` Provider) |
+| **Live-Karte** | `https://map.tigimax.mooo.com` | `mc-node1:8123` | Nginx Forward-Auth (`wd-bluemap` Provider) & `wd-bluemap-access-policy` (Pre-Launch Schutz) |
 | **Server-Analytics** | `https://plan.tigimax.mooo.com` | `mc-main:8804` | Nginx Forward-Auth (`wd-plan` Provider) |
 | **Game-Panel** | `https://panel.tigimax.mooo.com` | `mc-node1:80` | Nginx Forward-Auth (`wd-panel` Provider) + `AuthentikSsoMiddleware` (Auto-Provisioning & Root-Admin Sync) |
 | **Kanban-Board** | `https://tigimax.mooo.com` | `usrv01:3000` | Nginx Forward-Auth (`wd-planka` Provider) + interner DB-Sync |

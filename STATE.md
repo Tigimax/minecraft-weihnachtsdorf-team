@@ -72,6 +72,24 @@
 
 ---
 
+### Vorfall G: BlueMap Pre-Launch Schranke für registrierte Spieler
+- **Symptom:**  
+  Spieler, die sich während der Pre-Launch-Phase erfolgreich über Authentik registriert hatten, erhielten sofortigen Zugriff auf die BlueMap Live-Karte unter `https://map.tigimax.mooo.com`. Dies war unerwünscht, da die Weltkarte vor dem offiziellen Projektstart nur für Teammitglieder (Admins/Mods) einsehbar sein soll.
+- **Root Cause:**  
+  Die Authentik Expression-Policy `wd-bluemap-access-policy` prüfte lediglich, ob der Nutzer in `wd_players` Mitglied war (`return request.user.groups.filter(name__in=[..., 'wd_players']).exists()`), ohne den Projektstatus (`is_launched`) abzufragen.
+- **Behebung:**  
+  1. **Authentik Expression Policy (`wd-bluemap-access-policy`) aktualisiert:**
+     - Teammitglieder (`superadmins`, `wd_admins`, `wd_mods`) haben dauerhaft Zugang (Vorbereitung & Bau).
+     - Reguläre Spieler (`wd_players`) erhalten nur dann Zugriff, wenn `attributes__is_launched=True` auf der Gruppe gesetzt ist oder der API-Endpunkt `/api/project/status` `launched: True` meldet.
+     - Im Pre-Launch-Status wird Spielern eine informative Meldung angezeigt (*"Weihnachtsdorf 7 befindet sich noch im Pre-Launch. Die BlueMap Live-Karte wird zum offiziellen Projektstart freigeschaltet."*).
+  2. **Automatisierte Synchronisation (`AuthentikClient.set_project_launched`):**
+     - Bei `/projekt-start` bzw. `wd-admin project launch` wird das Attribut `is_launched: True` auf die Authentik-Gruppe `wd_players` geschrieben und die Whitelist geöffnet.
+     - Bei `/projekt-sperren` bzw. `wd-admin project lock` wird `is_launched: False` gesetzt und BlueMap sofort wieder für normale Spieler gesperrt.
+  3. **FastAPI Endpunkt hinzugefügt:** `GET /api/project/status` in `webhook.py` liefert den aktuellen Launch- und BlueMap-Status.
+
+
+---
+
 ## 2. Infrastruktur- & Komponenten-Übersicht
 
 | Service | Host / IP | Status | Beschreibung |

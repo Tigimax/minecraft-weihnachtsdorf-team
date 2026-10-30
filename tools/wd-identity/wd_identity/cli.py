@@ -500,8 +500,10 @@ def project_status_cmd():
     click.secho("\n=== Weihnachtsdorf 7 Project Status ===", bold=True)
     if is_live:
         click.secho("Status:       🔴 LIVE (Server geöffnet für alle registrierten Spieler)", fg="green", bold=True)
+        click.secho("BlueMap Gate: 🟢 FREIGESCHALTET (Für alle Spieler zugänglich)", fg="green")
     else:
         click.secho("Status:       🟡 PRE-LAUNCH (Wartungsmodus: Nur Staff hat Whitelist-Zugang)", fg="yellow", bold=True)
+        click.secho("BlueMap Gate: 🔒 GESPERRT (Pre-Launch Schutz: Nur Staff hat Karten-Zugriff)", fg="yellow")
 
     click.echo(f"Admins:       {len(admins)}")
     click.echo(f"Moderatoren:  {len(mods)}")
@@ -525,13 +527,14 @@ def project_launch_cmd():
             fg="green",
             bold=True,
         )
+        click.secho("    [BlueMap Gate] Freigeschaltet für alle registrierten Spieler.", fg="green")
         for p in report.get("synced_players", []):
             click.echo(f"    [Player Whitelisted] {p['uid']} -> IGN: {p['ign']}")
         click.echo("")
         try:
             log_admin_event(
                 title="🚀 Weihnachtsdorf 7 ist LIVE!",
-                description=f"Projekt wurde gestartet. {len(report.get('synced_players', []))} Spieler wurden auf dem Server freigeschaltet.",
+                description=f"Projekt wurde gestartet. {len(report.get('synced_players', []))} Spieler freigeschaltet (Whitelist & BlueMap).",
                 color=COLOR_SUCCESS,
                 author_name="wd-admin CLI",
             )
@@ -557,11 +560,12 @@ def project_lock_cmd():
             fg="yellow",
             bold=True,
         )
+        click.secho("    [BlueMap Gate] Gesperrt für reguläre Spieler (Pre-Launch Schutz aktiv).", fg="yellow")
         click.echo("")
         try:
             log_admin_event(
                 title="🔒 Projekt in Wartungsmodus versetzt (Pre-Launch Lock)",
-                description="Projekt wurde gesperrt. Normale Spieler wurden von der Whitelist entfernt; Staff bleibt aktiv.",
+                description="Projekt wurde gesperrt. Normale Spieler wurden von der Whitelist entfernt und auf BlueMap gesperrt; Staff bleibt aktiv.",
                 color=COLOR_WARNING,
                 author_name="wd-admin CLI",
             )

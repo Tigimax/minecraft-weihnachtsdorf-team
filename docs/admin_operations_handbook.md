@@ -208,18 +208,18 @@ wd-admin invite <discord_name> [--role player|mod|admin] [--ign <minecraft_ign>]
 - Generiert einen 24h gültigen Authentik-Einladungslink.
 - Der Discord-Bot `WHD Privileges` stellt den Link per DM zu.
 - Der Nutzer trägt seinen Minecraft-Namen selbst ein; Mojang-UUID wird automatisch validiert.
-- **Pre-Launch Gate**: Reguläre Spieler erhalten vor dem offiziellen Projektstart noch **keinen** Whitelist-Zugang und werden vorab registriert. Beim Versuch zu joinen erhalten sie eine freundliche Kick-Meldung.
-- **Dienste-Schutz**: Durch die Authentik-Richtlinie `wd-staff-only-policy` sind Pterodactyl Panel, Planka Kanban und Plan Analytics für reguläre Spieler gesperrt (HTTP 403).
+- **Pre-Launch Gate**: Reguläre Spieler erhalten vor dem offiziellen Projektstart noch **keinen** Whitelist-Zugang und **keinen** Zugriff auf die BlueMap Live-Karte. Sie werden vorab registriert (gestaged). Beim Versuch den Minecraft-Server zu betreten oder `map.tigimax.mooo.com` aufzurufen, erhalten sie einen Hinweis auf den Pre-Launch-Modus.
+- **Dienste-Schutz**: Durch die Authentik-Richtlinien `wd-staff-only-policy` und `wd-bluemap-access-policy` sind Pterodactyl Panel, Planka Kanban, Plan Analytics sowie im Pre-Launch auch BlueMap für reguläre Spieler gesperrt.
 
-#### 2. Projekt-Status & Whitelist-Launch Gate
+#### 2. Projekt-Status & Launch Gate (Minecraft & BlueMap)
 ```bash
 # Launch-Status & Zähler abfragen
 wd-admin project status
 
-# Projekt offiziell starten (schaltet alle registrierten Spieler sofort frei)
+# Projekt offiziell starten (schaltet alle registrierten Spieler auf Whitelist und BlueMap frei)
 wd-admin project launch
 
-# Server wieder in den Wartungs-/Pre-Launch-Modus versetzen (Spieler gesperrt, Staff aktiv)
+# Server wieder in den Wartungs-/Pre-Launch-Modus versetzen (Spieler auf Whitelist & BlueMap gesperrt, Staff aktiv)
 wd-admin project lock
 ```
 

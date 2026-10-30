@@ -231,13 +231,25 @@ class MinecraftSyncClient:
         return self.execute_commands(cmds)
 
     def launch_project(self) -> Dict[str, Any]:
-        """Sets launch state to True and immediately whitelists all registered players."""
+        """Sets launch state to True, unlocks BlueMap in Authentik, and whitelists all registered players."""
         self.set_project_launched(True)
+        try:
+            from wd_identity.authentik_client import AuthentikClient
+            authentik = AuthentikClient()
+            authentik.set_project_launched(True)
+        except Exception as e:
+            logger.warning(f"Could not synchronize launch state with Authentik: {e}")
         return self.sync_all(force=True)
 
     def lock_project(self) -> Dict[str, Any]:
-        """Sets launch state to False and removes normal players from whitelist (staff retained)."""
+        """Sets launch state to False, locks BlueMap in Authentik (pre-launch), and removes normal players from whitelist."""
         self.set_project_launched(False)
+        try:
+            from wd_identity.authentik_client import AuthentikClient
+            authentik = AuthentikClient()
+            authentik.set_project_launched(False)
+        except Exception as e:
+            logger.warning(f"Could not synchronize lock state with Authentik: {e}")
         return self.sync_all(force=True)
 
     def sync_all(self, force: bool = False) -> Dict[str, Any]:

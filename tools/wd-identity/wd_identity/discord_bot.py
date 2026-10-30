@@ -2288,7 +2288,7 @@ async def cmd_projekt_sperren(interaction: discord.Interaction):
 
     log_admin_event(
         title="🔒 Projekt gesperrt (Wartungsmodus)",
-        description=f"Das Projekt wurde von {interaction.user.mention} in den Wartungsmodus versetzt.",
+        description=f"Das Projekt wurde von {interaction.user.mention} in den Wartungsmodus versetzt (Whitelist & BlueMap für Spieler gesperrt).",
         color=COLOR_WARNING,
         fields=[
             {"name": "Status", "value": "🔒 GESPERRT (Pre-Launch / Wartung)", "inline": True},
@@ -2304,8 +2304,9 @@ async def cmd_projekt_sperren(interaction: discord.Interaction):
         description=(
             "**Der Server befindet sich nun im Wartungsmodus.**\n\n"
             "• Reguläre Spieler wurden von der Whitelist genommen.\n"
+            "• BlueMap Live-Karte ist für reguläre Spieler gesperrt (Pre-Launch Schutz).\n"
             "• Teammitglieder (Admins & Mods) behalten weiterhin Zugang zur Vorbereitung/Wartung.\n"
-            "• Spieler-Verbindungen sind bis zum Neustart blockiert."
+            "• Spieler-Verbindungen sind bis zum offiziellen Projektstart blockiert."
         ),
         color=discord.Color.orange(),
         timestamp=datetime.now(timezone.utc),

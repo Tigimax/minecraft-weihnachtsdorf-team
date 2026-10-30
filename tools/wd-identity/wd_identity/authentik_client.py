@@ -239,3 +239,58 @@ class AuthentikClient:
         except Exception as e:
             logger.error(f"Failed to add {username} to Authentik group {group_name}: {e}")
             return False
+
+    def get_group_by_name(self, group_name: str) -> Optional[Dict[str, Any]]:
+        """Retrieves an Authentik group by its name."""
+        try:
+            url = f"{self.api_url}/api/v3/core/groups/?name={group_name}"
+            res = requests.get(url, headers=self._headers, timeout=10)
+            if not res.ok:
+                return None
+            results = res.json().get("results", [])
+            return results[0] if results else None
+        except Exception as e:
+            logger.error(f"Failed to query Authentik group '{group_name}': {e}")
+            return None
+
+    def set_project_launched(self, launched: bool) -> bool:
+        """
+        Updates the 'is_launched' flag on the 'wd_players' group in Authentik.
+        When False (Pre-Launch), regular players are blocked from BlueMap via wd-bluemap-access-policy.
+        When True (Live), regular players are allowed to access BlueMap.
+        """
+        group = self.get_group_by_name("wd_players")
+        if not group:
+            logger.warning("Authentik group 'wd_players' not found; cannot set project launched state.")
+            return False
+
+        group_pk = group["pk"]
+        current_attrs = group.get("attributes") or {}
+        current_attrs["is_launched"] = bool(launched)
+
+        try:
+            url = f"{self.api_url}/api/v3/core/groups/{group_pk}/"
+            res = requests.patch(
+                url,
+                headers=self._headers,
+                json={"attributes": current_attrs},
+                timeout=10,
+            )
+            if res.ok:
+                state_str = "LIVE (BlueMap unlocked for players)" if launched else "PRE-LAUNCH (BlueMap locked for players)"
+                logger.info(f"Authentik BlueMap launch gate updated: {state_str}")
+                return True
+            logger.error(f"Failed to patch 'wd_players' attributes in Authentik: {res.status_code} {res.text}")
+            return False
+        except Exception as e:
+            logger.error(f"Exception setting project launched flag in Authentik: {e}")
+            return False
+
+    def get_project_launched(self) -> Optional[bool]:
+        """Reads the 'is_launched' flag from the 'wd_players' group in Authentik."""
+        group = self.get_group_by_name("wd_players")
+        if not group:
+            return None
+        attrs = group.get("attributes") or {}
+        return bool(attrs.get("is_launched", False))
+

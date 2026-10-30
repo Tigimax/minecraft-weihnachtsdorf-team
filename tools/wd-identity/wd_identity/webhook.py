@@ -64,6 +64,21 @@ def health_check():
     }
 
 
+@app.get("/api/project/status")
+def get_project_status():
+    """
+    Returns current project launch status.
+    Used by monitoring and as a secondary verification for Authentik's wd-bluemap-access-policy.
+    """
+    mc = MinecraftSyncClient()
+    is_launched = mc.is_project_launched()
+    return {
+        "launched": is_launched,
+        "mode": "live" if is_launched else "pre-launch",
+        "bluemap_access": "unlocked" if is_launched else "locked_for_players",
+    }
+
+
 def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     ldap = LDAPClient()
     mc = MinecraftSyncClient()

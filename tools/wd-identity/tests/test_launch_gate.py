@@ -85,7 +85,8 @@ class TestLaunchGateAndPlayerSync(unittest.TestCase):
         self.assertIn("whitelist add PlayerIGN", cmds_called)
         self.assertIn("lp user uuid-player parent set default", cmds_called)
 
-    def test_lock_project_removes_whitelisted_players(self):
+    @patch("wd_identity.authentik_client.AuthentikClient.set_project_launched")
+    def test_lock_project_removes_whitelisted_players(self, mock_set_auth_launched):
         # 1. First launch and sync player
         self.client.set_project_launched(True)
         self.client.ldap.get_admins_and_mods = MagicMock(return_value=(
@@ -107,6 +108,38 @@ class TestLaunchGateAndPlayerSync(unittest.TestCase):
         cmds_called = self.client.execute_commands.call_args[0][0]
         self.assertIn("whitelist remove PlayerIGN", cmds_called)
         self.assertIn("whitelist add AdminIGN", cmds_called)
+
+    @patch("wd_identity.authentik_client.AuthentikClient.set_project_launched")
+    def test_launch_and_lock_syncs_authentik(self, mock_set_auth_launched):
+        self.client.ldap.get_admins_and_mods = MagicMock(return_value=([], []))
+        self.client.ldap.get_players = MagicMock(return_value=[])
+
+        self.client.launch_project()
+        mock_set_auth_launched.assert_called_with(True)
+
+        self.client.lock_project()
+        mock_set_auth_launched.assert_called_with(False)
+
+    @patch("requests.get")
+    @patch("requests.patch")
+    def test_authentik_client_set_project_launched(self, mock_patch, mock_get):
+        from wd_identity.authentik_client import AuthentikClient
+        auth = AuthentikClient()
+
+        # Mock group lookup
+        mock_get.return_value.ok = True
+        mock_get.return_value.json.return_value = {
+            "results": [{"pk": "mock-group-pk", "attributes": {"is_launched": False}}]
+        }
+
+        # Mock group patch
+        mock_patch.return_value.ok = True
+        mock_patch.return_value.status_code = 200
+
+        self.assertTrue(auth.set_project_launched(True))
+        mock_patch.assert_called_once()
+        patch_payload = mock_patch.call_args[1]["json"]
+        self.assertEqual(patch_payload["attributes"]["is_launched"], True)
 
 
 if __name__ == "__main__":

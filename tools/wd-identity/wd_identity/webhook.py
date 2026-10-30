@@ -85,6 +85,10 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     planka = PlankaSyncClient()
 
     clean_user = sanitize_username(req.username)
+    # Protection: Never overwrite or map event participant onto internal admin 'tigimax' or 'akadmin'
+    if clean_user.lower() in ("tigimax", "akadmin"):
+        clean_user = "tigimax_player"
+
     raw_ign = (req.minecraft_name or "").strip()
     if not validate_minecraft_ign(raw_ign):
         raise ValueError(f"Invalid Minecraft In-Game Name: '{raw_ign}'")
@@ -151,7 +155,7 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     group_map = {"admin": "wd_admins", "mod": "wd_mods", "player": "wd_players"}
     ak_group = group_map.get(clean_role, "wd_players")
     ak.add_user_to_group(clean_user, ak_group)
-    if req.username and req.username != clean_user:
+    if req.username and req.username != clean_user and req.username.lower() not in ("tigimax", "akadmin"):
         ak.add_user_to_group(req.username, ak_group)
     logger.info(f"Assigned user {clean_user} to Authentik group {ak_group}.")
 

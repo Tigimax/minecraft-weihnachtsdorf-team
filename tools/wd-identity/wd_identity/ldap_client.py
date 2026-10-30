@@ -540,16 +540,20 @@ class LDAPClient:
     def delete_user(self, username: str) -> bool:
         """Deletes a user entry from OpenLDAP and cleans up group memberships."""
         clean_user = sanitize_username(username)
+        if clean_user in HOMELAB_SUPERADMINS:
+            logger.error(f"Refusing to delete protected user '{clean_user}'!")
+            return False
+
         user_dn = f"uid={clean_user},{self.user_ou}"
+        # Strip group memberships first using remove_member_from_group (handles last member code 65 safely)
+        for grp in [self.admin_group, self.mod_group, self.player_group]:
+            try:
+                self.remove_member_from_group(grp, user_dn)
+            except Exception:
+                pass
+
         conn = self._get_connection()
         try:
-            # Strip group memberships first
-            for grp in [self.admin_group, self.mod_group, self.player_group]:
-                try:
-                    conn.modify(grp, {"member": [(MODIFY_DELETE, [user_dn])]})
-                except Exception:
-                    pass
-
             success = conn.delete(user_dn)
             if success:
                 logger.info(f"Deleted user {user_dn} from OpenLDAP.")

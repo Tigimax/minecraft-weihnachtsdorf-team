@@ -319,3 +319,162 @@ def restore_user_privileges(
         "minecraft_name": ign,
         "minecraft_uuid": mc_uuid,
     }
+
+
+def purge_user_completely(
+    target: Union[str, Dict[str, Any]],
+    reason: str = "Account auf Wunsch gelöscht",
+    initiator: str = "Self-Service",
+) -> Dict[str, Any]:
+    """
+    Completely and permanently purges a participant account from all systems:
+    - OpenLDAP (entry removed from directory and all groups)
+    - Authentik (user account and pending invitation tokens deleted)
+    - Planka (user and sessions deleted)
+    - Minecraft (whitelist removed, permissions revoked, server state synced)
+    - Applications DB (all applications, reviews, bans, cooldowns purged)
+
+    Protected internal accounts ('tigimax', 'akadmin') can NEVER be purged.
+    """
+    ldap = LDAPClient()
+    authentik = AuthentikClient()
+    planka = PlankaSyncClient()
+    mc = MinecraftSyncClient()
+
+    user = None
+    target_str = ""
+    discord_id = None
+    discord_name = ""
+    username = ""
+    ign = None
+    mc_uuid = None
+    email = None
+
+    if isinstance(target, dict) and "uid" in target:
+        user = target
+        target_str = user.get("uid", "")
+    else:
+        target_str = str(target).strip()
+        if target_str.isdigit():
+            discord_id = target_str
+            user = ldap.search_by_discord(target_str)
+        if not user:
+            user = (
+                ldap.get_user(target_str)
+                or ldap.search_by_discord(target_str)
+                or ldap.search_by_minecraft(target_str)
+            )
+
+    if user:
+        username = user.get("uid", "")
+        discord_name = user.get("discordName", "")
+        discord_id = user.get("discordId") or discord_id
+        ign = user.get("minecraftName")
+        mc_uuid = user.get("minecraftUuid")
+        email = user.get("mail")
+    else:
+        if target_str.isdigit():
+            discord_id = target_str
+        else:
+            username = target_str
+
+    if (not username or not ign) and discord_id:
+        app = applications.get_application(discord_id=discord_id)
+        if app:
+            if not discord_name:
+                discord_name = app.get("discord_username", "")
+            if not username:
+                clean_d = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_"))
+                username = "tigimax_player" if clean_d in ("tigimax", "akadmin") else clean_d
+
+    clean_username = sanitize_username(username) if username else ""
+
+    # SECURITY CHECK: Refuse to purge protected internal accounts
+    if clean_username.lower() in PROTECTED_INTERNAL_ACCOUNTS:
+        logger.warning(f"Refusing to purge protected internal account '{clean_username}'.")
+        return {
+            "success": False,
+            "error": f"Der Account '{clean_username}' ist ein geschützter System-Account und kann nicht gelöscht werden.",
+            "username": clean_username,
+        }
+
+    # 1. OpenLDAP: Delete user entry (removes from groups automatically)
+    ldap_deleted = False
+    if clean_username:
+        try:
+            ldap_deleted = ldap.delete_user(clean_username)
+        except Exception as e:
+            logger.error(f"Error deleting LDAP user '{clean_username}': {e}")
+
+    # 2. Authentik: Delete user account and pending invitations
+    ak_deleted = False
+    if clean_username:
+        try:
+            ak_deleted = authentik.delete_user(clean_username)
+            authentik.delete_invitations(clean_username)
+        except Exception as e:
+            logger.error(f"Error deleting Authentik user '{clean_username}': {e}")
+
+    # 3. Planka: Delete user account and sessions
+    planka_deleted = False
+    if clean_username:
+        try:
+            planka_deleted = planka.delete_user(clean_username, email=email)
+        except Exception as e:
+            logger.error(f"Error deleting Planka user '{clean_username}': {e}")
+
+    # 4. Minecraft: Whitelist remove, revoke LuckPerms privileges, unban if banned, sync
+    mc_ok = False
+    if ign:
+        try:
+            mc.whitelist_remove(ign)
+            mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
+            mc.execute_commands([f"pardon {ign}"])
+            mc.sync_all(force=True)
+            mc_ok = True
+        except Exception as e:
+            logger.error(f"Error purging Minecraft privileges for '{ign}': {e}")
+
+    # 5. SQLite: Purge all application history, bans, cooldowns
+    db_purged_count = 0
+    try:
+        db_purged_count = applications.purge_user_history(discord_id=discord_id, minecraft_ign=ign)
+    except Exception as e:
+        logger.error(f"Error purging application history in DB: {e}")
+
+    # 6. Audit log
+    try:
+        log_admin_event(
+            title="🗑️ Account vollständig gelöscht",
+            description=f"Der Account **{discord_name or clean_username or target_str}** wurde spurlos aus allen Systemen entfernt.",
+            color=COLOR_WARNING,
+            fields=[
+                {"name": "Benutzername", "value": f"`{clean_username or 'N/A'}`", "inline": True},
+                {"name": "Discord", "value": f"`{discord_name or discord_id or 'N/A'}`", "inline": True},
+                {"name": "Minecraft IGN", "value": f"`{ign or 'N/A'}`", "inline": True},
+                {"name": "Grund", "value": reason, "inline": False},
+                {"name": "DB-Einträge bereinigt", "value": str(db_purged_count), "inline": True},
+            ],
+            author_name=initiator,
+        )
+    except Exception as e:
+        logger.error(f"Failed to post audit log for purged user {clean_username}: {e}")
+
+    # 7. Synchronize Playerlist live embed
+    try:
+        sync_playerlist_rest(force=True)
+    except Exception as e:
+        logger.warning(f"Failed to update playerlist board after account purge: {e}")
+
+    return {
+        "success": True,
+        "username": clean_username,
+        "discord_id": discord_id,
+        "discord_name": discord_name,
+        "minecraft_name": ign,
+        "ldap_deleted": ldap_deleted,
+        "authentik_deleted": ak_deleted,
+        "planka_deleted": planka_deleted,
+        "minecraft_synced": mc_ok,
+        "db_records_purged": db_purged_count,
+    }

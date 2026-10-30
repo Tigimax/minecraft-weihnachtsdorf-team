@@ -588,124 +588,63 @@ def project_lock_cmd():
 )
 def revoke_cmd(target: str, keep_ldap: bool):
     """
-    Completely revokes access and purges all user data across all systems:
-    - OpenLDAP: Removes memberships from wd_admins, wd_mods, wd_players (and deletes LDAP account unless --keep-ldap)
-    - Authentik IdP: Deletes user account, invalidates sessions, and removes pending invitations
-    - Planka Kanban: Terminates active sessions, clears memberships, and deletes user account
-    - Minecraft Server: Kicks player if online, removes whitelist, clears LuckPerms permissions
-    - SQLite DB: Lifts active bans and cancels pending applications
-    TARGET can be a Discord name, Discord ID, LDAP username, or Minecraft IGN.
+    Revokes access across all systems.
+    If --keep-ldap is set, the LDAP user entry is preserved (deactivated).
+    Without --keep-ldap, the user is purged completely from all systems.
     """
     clean_target = target.strip()
-    click.echo(f"[*] Starting full purge & revocation for '{clean_target}'...")
-
-    ldap = LDAPClient()
-    planka = PlankaSyncClient()
-    mc = MinecraftSyncClient()
-    authentik = AuthentikClient()
-
-    # Resolve user metadata across LDAP
-    user = None
-    if clean_target.isdigit():
-        user = ldap.search_by_discord(clean_target)
-    if not user:
-        user = (
-            ldap.get_user(clean_target)
-            or ldap.search_by_discord(clean_target)
-            or ldap.search_by_minecraft(clean_target)
+    if keep_ldap:
+        from wd_identity.membership import revoke_user_privileges
+        click.echo(f"[*] Revoking privileges for '{clean_target}' (keeping LDAP entry)...")
+        res = revoke_user_privileges(clean_target, reason="Admin Revoke (--keep-ldap)", initiator="wd-admin CLI")
+        click.secho(
+            f"\n[+] Alle Berechtigungen für '{clean_target}' wurden erfolgreich entzogen!\n"
+            f"    • OpenLDAP: Gruppen wd_admins, wd_mods, wd_players entfernt (Account bleibt erhalten)\n"
+            f"    • Authentik: Deaktiviert & BlueMap gesperrt (Account bleibt erhalten)\n"
+            f"    • Planka: Deaktiviert (Account bleibt erhalten)\n"
+            f"    • Minecraft: Whitelist & LuckPerms entfernt\n"
+            f"    • Spielerliste: Aktualisiert\n",
+            fg="green",
         )
-
-    if user:
-        username = user["uid"]
-        discord_id = user.get("discordId")
-        discord_name = user.get("discordName")
-        ign = user.get("minecraftName")
-        mc_uuid = user.get("minecraftUuid")
-        click.echo(f"[+] Found LDAP user: {username} (IGN: {ign or 'None'}, Discord: {discord_name or discord_id or 'None'})")
     else:
-        username = clean_target
-        ign = clean_target
-        discord_id = clean_target if clean_target.isdigit() else None
-        discord_name = clean_target
-        mc_uuid = None
-        click.echo(f"[!] Target not found in LDAP; proceeding to clean Authentik, Planka, Minecraft, and DB by name '{clean_target}'...")
-
-    # 1. OpenLDAP Clean Up
-    if user:
-        if keep_ldap:
-            from wd_identity.membership import revoke_user_privileges
-            revoke_user_privileges(user, reason="Admin Revoke (--keep-ldap)", initiator="wd-admin CLI")
-            click.secho(
-                f"\n[+] Alle Berechtigungen für '{username}' wurden erfolgreich entzogen!\n"
-                f"    • OpenLDAP: Gruppen wd_admins, wd_mods, wd_players entfernt (Account bleibt erhalten)\n"
-                f"    • Authentik: Deaktiviert & BlueMap gesperrt (Account bleibt erhalten)\n"
-                f"    • Planka: Deaktiviert (Account bleibt erhalten)\n"
-                f"    • Minecraft: Whitelist & LuckPerms entfernt\n"
-                f"    • Spielerliste: Aktualisiert\n",
-                fg="green",
-            )
+        from wd_identity.membership import purge_user_completely
+        click.echo(f"[*] Starting full purge & revocation for '{clean_target}'...")
+        res = purge_user_completely(clean_target, reason="Admin Revoke (Purge)", initiator="wd-admin CLI")
+        if not res.get("success"):
+            click.secho(f"[-] Error: {res.get('error')}", fg="red")
             return
-        else:
-            ldap_ok = ldap.delete_user(username)
-            click.echo(f"[+] OpenLDAP: Account '{username}' deleted: {'OK' if ldap_ok else 'FAILED'}")
-    else:
-        click.echo("[-] OpenLDAP: No LDAP entry to delete.")
+        click.secho(f"\n[+] Komplettes Cleanup erfolgreich abgeschlossen für '{res.get('username') or clean_target}'!\n", fg="green")
 
-    # 2. Authentik IdP Clean Up
-    auth_user_del = authentik.delete_user(username)
-    click.echo(f"[+] Authentik: User '{username}' deleted: {'OK' if auth_user_del else 'Not found or failed'}")
-    inv_del_count = authentik.delete_invitations(username)
-    if discord_name and discord_name != username:
-        inv_del_count += authentik.delete_invitations(discord_name)
-    click.echo(f"[+] Authentik: Pending invitations deleted: {inv_del_count}")
 
-    # 3. Planka Kanban Clean Up
-    planka_del = planka.delete_user(username)
-    click.echo(f"[+] Planka: User and sessions purged: {'OK' if planka_del else 'FAILED'}")
+@cli.command("purge")
+@click.argument("target")
+@click.option("--reason", "-m", default="Account vollständig entfernt", help="Begründung für die Löschung.")
+def purge_cmd(target: str, reason: str):
+    """
+    Completely and permanently purges a participant account from all systems:
+    - OpenLDAP (entry removed from directory and all groups)
+    - Authentik (user account and pending invitation tokens deleted)
+    - Planka (user and sessions deleted)
+    - Minecraft (whitelist removed, permissions revoked, server state synced)
+    - Applications DB (all applications, reviews, bans, cooldowns purged)
 
-    # 4. Minecraft Server Clean Up
-    if ign:
-        mc_ok = mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
-        target_lp = mc_uuid if mc_uuid else ign
-        mc.execute_commands([
-            f"lp user {target_lp} clear",
-            f'kick {ign} "Zugang wurde widerrufen."',
-        ])
-        click.echo(f"[+] Minecraft Server: Whitelist removed, kicked & LuckPerms cleared for '{ign}': {'OK' if mc_ok else 'FAILED'}")
-        mc.sync_all(force=True)
-    else:
-        click.echo("[-] Minecraft Server: No IGN specified; skipping.")
+    Protected internal accounts ('tigimax', 'akadmin') can NEVER be purged.
+    """
+    from wd_identity.membership import purge_user_completely
 
-    # 5. SQLite DB (Applications & Bans) Clean Up
-    lift_count = applications.lift_ban(discord_id=discord_id, minecraft_ign=ign)
-    click.echo(f"[+] SQLite: Active bans lifted: {lift_count}")
-    if discord_id:
-        status = applications.get_user_status(discord_id)
-        if status.get("has_pending") and status.get("pending_app"):
-            applications.reject_application(
-                status["pending_app"]["id"],
-                "cli-admin",
-                "Admin (Revoke)",
-                "Zugang widerrufen (Account purged)",
-            )
-            click.echo(f"[+] SQLite: Pending application #{status['pending_app']['id']} cancelled.")
+    clean_target = target.strip()
+    click.echo(f"[*] Starting complete purge for '{clean_target}'...")
+    res = purge_user_completely(clean_target, reason=reason, initiator="wd-admin CLI")
+    if not res.get("success"):
+        click.secho(f"[-] Error: {res.get('error')}", fg="red")
+        return
 
-    click.secho(f"\n[+] Komplettes Cleanup erfolgreich abgeschlossen für '{clean_target}'!\n", fg="green")
-    try:
-        log_admin_event(
-            title="🗑️ Zugang widerrufen (Purge)",
-            description=f"Der Zugang für **{clean_target}** wurde vollständig widerrufen und alle Berechtigungen bereinigt.",
-            color=COLOR_ERROR,
-            fields=[
-                {"name": "Ziel", "value": clean_target, "inline": True},
-                {"name": "LDAP erhalten", "value": "Ja" if keep_ldap else "Nein (Gelöscht)", "inline": True},
-            ],
-            author_name="wd-admin CLI",
-        )
-        from wd_identity.playerlist import sync_playerlist_rest
-        sync_playerlist_rest(force=True)
-    except Exception:
-        pass
+    click.secho(f"\n[+] Account '{res.get('username') or clean_target}' wurde erfolgreich und spurlos gelöscht!\n", fg="green")
+    click.echo(f"    • OpenLDAP gelöscht: {'Ja' if res.get('ldap_deleted') else 'Nein / Nicht vorhanden'}")
+    click.echo(f"    • Authentik gelöscht: {'Ja' if res.get('authentik_deleted') else 'Nein / Nicht vorhanden'}")
+    click.echo(f"    • Planka gelöscht: {'Ja' if res.get('planka_deleted') else 'Nein / Nicht vorhanden'}")
+    click.echo(f"    • Minecraft bereinigt: {'Ja' if res.get('minecraft_synced') else 'Nein / Nicht vorhanden'}")
+    click.echo(f"    • DB-Einträge bereinigt: {res.get('db_records_purged', 0)}\n")
 
 
 @cli.command("ban")

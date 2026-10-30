@@ -34,7 +34,11 @@ from wd_identity.config import settings
 from wd_identity.invitations import create_user_invitation
 from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
-from wd_identity.membership import restore_user_privileges, revoke_user_privileges
+from wd_identity.membership import (
+    purge_user_completely,
+    restore_user_privileges,
+    revoke_user_privileges,
+)
 from wd_identity.planka_sync import PlankaSyncClient
 from wd_identity.playerlist import sync_playerlist_bot, sync_playerlist_rest
 from wd_identity.utils import send_dm, send_dm_rest
@@ -663,6 +667,15 @@ class ApplyStartView(discord.ui.View):
     async def btn_optout(self, interaction: discord.Interaction, button: discord.ui.Button):
         await trigger_optout_flow(interaction)
 
+    @discord.ui.button(
+        label="Account löschen",
+        style=discord.ButtonStyle.danger,
+        emoji="🗑️",
+        custom_id="wd_purge_start_btn",
+    )
+    async def btn_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await trigger_purge_flow(interaction)
+
 
 class AuthCodeButtonView(discord.ui.View):
     def __init__(self):
@@ -882,6 +895,147 @@ async def trigger_optout_flow(interaction: discord.Interaction):
         return
 
     await interaction.response.send_modal(OptOutModal())
+
+
+class ConfirmPurgeView(discord.ui.View):
+    def __init__(self, target: str, display_name: str, initiator: str, reason: str):
+        super().__init__(timeout=60)
+        self.target = target
+        self.display_name = display_name
+        self.initiator = initiator
+        self.reason = reason
+
+    @discord.ui.button(label="Endgültig löschen", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.edit_original_response(view=self)
+        except Exception:
+            pass
+
+        res = await asyncio.to_thread(
+            purge_user_completely,
+            target=self.target,
+            reason=self.reason,
+            initiator=self.initiator,
+        )
+
+        if not res.get("success"):
+            err_msg = res.get("error", "Unbekannter Fehler beim Löschen.")
+            await interaction.followup.send(f"❌ **Fehler beim Löschen:** {err_msg}", ephemeral=True)
+            return
+
+        deleted_user = res.get("username") or self.display_name
+        await interaction.followup.send(
+            f"✅ **Account erfolgreich gelöscht!**\n\n"
+            f"Der Account `{deleted_user}` wurde spurlos und vollständig aus allen Systemen (OpenLDAP, Authentik, Planka, Minecraft & Datenbank) entfernt.\n"
+            f"Du kannst dich jetzt jederzeit mit `/anmelden` wieder bewerben.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.secondary, emoji="✖️")
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.response.edit_message(
+                content="❌ **Löschvorgang abgebrochen.** Es wurden keine Daten gelöscht.",
+                view=self,
+            )
+        except Exception:
+            pass
+
+
+async def trigger_purge_flow(
+    interaction: discord.Interaction,
+    ziel: Optional[str] = None,
+    grund: Optional[str] = None,
+):
+    """Initiates the account purge flow with confirmation."""
+    clean_target = (ziel or "").strip().replace("<@", "").replace(">", "").replace("!", "")
+    caller_is_admin = is_admin_user(interaction.user)
+
+    if clean_target and clean_target != str(interaction.user.id) and clean_target.lower() != interaction.user.name.lower():
+        if not caller_is_admin:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ **Keine Berechtigung:** Du kannst nur deinen eigenen Account löschen. Lasse das Feld `ziel` leer.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    "❌ **Keine Berechtigung:** Du kannst nur deinen eigenen Account löschen. Lasse das Feld `ziel` leer.",
+                    ephemeral=True,
+                )
+            return
+        target_to_purge = clean_target
+        initiator_str = f"{interaction.user.name} (Admin Purge)"
+        reason_str = grund.strip() if grund else "Admin-Löschung via Discord"
+    else:
+        target_to_purge = str(interaction.user.id)
+        initiator_str = f"{interaction.user.name} (Selbstlöschung)"
+        reason_str = grund.strip() if grund else "Selbstlöschung via Discord"
+
+    ldap = LDAPClient()
+    user_entry = None
+    if target_to_purge.isdigit():
+        user_entry = ldap.search_by_discord(target_to_purge)
+    if not user_entry:
+        user_entry = (
+            ldap.get_user(target_to_purge)
+            or ldap.search_by_discord(target_to_purge)
+            or ldap.search_by_minecraft(target_to_purge)
+        )
+
+    status = applications.get_user_status(target_to_purge) if target_to_purge.isdigit() else {}
+
+    if not user_entry and not status.get("has_pending") and not status.get("is_banned") and not status.get("is_rejected"):
+        msg = (
+            "❌ **Kein Account gefunden:** Unter deinen Daten ist kein aktiver Weihnachtsdorf-Account registriert."
+            if target_to_purge == str(interaction.user.id)
+            else f"❌ **Kein Account gefunden für:** `{target_to_purge}`."
+        )
+        if not interaction.response.is_done():
+            await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            await interaction.followup.send(msg, ephemeral=True)
+        return
+
+    display_name = user_entry.get("uid") if user_entry else target_to_purge
+
+    # Protection check before prompt
+    if display_name.lower() in ("tigimax", "akadmin"):
+        msg = f"🛡️ **Geschützter Account:** Der Account `{display_name}` ist ein interner System-Account und kann nicht gelöscht werden."
+        if not interaction.response.is_done():
+            await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            await interaction.followup.send(msg, ephemeral=True)
+        return
+
+    view = ConfirmPurgeView(
+        target=target_to_purge,
+        display_name=display_name,
+        initiator=initiator_str,
+        reason=reason_str,
+    )
+
+    prompt_text = (
+        f"⚠️ **Möchtest du den Account `{display_name}` wirklich unwiderruflich und spurlos löschen?**\n\n"
+        f"Folgende Daten werden permanent gelöscht:\n"
+        f"• **OpenLDAP**: Account & Gruppenmitgliedschaften\n"
+        f"• **Authentik**: IdP-Konto & Einladungs-Token\n"
+        f"• **Planka**: Profil & Projekt-Mitgliedschaften\n"
+        f"• **Minecraft**: Whitelist-Eintrag & LuckPerms-Rollen\n"
+        f"• **Datenbank**: Bewerbungshistorie & eventuelle Sperren\n\n"
+        f"Danach kann sich der Nutzer über `/anmelden` wieder komplett frisch registrieren."
+    )
+
+    if not interaction.response.is_done():
+        await interaction.response.send_message(prompt_text, view=view, ephemeral=True)
+    else:
+        await interaction.followup.send(prompt_text, view=view, ephemeral=True)
 
 
 async def trigger_unban_modal(interaction: discord.Interaction):
@@ -1108,6 +1262,7 @@ async def handle_admin_accept(interaction: discord.Interaction, app_id: int):
         # Protection: Never overwrite master internal admin account 'tigimax' or 'akadmin'
         if clean_user.lower() in ("tigimax", "akadmin"):
             clean_user = "tigimax_player"
+        fixed_data["username"] = clean_user
         authentik.delete_user(clean_user)
         invite_link = authentik.create_invitation(
             name=f"invite-{clean_user}",
@@ -1705,6 +1860,8 @@ async def ensure_channels_and_pins():
                 "4. Nach der Annahme erhältst du eine Direktnachricht (DM) mit deinem persönlichen Registrierungs-Link.\n\n"
                 "🚪 **Teilnahme beenden / Abmelden:**\n"
                 "Falls du deine Teilnahme beenden oder pausieren möchtest, kannst du dich unten über **„Abmelden“** (oder `/abmelden`) jederzeit selbstständig austragen. Dein Account und deine Bauwerke bleiben dabei sicher gespeichert!\n\n"
+                "🗑️ **Account vollständig löschen:**\n"
+                "Falls du deinen Account spurlos und komplett aus allen Systemen löschen möchtest, klicke auf **„Account löschen“** oder nutze `/account-loeschen`.\n\n"
                 "🔑 **Login-Code für Authentik (nur Spieler):**\n"
                 "Bereits registrierte Spieler können jederzeit auf **„Login-Code“** klicken (oder `/auth-code` / `/code` nutzen), um sich blitzschnell einen einmaligen 6-stelligen Login-Code für das Webportal generieren zu lassen!"
             ),
@@ -1919,6 +2076,22 @@ async def cmd_anmelden(interaction: discord.Interaction):
 )
 async def cmd_abmelden(interaction: discord.Interaction):
     await trigger_optout_flow(interaction)
+
+
+@tree.command(
+    name="account-loeschen",
+    description="Löscht deinen Weihnachtsdorf-Account oder den eines Spielers spurlos und vollständig.",
+)
+@app_commands.describe(
+    ziel="Optional: Ziel-Nutzer (@User, Discord-ID oder Account-Name). Nur für Administratoren.",
+    grund="Optionaler Grund für die Account-Löschung.",
+)
+async def cmd_account_loeschen(
+    interaction: discord.Interaction,
+    ziel: Optional[str] = None,
+    grund: Optional[str] = None,
+):
+    await trigger_purge_flow(interaction, ziel=ziel, grund=grund)
 
 
 @tree.command(

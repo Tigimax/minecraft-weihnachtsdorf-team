@@ -327,6 +327,23 @@ def lift_ban(discord_id: Optional[str] = None, minecraft_ign: Optional[str] = No
     return count
 
 
+def purge_user_history(discord_id: Optional[str] = None, minecraft_ign: Optional[str] = None) -> int:
+    """Completely purges all applications, review history, bans, and cooldowns for a user."""
+    init_db()
+    conn = get_connection()
+    count = 0
+    with conn:
+        if discord_id:
+            c1 = conn.execute("DELETE FROM applications WHERE discord_id = ?", (str(discord_id),)).rowcount
+            c2 = conn.execute("DELETE FROM bans WHERE discord_id = ?", (str(discord_id),)).rowcount
+            count += c1 + c2
+        if minecraft_ign:
+            c3 = conn.execute("DELETE FROM bans WHERE LOWER(minecraft_ign) = LOWER(?)", (minecraft_ign.strip(),)).rowcount
+            count += c3
+    conn.close()
+    return count
+
+
 def list_applications(
     status: Optional[str] = None,
     app_type: Optional[str] = None,

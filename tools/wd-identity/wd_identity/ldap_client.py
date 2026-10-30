@@ -310,6 +310,11 @@ class LDAPClient:
                 group_dn,
                 {"member": [(MODIFY_DELETE, [member_dn])]},
             )
+            # If removing last member violates groupOfNames schema (code 65), add service account placeholder first
+            if not success and conn.result.get("result") == 65:
+                svc_dn = f"uid=svc-readonly,ou=ServiceAccounts,{self.base_dn}"
+                conn.modify(group_dn, {"member": [(MODIFY_ADD, [svc_dn])]})
+                success = conn.modify(group_dn, {"member": [(MODIFY_DELETE, [member_dn])]})
             return success
         except (LDAPNoSuchAttributeResult, Exception) as e:
             logger.warning(f"Error removing {member_dn} from {group_dn}: {e}")
@@ -319,7 +324,8 @@ class LDAPClient:
 
     def get_admins_and_mods(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Fetch all admins and mods with full attribute dictionaries."""
-        admin_dns = set(self.get_group_members(self.admin_group_dn))
+        superadmin_group_dn = f"cn=superadmins,{self.group_ou}"
+        admin_dns = set(self.get_group_members(self.admin_group_dn)) | set(self.get_group_members(superadmin_group_dn))
         mod_dns = set(self.get_group_members(self.mod_group_dn))
         all_users = self.list_all_users()
 
@@ -340,7 +346,8 @@ class LDAPClient:
 
     def get_players(self) -> List[Dict[str, Any]]:
         """Fetch all registered regular players in cn=wd_players (excluding staff)."""
-        admin_dns = set(self.get_group_members(self.admin_group_dn))
+        superadmin_group_dn = f"cn=superadmins,{self.group_ou}"
+        admin_dns = set(self.get_group_members(self.admin_group_dn)) | set(self.get_group_members(superadmin_group_dn))
         mod_dns = set(self.get_group_members(self.mod_group_dn))
         staff_dns = admin_dns | mod_dns
 

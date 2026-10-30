@@ -16,6 +16,7 @@ from wd_identity.mojang_client import get_player_profile
 from wd_identity.playerlist import sync_playerlist_rest
 from wd_identity.utils import (
     check_is_discord_admin,
+    resolve_discord_user,
     sanitize_email,
     sanitize_username,
     send_dm,
@@ -45,13 +46,19 @@ def create_user_invitation(
     if clean_role not in ("admin", "mod", "player"):
         raise ValueError(f"Ungültige Rolle '{role}'. Erlaubt sind: player, mod, admin.")
 
-    clean_discord = discord_name.strip()
-    if not clean_discord:
+    raw_discord = discord_name.strip()
+    if not raw_discord:
         raise ValueError("Discord-Nutzername oder ID darf nicht leer sein.")
+
+    discord_id, resolved_username = resolve_discord_user(raw_discord)
+    clean_discord = resolved_username or raw_discord.replace("<@", "").replace("<@!", "").replace(">", "").replace("!", "").strip()
+    if clean_discord.startswith("@"):
+        clean_discord = clean_discord[1:].strip()
 
     # 1. Security Check: Admin role requires user to already be Discord Admin
     if clean_role == "admin":
-        is_admin, admin_reason = check_is_discord_admin(clean_discord)
+        check_target = discord_id or clean_discord
+        is_admin, admin_reason = check_is_discord_admin(check_target)
         if not is_admin:
             log_admin_event(
                 title="🚨 Sicherheitswarnung: Admin-Einladung verweigert",
@@ -94,7 +101,6 @@ def create_user_invitation(
     user_email = sanitize_email(clean_username)
 
     # 4. Configure OpenLDAP record
-    discord_id = clean_discord if clean_discord.isdigit() else None
     ldap = LDAPClient()
     authentik = AuthentikClient()
 
@@ -162,7 +168,8 @@ def create_user_invitation(
         f"• Nach Abschluss ist dein Profil startklar für den Server!\n\n"
         f"*Dieser Link ist einmalig gültig und verfällt nach 24 Stunden.*"
     )
-    dm_sent = send_dm(clean_discord, dm_message)
+    dm_target = discord_id or clean_discord
+    dm_sent = send_dm(dm_target, dm_message)
 
     # 8. Dispatch Audit Event to #admin-logs
     log_admin_event(

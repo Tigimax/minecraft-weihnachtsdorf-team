@@ -178,6 +178,75 @@ def check_is_discord_admin(target: str) -> Tuple[bool, str]:
         return False, f"Fehler bei der Discord-Berechtigungsprüfung: {e}"
 
 
+def resolve_discord_user(discord_name_or_id: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Resolves any Discord input (numeric ID, mention '<@123>', '<@!123>', or '@username', 'username')
+    to a tuple of (discord_id, username). Returns (None, None) if not resolvable.
+    """
+    from wd_identity.config import settings
+    import json
+    import logging
+    import urllib.parse
+    import urllib.request
+
+    logger = logging.getLogger(__name__)
+
+    if not discord_name_or_id:
+        return None, None
+
+    raw = discord_name_or_id.strip()
+    clean = raw.replace("<@", "").replace("<@!", "").replace(">", "").replace("!", "").strip()
+    if clean.startswith("@"):
+        clean = clean[1:].strip()
+
+    if not clean:
+        return None, None
+
+    if not settings.DISCORD_BOT_TOKEN:
+        return (clean if clean.isdigit() else None), clean
+
+    headers = {
+        "Authorization": f"Bot {settings.DISCORD_BOT_TOKEN.strip()}",
+        "User-Agent": "DiscordBot-WD7 (https://tigimax.mooo.com)",
+        "Content-Type": "application/json",
+    }
+    guild_id = settings.DISCORD_GUILD_ID or "909437200125538364"
+
+    if clean.isdigit():
+        # Fetch username for ID
+        url = f"https://discord.com/api/v10/users/{clean}"
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                u = json.loads(r.read().decode())
+                return clean, u.get("username", clean)
+        except Exception:
+            return clean, clean
+    else:
+        # Search member by name in guild
+        q_enc = urllib.parse.quote(clean)
+        url = f"https://discord.com/api/v10/guilds/{guild_id}/members/search?query={q_enc}&limit=10"
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                members = json.loads(r.read().decode())
+                target_lower = clean.lower()
+                for m in members:
+                    u = m.get("user", {})
+                    uname = (u.get("username") or "").lower()
+                    gname = (u.get("global_name") or "").lower()
+                    nick = (m.get("nick") or "").lower()
+                    if target_lower in (uname, gname, nick):
+                        return str(u.get("id")), u.get("username")
+                if members:
+                    u = members[0].get("user", {})
+                    return str(u.get("id")), u.get("username")
+        except Exception as e:
+            logger.warning(f"Failed to search member '{clean}' in guild {guild_id}: {e}")
+
+    return None, None
+
+
 def send_dm_rest(discord_name_or_id: str, message: str) -> bool:
     """
     Sends a direct message using Discord REST API.
@@ -187,7 +256,6 @@ def send_dm_rest(discord_name_or_id: str, message: str) -> bool:
     from wd_identity.config import settings
     import json
     import logging
-    import urllib.parse
     import urllib.request
 
     logger = logging.getLogger(__name__)
@@ -198,64 +266,17 @@ def send_dm_rest(discord_name_or_id: str, message: str) -> bool:
         )
         return False
 
+    user_id, _ = resolve_discord_user(discord_name_or_id)
+    if not user_id:
+        logger.error(f"Could not resolve Discord user ID for '{discord_name_or_id}'")
+        return False
+
     token = settings.DISCORD_BOT_TOKEN.strip()
     headers = {
         "Authorization": f"Bot {token}",
         "User-Agent": "DiscordBot-WD7 (https://tigimax.mooo.com)",
         "Content-Type": "application/json",
     }
-
-    user_id = None
-    target_clean = discord_name_or_id.strip()
-    if target_clean.isdigit():
-        user_id = target_clean
-    else:
-        guild_ids = []
-        try:
-            guilds_url = "https://discord.com/api/v10/users/@me/guilds"
-            req = urllib.request.Request(guilds_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                guilds = json.loads(resp.read().decode())
-                guild_ids = [str(g.get("id")) for g in guilds if g.get("id")]
-        except Exception:
-            pass
-
-        if not guild_ids:
-            fallback = settings.DISCORD_GUILD_ID or "909437200125538364"
-            guild_ids = [fallback, "784805552504438794"]
-
-        query_enc = urllib.parse.quote(target_clean)
-        target_lower = target_clean.lower()
-        for gid in guild_ids:
-            search_url = (
-                f"https://discord.com/api/v10/guilds/{gid}/members/search?query={query_enc}&limit=10"
-            )
-            try:
-                req = urllib.request.Request(search_url, headers=headers)
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    members = json.loads(resp.read().decode())
-                    for m in members:
-                        u = m.get("user", {})
-                        username = (u.get("username") or "").lower()
-                        global_name = (u.get("global_name") or "").lower()
-                        nick = (m.get("nick") or "").lower()
-                        if target_lower in (username, global_name, nick):
-                            user_id = str(u.get("id"))
-                            break
-                    if not user_id and members:
-                        for m in members:
-                            u = m.get("user", {})
-                            if target_lower in (u.get("username") or "").lower():
-                                user_id = str(u.get("id"))
-                                break
-                if user_id:
-                    break
-            except Exception as e:
-                logger.warning(f"Failed to search member '{target_clean}' in guild {gid}: {e}")
-
-    if not user_id:
-        logger.error(f"Could not resolve Discord user ID for '{discord_name_or_id}'")
-        return False
 
     channel_id = None
     try:
@@ -277,7 +298,7 @@ def send_dm_rest(discord_name_or_id: str, message: str) -> bool:
         data = json.dumps({"content": message}).encode("utf-8")
         req = urllib.request.Request(msg_url, data=data, headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=10) as resp:
-            logger.info(f"Successfully dispatched Discord DM to {target_clean} (ID: {user_id})")
+            logger.info(f"Successfully dispatched Discord DM to {discord_name_or_id} (ID: {user_id})")
             return True
     except Exception as e:
         logger.error(f"Failed to post DM message to channel {channel_id}: {e}")

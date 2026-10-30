@@ -42,6 +42,7 @@ tools/wd-identity/etc/default/wd-identity
 node_modules/
 
 # OS / Editor files
+.agents/
 .DS_Store
 *.swp
 *.swo

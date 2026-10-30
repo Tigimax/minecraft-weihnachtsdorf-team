@@ -45,6 +45,12 @@ class Settings:
         "LDAP_PLAYER_GROUP",
         "cn=wd_players,ou=Groups,dc=ldap-01,dc=net",
     )
+    LDAP_TLS_VERIFY: bool = os.getenv("LDAP_TLS_VERIFY", "true").strip().lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+    LDAP_CA_CERT_FILE: str = os.getenv("LDAP_CA_CERT_FILE", "")
 
     # Project Launch State File
     PROJECT_STATE_FILE: Path = Path(
@@ -102,13 +108,15 @@ class Settings:
     DISCORD_CHANNEL_INVITES_ID: str = os.getenv("DISCORD_CHANNEL_INVITES_ID", "1565288748718100552")
     DISCORD_CHANNEL_STEURUNG_ID: str = os.getenv("DISCORD_CHANNEL_STEURUNG_ID", "1565299837522673674")
     DISCORD_ADMIN_ROLE_ID: str = os.getenv("DISCORD_ADMIN_ROLE_ID", "909437200125538371")
+    DISCORD_MOD_ROLE_ID: str = os.getenv("DISCORD_MOD_ROLE_ID", "")
 
     # Data Directory (SQLite & Local State)
     DATA_DIR: Path = Path(os.getenv("DATA_DIR", "/opt/wd-identity/data"))
 
     # Webhook & API Server
-    WEBHOOK_HOST: str = os.getenv("WEBHOOK_HOST", "0.0.0.0")
+    WEBHOOK_HOST: str = os.getenv("WEBHOOK_HOST", "127.0.0.1")
     WEBHOOK_PORT: int = int(os.getenv("WEBHOOK_PORT", "8000"))
+    WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
 
 
 settings = Settings()

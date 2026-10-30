@@ -152,10 +152,11 @@ def check_is_discord_admin(target: str) -> Tuple[bool, str]:
             gname = (u.get("global_name") or "").lower()
             nick = (m.get("nick") or "").lower()
 
-            if clean_target.isdigit() and uid == clean_target:
-                found_member = m
-                break
-            if clean_target in (uname, gname, nick):
+            if clean_target.isdigit():
+                if uid == clean_target:
+                    found_member = m
+                    break
+            elif clean_target == uname:
                 found_member = m
                 break
 
@@ -174,6 +175,88 @@ def check_is_discord_admin(target: str) -> Tuple[bool, str]:
 
         return False, f"Nutzer '{target}' besitzt auf dem Discord-Server keine Administrator-Rolle."
 
+    except Exception as e:
+        return False, f"Fehler bei der Discord-Berechtigungsprüfung: {e}"
+
+
+def check_is_discord_mod(target: str) -> Tuple[bool, str]:
+    """
+    Checks whether a given Discord user (by ID, username, global name, or mention)
+    is currently a Moderator, Administrator or Guild Owner on the configured Discord guild.
+    Returns (is_mod: bool, reason_or_error: str).
+    """
+    is_admin, reason = check_is_discord_admin(target)
+    if is_admin:
+        return True, f"Admin/Owner Status: {reason}"
+
+    import json
+    import urllib.request
+    from wd_identity.config import settings
+
+    if not settings.DISCORD_BOT_TOKEN or not settings.DISCORD_GUILD_ID:
+        return False, "Discord Bot-Token oder Guild-ID nicht konfiguriert."
+
+    clean_target = target.strip().replace("<@", "").replace(">", "").replace("!", "").lower()
+    if not clean_target:
+        return False, "Leere Discord-Zielangabe."
+
+    headers = {
+        "Authorization": f"Bot {settings.DISCORD_BOT_TOKEN.strip()}",
+        "User-Agent": "DiscordBot-WD7 (https://tigimax.mooo.com)",
+        "Content-Type": "application/json",
+    }
+    guild_id = settings.DISCORD_GUILD_ID
+
+    try:
+        mod_role_ids = set()
+        mod_cfg_id = str(getattr(settings, "DISCORD_MOD_ROLE_ID", "")).strip()
+        if mod_cfg_id:
+            mod_role_ids.add(mod_cfg_id)
+
+        r_url = f"https://discord.com/api/v10/guilds/{guild_id}/roles"
+        req = urllib.request.Request(r_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            roles_data = json.loads(resp.read().decode("utf-8"))
+
+        role_names = {}
+        for r in roles_data:
+            rid = str(r.get("id"))
+            role_names[rid] = r.get("name", rid)
+            perms = int(r.get("permissions", 0))
+            if (perms & 0x20 == 0x20) or (perms & 0x4 == 0x4):
+                mod_role_ids.add(rid)
+
+        m_url = f"https://discord.com/api/v10/guilds/{guild_id}/members?limit=1000"
+        req = urllib.request.Request(m_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            members_data = json.loads(resp.read().decode("utf-8"))
+
+        found_member = None
+        for m in members_data:
+            u = m.get("user", {})
+            uid = str(u.get("id"))
+            uname = (u.get("username") or "").lower()
+            gname = (u.get("global_name") or "").lower()
+            nick = (m.get("nick") or "").lower()
+
+            if clean_target.isdigit():
+                if uid == clean_target:
+                    found_member = m
+                    break
+            elif clean_target == uname:
+                found_member = m
+                break
+
+        if not found_member:
+            return False, f"Discord-Nutzer '{target}' wurde auf dem Server nicht gefunden."
+
+        m_roles = [str(r) for r in found_member.get("roles", [])]
+        for rid in m_roles:
+            if rid in mod_role_ids:
+                r_name = role_names.get(rid, rid)
+                return True, f"Discord Moderator-Rolle ('{r_name}')"
+
+        return False, f"Nutzer '{target}' besitzt auf dem Discord-Server keine Moderator-Berechtigung."
     except Exception as e:
         return False, f"Fehler bei der Discord-Berechtigungsprüfung: {e}"
 

@@ -13,6 +13,9 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(s.PLANKA_CONTAINER, "planka-postgres-1")
         self.assertEqual(s.LDAP_ADMIN_GROUP, "cn=wd_admins,ou=Groups,dc=ldap-01,dc=net")
         self.assertEqual(s.LDAP_MOD_GROUP, "cn=wd_mods,ou=Groups,dc=ldap-01,dc=net")
+        self.assertEqual(s.WEBHOOK_HOST, "127.0.0.1")
+        self.assertTrue(s.LDAP_TLS_VERIFY)
+        self.assertEqual(s.WEBHOOK_SECRET, "")
 
 
 if __name__ == "__main__":

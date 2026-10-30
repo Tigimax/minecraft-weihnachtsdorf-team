@@ -108,6 +108,8 @@ def revoke_user_privileges(
     # 2. Authentik IdP: Deactivate user and block BlueMap policy, delete pending invitations
     auth_deact_ok = authentik.deactivate_user(username)
     auth_ban_ok = authentik.set_user_banned(username, True)
+    for grp in ("wd_admins", "wd_mods", "wd_players"):
+        authentik.remove_user_from_group(username, grp)
     inv_del_count = authentik.delete_invitations(username)
     if discord_name and discord_name != username:
         inv_del_count += authentik.delete_invitations(discord_name)
@@ -267,9 +269,10 @@ def restore_user_privileges(
     target_group_dn = ldap.admin_group_dn if clean_role == "admin" else ldap.player_group_dn
     ldap.add_member_to_group(target_group_dn, user_dn)
 
-    # 2. Authentik: activate & unban
+    # 2. Authentik: activate, unban & sync role group
     authentik.activate_user(username)
     authentik.set_user_banned(username, False)
+    authentik.sync_user_groups(username, clean_role)
 
     try:
         authentik.trigger_ldap_sync()

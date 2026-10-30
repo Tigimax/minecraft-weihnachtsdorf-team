@@ -249,6 +249,49 @@ class AuthentikClient:
             logger.error(f"Failed to add {username} to Authentik group {group_name}: {e}")
             return False
 
+    def remove_user_from_group(self, username: str, group_name: str) -> bool:
+        """Removes an Authentik user from a group by group name."""
+        user = self.get_user_by_username(username)
+        if not user:
+            return False
+        user_pk = user.get("pk")
+        try:
+            req_url = f"{self.api_url}/api/v3/core/groups/?name={group_name}"
+            res = requests.get(req_url, headers=self._headers, timeout=10)
+            if not res.ok:
+                return False
+            results = res.json().get("results", [])
+            if not results:
+                return False
+            group_pk = results[0]["pk"]
+
+            rem_url = f"{self.api_url}/api/v3/core/groups/{group_pk}/remove_user/"
+            rem_res = requests.post(rem_url, headers=self._headers, json={"pk": user_pk}, timeout=10)
+            return rem_res.status_code in (200, 204)
+        except Exception as e:
+            logger.error(f"Failed to remove {username} from Authentik group {group_name}: {e}")
+            return False
+
+    def sync_user_groups(self, username: str, target_role: str) -> bool:
+        """
+        Synchronizes Authentik group memberships for a user.
+        Ensures the user belongs to their target role group and cleans up any old
+        competing groups ('wd_admins', 'wd_mods', 'wd_players').
+        """
+        role_map = {
+            "admin": "wd_admins",
+            "mod": "wd_mods",
+            "player": "wd_players",
+        }
+        target_group = role_map.get(target_role.lower().strip() if target_role else "", "wd_players")
+        all_wd_groups = {"wd_admins", "wd_mods", "wd_players"}
+        groups_to_remove = all_wd_groups - {target_group}
+
+        for grp in groups_to_remove:
+            self.remove_user_from_group(username, grp)
+
+        return self.add_user_to_group(username, target_group)
+
     def get_group_by_name(self, group_name: str) -> Optional[Dict[str, Any]]:
         """Retrieves an Authentik group by its name."""
         try:

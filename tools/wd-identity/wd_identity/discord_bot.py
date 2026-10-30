@@ -59,10 +59,11 @@ def is_admin_user(user: discord.Member | discord.User) -> bool:
         return False
     if user.guild_permissions.administrator:
         return True
-    admin_role_id = str(getattr(settings, "DISCORD_ADMIN_ROLE_ID", "909437200125538371"))
-    for role in user.roles:
-        if str(role.id) == admin_role_id or role.name.lower() in ("admin", "administrator"):
-            return True
+    admin_role_id = str(getattr(settings, "DISCORD_ADMIN_ROLE_ID", "909437200125538371")).strip()
+    if admin_role_id:
+        for role in user.roles:
+            if str(role.id) == admin_role_id:
+                return True
     return False
 
 
@@ -774,7 +775,7 @@ async def trigger_application_modal(interaction: discord.Interaction):
 
     # Check if already registered in LDAP
     ldap = LDAPClient()
-    existing = ldap.search_by_discord(str(interaction.user.id)) or ldap.search_by_discord(interaction.user.name)
+    existing = ldap.search_by_discord_id(str(interaction.user.id))
     if existing:
         await interaction.response.send_message(
             f"✅ **Du bist bereits für Weihnachtsdorf 7 registriert!** (Account: `{existing['uid']}`)\n"
@@ -802,7 +803,7 @@ class OptOutModal(discord.ui.Modal, title="Vom Weihnachtsdorf 7 abmelden"):
         discord_id = str(interaction.user.id)
 
         ldap = LDAPClient()
-        user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(interaction.user.name)
+        user = ldap.search_by_discord_id(discord_id)
         status = applications.get_user_status(discord_id)
 
         if not user and not status.get("has_pending"):
@@ -856,7 +857,7 @@ async def trigger_optout_flow(interaction: discord.Interaction):
 
     discord_id = str(interaction.user.id)
     ldap = LDAPClient()
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(interaction.user.name)
+    user = ldap.search_by_discord_id(discord_id)
     status = applications.get_user_status(discord_id)
 
     if not user and not status.get("has_pending"):
@@ -1054,9 +1055,9 @@ async def handle_auth_code_request(interaction: discord.Interaction):
     authentik = AuthentikClient()
 
     discord_id = str(interaction.user.id)
-    discord_tag = interaction.user.name
 
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
+    user = ldap.search_by_discord_id(discord_id)
+
     if not user:
         await interaction.followup.send(
             "❌ **Kein Account verknüpft**\n\n"
@@ -1388,7 +1389,7 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
     mc = MinecraftSyncClient()
     authentik = AuthentikClient()
 
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_name)
+    user = ldap.search_by_discord_id(discord_id)
     was_previously_enrolled = user is not None and user.get("minecraftName")
 
     dm_sent = False
@@ -2425,10 +2426,10 @@ async def cmd_password_reset(interaction: discord.Interaction):
     ldap = LDAPClient()
     authentik = AuthentikClient()
 
-    discord_tag = interaction.user.name
     discord_id = str(interaction.user.id)
 
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
+    user = ldap.search_by_discord_id(discord_id)
+
     if not user:
         await interaction.followup.send(
             "❌ Dein Discord-Account ist mit keinem Weihnachtsdorf-Account verknüpft. Bitte kontaktiere einen Administrator.",
@@ -2485,10 +2486,10 @@ async def cmd_status(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     ldap = LDAPClient()
 
-    discord_tag = interaction.user.name
     discord_id = str(interaction.user.id)
 
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
+    user = ldap.search_by_discord_id(discord_id)
+
     if not user:
         await interaction.followup.send(
             "❌ Kein verknüpfter Account gefunden.",
@@ -3034,20 +3035,14 @@ async def cmd_admin_spieler(
     if discord_nutzer:
         target_discord_id = str(discord_nutzer.id)
         target_discord_name = discord_nutzer.name
-        # 1. Search by Discord Snowflake ID
-        user = ldap.search_by_discord(target_discord_id)
-        # 2. Search by Discord username
-        if not user:
-            user = ldap.search_by_discord(discord_nutzer.name)
-        # 3. Search by Discord display name
-        if not user and discord_nutzer.display_name:
-            user = ldap.search_by_discord(discord_nutzer.display_name)
+        # Search strictly by Discord Snowflake ID
+        user = ldap.search_by_discord_id(target_discord_id)
     elif suchbegriff:
         clean = suchbegriff.strip().replace("<@", "").replace(">", "").replace("!", "")
         # 1. If pure digit: Discord ID
         if clean.isdigit():
             target_discord_id = clean
-            user = ldap.search_by_discord(clean)
+            user = ldap.search_by_discord_id(clean)
 
         # 2. Search members in current guild for matching name/display_name
         if not user and interaction.guild:
@@ -3425,11 +3420,7 @@ async def on_member_join(member: discord.Member):
 
     # Search for existing account in LDAP
     ldap = LDAPClient()
-    user = await asyncio.to_thread(ldap.search_by_discord, str(member.id))
-    if not user:
-        user = await asyncio.to_thread(ldap.search_by_discord, member.name)
-    if not user and member.display_name != member.name:
-        user = await asyncio.to_thread(ldap.search_by_discord, member.display_name)
+    user = await asyncio.to_thread(ldap.search_by_discord_id, str(member.id))
 
     if not user:
         try:

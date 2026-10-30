@@ -11,6 +11,8 @@ LDAP_GROUP_OU=ou=Groups,dc=ldap-01,dc=net
 LDAP_ADMIN_GROUP=cn=wd_admins,ou=Groups,dc=ldap-01,dc=net
 LDAP_MOD_GROUP=cn=wd_mods,ou=Groups,dc=ldap-01,dc=net
 LDAP_PLAYER_GROUP=cn=wd_players,ou=Groups,dc=ldap-01,dc=net
+LDAP_TLS_VERIFY=true
+# LDAP_CA_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # Project Launch State File
 PROJECT_STATE_FILE=/var/lib/wd-identity/project_state.json
@@ -38,7 +40,10 @@ PLANKA_DB_USER=planka
 # Discord Bot Settings
 DISCORD_BOT_TOKEN=YOUR_DISCORD_BOT_TOKEN
 DISCORD_GUILD_ID=YOUR_DISCORD_GUILD_ID
+DISCORD_ADMIN_ROLE_ID=YOUR_DISCORD_ADMIN_ROLE_ID
+# DISCORD_MOD_ROLE_ID=YOUR_DISCORD_MOD_ROLE_ID
 
 # Webhook & API Server
-WEBHOOK_HOST=0.0.0.0
+WEBHOOK_HOST=127.0.0.1
 WEBHOOK_PORT=8000
+WEBHOOK_SECRET=YOUR_WEBHOOK_SECRET

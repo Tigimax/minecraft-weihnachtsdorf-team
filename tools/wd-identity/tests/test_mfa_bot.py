@@ -84,6 +84,7 @@ class TestDiscordBotAuthCode(unittest.IsolatedAsyncioTestCase):
     @patch("wd_identity.discord_bot.LDAPClient")
     async def test_auth_code_unlinked_user(self, mock_ldap_cls):
         mock_ldap = mock_ldap_cls.return_value
+        mock_ldap.search_by_discord_id.return_value = None
         mock_ldap.search_by_discord.return_value = None
 
         await handle_auth_code_request(self.interaction)
@@ -96,11 +97,13 @@ class TestDiscordBotAuthCode(unittest.IsolatedAsyncioTestCase):
     @patch("wd_identity.discord_bot.LDAPClient")
     async def test_auth_code_banned_user(self, mock_ldap_cls):
         mock_ldap = mock_ldap_cls.return_value
-        mock_ldap.search_by_discord.return_value = {
+        user_data = {
             "uid": "banned_guy",
             "role": "player",
             "accountStatus": "banned",
         }
+        mock_ldap.search_by_discord_id.return_value = user_data
+        mock_ldap.search_by_discord.return_value = user_data
 
         await handle_auth_code_request(self.interaction)
 
@@ -111,11 +114,13 @@ class TestDiscordBotAuthCode(unittest.IsolatedAsyncioTestCase):
     @patch("wd_identity.discord_bot.LDAPClient")
     async def test_auth_code_staff_admin_rejected(self, mock_ldap_cls):
         mock_ldap = mock_ldap_cls.return_value
-        mock_ldap.search_by_discord.return_value = {
+        user_data = {
             "uid": "tigimax",
             "role": "admin",
             "accountStatus": "active",
         }
+        mock_ldap.search_by_discord_id.return_value = user_data
+        mock_ldap.search_by_discord.return_value = user_data
 
         await handle_auth_code_request(self.interaction)
 
@@ -128,11 +133,13 @@ class TestDiscordBotAuthCode(unittest.IsolatedAsyncioTestCase):
     @patch("wd_identity.discord_bot.LDAPClient")
     async def test_auth_code_staff_mod_rejected(self, mock_ldap_cls):
         mock_ldap = mock_ldap_cls.return_value
-        mock_ldap.search_by_discord.return_value = {
+        user_data = {
             "uid": "mod_user",
             "role": "mod",
             "accountStatus": "active",
         }
+        mock_ldap.search_by_discord_id.return_value = user_data
+        mock_ldap.search_by_discord.return_value = user_data
 
         await handle_auth_code_request(self.interaction)
 
@@ -146,11 +153,13 @@ class TestDiscordBotAuthCode(unittest.IsolatedAsyncioTestCase):
     async def test_auth_code_player_success(self, mock_ldap_cls, mock_ak_cls):
         mock_ldap = mock_ldap_cls.return_value
         mock_ak = mock_ak_cls.return_value
-        mock_ldap.search_by_discord.return_value = {
+        user_data = {
             "uid": "super_player",
             "role": "player",
             "accountStatus": "active",
         }
+        mock_ldap.search_by_discord_id.return_value = user_data
+        mock_ldap.search_by_discord.return_value = user_data
         mock_ak.generate_static_token_for_user.return_value = "847291"
 
         await handle_auth_code_request(self.interaction)

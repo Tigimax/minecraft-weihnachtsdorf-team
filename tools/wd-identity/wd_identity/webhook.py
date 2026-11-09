@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Weihnachtsdorf 7 Identity Webhook",
     version="1.0.0",
-    docs_url="/docs",
+    docs_url=None,
     redoc_url=None,
 )
 
@@ -52,7 +52,7 @@ def verify_webhook_auth(
     expected_secret = (getattr(settings, "WEBHOOK_SECRET", "") or "").strip()
     if not expected_secret:
         logger.warning(
-            "SECURITY WARNING: WEBHOOK_SECRET is not configured! Webhook endpoints are accessible without authentication."
+            "SECURITY WARNING: WEBHOOK_SECRET is not configured. Webhook endpoints are open to unauthenticated requests!"
         )
         return
 
@@ -94,7 +94,10 @@ class MFADispatchRequest(BaseModel):
     discord_id: Optional[str] = None
 
 
+@app.get("/")
 @app.get("/health")
+@app.get("/status")
+@app.get("/api/health")
 def health_check():
     return {
         "status": "healthy",
@@ -126,36 +129,66 @@ def mfa_auto_dispatch(req: MFADispatchRequest):
     to the player. Staff members (admin/mod) are skipped so they use TOTP.
     """
     clean_user = sanitize_username(req.username)
-    if not clean_user:
+    if not clean_user or not req.username or not req.username.strip():
         return {"status": "error", "detail": "Empty username"}
 
     ldap = LDAPClient()
     ak = AuthentikClient()
 
-    # 1. Fetch user from LDAP to verify role and ban status
+    # 1. Fetch user from LDAP & Authentik to verify role and ban status
     user = ldap.get_user(clean_user)
-    role = (user.get("role") if user else None) or "player"
+    ak_user = ak.get_user_by_username(clean_user)
+    ak_attrs = ak_user.get("attributes", {}) if isinstance(ak_user, dict) else {}
 
-    # Strict check: Staff members (admin/mod) or accounts with TOTP MUST use TOTP
-    if role in ("admin", "mod") or ak.has_totp_device(clean_user):
-        logger.info(f"MFA auto-dispatch skipped for staff/TOTP user '{clean_user}'")
-        return {"status": "skipped", "reason": "staff_or_totp"}
-
-    if user and user.get("accountStatus") == "banned":
+    # Check ban status in LDAP and Authentik
+    if (user and isinstance(user, dict) and user.get("accountStatus") == "banned") or ak_attrs.get("is_banned") or ak_attrs.get("accountStatus") == "banned":
         logger.warning(f"Refusing MFA auto-dispatch for banned user '{clean_user}'")
         return {"status": "error", "detail": "Account is banned"}
+
+    # Strict check: Staff members (admin/mod) or accounts with TOTP MUST use TOTP
+    user_dn = (
+        user.get("dn")
+        if (user and isinstance(user, dict))
+        else f"uid={clean_user},{getattr(ldap, 'user_ou', 'ou=Users,dc=ldap-01,dc=net')}"
+    )
+
+    admin_dns = set()
+    mod_dns = set()
+    try:
+        admin_group = getattr(ldap, "admin_group_dn", None) or getattr(ldap, "admin_group", None)
+        if admin_group:
+            admin_dns = set(ldap.get_group_members(admin_group))
+        mod_group = getattr(ldap, "mod_group_dn", None) or getattr(ldap, "mod_group", None)
+        if mod_group:
+            mod_dns = set(ldap.get_group_members(mod_group))
+    except Exception as e:
+        logger.debug(f"Could not fetch LDAP group memberships in mfa_auto_dispatch: {e}")
+
+    user_role = (
+        (user.get("role") if (user and isinstance(user, dict)) else None)
+        or ak_attrs.get("role")
+        or ""
+    )
+    if isinstance(user_role, str):
+        user_role = user_role.strip().lower()
+
+    is_staff = (
+        (user_dn in admin_dns or user_dn in mod_dns)
+        or (user_role in ("admin", "mod"))
+        or ak.has_totp_device(clean_user)
+    )
+
+    if is_staff:
+        logger.info(f"MFA auto-dispatch skipped for staff/TOTP user '{clean_user}'")
+        return {"status": "skipped", "reason": "staff_or_totp"}
 
     # 2. Resolve Discord ID strictly:
     # Always prioritize bound identity in LDAP or Authentik. Never allow caller to override bound Discord ID!
     bound_discord_id = ""
     if user and isinstance(user, dict):
         bound_discord_id = str(user.get("discordId") or "").strip()
-    if not bound_discord_id:
-        ak_user = ak.get_user_by_username(clean_user)
-        if isinstance(ak_user, dict):
-            attrs = ak_user.get("attributes")
-            if isinstance(attrs, dict):
-                bound_discord_id = str(attrs.get("discord_id") or "").strip()
+    if not bound_discord_id and isinstance(ak_attrs, dict):
+        bound_discord_id = str(ak_attrs.get("discord_id") or "").strip()
 
     if bound_discord_id:
         discord_id = bound_discord_id
@@ -195,7 +228,14 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     planka = PlankaSyncClient()
     ak = AuthentikClient()
 
-    clean_user = sanitize_username(req.username)
+    raw_username = (req.username or "").strip()
+    clean_user = sanitize_username(raw_username)
+    if not raw_username or not clean_user:
+        return {
+            "status": "error",
+            "detail": "Invalid or empty username provided.",
+        }
+
     # Protection: Never overwrite or map event participant onto internal admin 'tigimax' or 'akadmin'
     if clean_user.lower() in ("tigimax", "akadmin"):
         clean_user = "tigimax_player"
@@ -210,6 +250,17 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     # Fetch Authentik user attributes if available (trusted source from invitation flow)
     ak_user = ak.get_user_by_username(clean_user)
     ak_attrs = ak_user.get("attributes", {}) if isinstance(ak_user, dict) else {}
+
+    # Check ban status in LDAP and Authentik
+    if (existing and isinstance(existing, dict) and existing.get("accountStatus") == "banned") or ak_attrs.get("is_banned") or ak_attrs.get("accountStatus") == "banned":
+        logger.warning(
+            f"SICHERHEITSWARNUNG: Onboarding verweigert für gesperrten Nutzer '{clean_user}'!"
+        )
+        return {
+            "status": "error",
+            "username": clean_user,
+            "detail": "Account is banned",
+        }
 
     # Trusted Discord ID: prioritize existing LDAP or Authentik invitation attributes
     trusted_discord_id = (existing.get("discordId") if isinstance(existing, dict) else None) or ak_attrs.get("discord_id")
@@ -239,26 +290,56 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     )
 
     requested_role = (req.role or "").strip().lower()
-    existing_role = (existing.get("role") if isinstance(existing, dict) else None) or ak_attrs.get("role")
-    if existing_role:
-        existing_role = str(existing_role).strip().lower()
+
+    # Determine pre-authorization from LDAP groups and Authentik invite attributes
+    admin_dns = set()
+    mod_dns = set()
+    try:
+        admin_group = getattr(ldap, "admin_group_dn", None) or getattr(ldap, "admin_group", None)
+        if admin_group:
+            admin_dns = set(ldap.get_group_members(admin_group))
+        mod_group = getattr(ldap, "mod_group_dn", None) or getattr(ldap, "mod_group", None)
+        if mod_group:
+            mod_dns = set(ldap.get_group_members(mod_group))
+    except Exception as e:
+        logger.debug(f"Could not fetch LDAP group memberships in process_onboarding: {e}")
+
+    user_dn = (
+        existing.get("dn")
+        if (existing and isinstance(existing, dict))
+        else f"uid={clean_user},{getattr(ldap, 'user_ou', 'ou=Users,dc=ldap-01,dc=net')}"
+    )
+
+    existing_ldap_role = existing.get("role") if isinstance(existing, dict) else None
+    ak_role = ak_attrs.get("role")
+
+    is_preauthorized_admin = (
+        (user_dn in admin_dns)
+        or (existing_ldap_role == "admin")
+        or (str(ak_role).strip().lower() == "admin")
+    )
+    is_preauthorized_mod = (
+        (user_dn in mod_dns)
+        or (existing_ldap_role in ("admin", "mod"))
+        or (str(ak_role).strip().lower() in ("admin", "mod"))
+    )
 
     # Staff roles (admin / mod) can ONLY be granted if authorized by a trusted source (existing LDAP or Authentik invitation)
     clean_role = "player"
     if requested_role == "admin":
-        if existing_role != "admin":
+        if not is_preauthorized_admin:
             logger.warning(
                 f"SICHERHEITSWARNUNG: Onboarding als 'admin' für '{clean_user}' verweigert! "
                 f"Weder LDAP noch Authentik-Einladung autorisieren die Admin-Rolle. Rolle wird auf 'player' heruntergestuft."
             )
             clean_role = "player"
-        elif not trusted_discord_id:
+        elif not trusted_discord_id or not str(trusted_discord_id).strip().isdigit():
             logger.warning(
-                f"SICHERHEITSWARNUNG: Admin-Onboarding für '{clean_user}' verweigert! Keine vertrauenswürdige Discord-ID gebunden."
+                f"SICHERHEITSWARNUNG: Admin-Onboarding für '{clean_user}' verweigert! Keine vertrauenswürdige numerische Discord-ID gebunden."
             )
             clean_role = "player"
         else:
-            # Verify against Discord API strictly using trusted immutable discord_id
+            # Verify against Discord API strictly using trusted immutable snowflake
             is_admin, admin_reason = check_is_discord_admin(str(trusted_discord_id).strip())
             if not is_admin:
                 logger.warning(
@@ -271,13 +352,13 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
                 clean_role = "admin"
 
     elif requested_role == "mod":
-        if existing_role not in ("admin", "mod"):
+        if not is_preauthorized_mod:
             logger.warning(
                 f"SICHERHEITSWARNUNG: Onboarding als 'mod' für '{clean_user}' verweigert! "
                 f"Weder LDAP noch Authentik-Einladung autorisieren Mod-Rechte. Rolle wird auf 'player' heruntergestuft."
             )
             clean_role = "player"
-        elif trusted_discord_id:
+        elif trusted_discord_id and str(trusted_discord_id).strip().isdigit():
             is_mod, mod_reason = check_is_discord_mod(str(trusted_discord_id).strip())
             if not is_mod:
                 logger.warning(
@@ -291,7 +372,12 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
         else:
             clean_role = "mod"
     else:
-        clean_role = existing_role if existing_role in ("admin", "mod", "player") else "player"
+        if is_preauthorized_admin and not requested_role:
+            clean_role = "admin"
+        elif is_preauthorized_mod and not requested_role:
+            clean_role = "mod"
+        else:
+            clean_role = "player"
 
     user_email = sanitize_email(clean_user, raw_email=req.email or (existing.get("mail") if isinstance(existing, dict) else None))
 
@@ -416,7 +502,15 @@ def complete_onboarding(req: OnboardingRequest):
     Called after user completes enrollment (sets password, 2FA, and enters Minecraft IGN).
     """
     try:
-        return process_onboarding(req)
+        report = process_onboarding(req)
+        if isinstance(report, dict) and report.get("status") == "error":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=report.get("detail", "Onboarding rejected"),
+            )
+        return report
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning(f"Validation error in onboarding for {req.username}: {e}")
         raise HTTPException(status_code=400, detail=str(e))

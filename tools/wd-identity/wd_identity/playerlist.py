@@ -84,6 +84,9 @@ def get_guild_member_map() -> Dict[str, str]:
                     mapping[gname] = uid
                 if nick:
                     mapping[nick] = uid
+                raw_uname = u.get("username")
+                if raw_uname and uid:
+                    mapping[f"id:{uid}"] = raw_uname
         _member_cache = mapping
         _member_cache_time = now
     except Exception as e:
@@ -98,7 +101,14 @@ def _format_entry(u: Dict[str, Any], role: str, is_live: bool, member_map: Dict[
     d_name = u.get("discordName") or uid
     d_id = u.get("discordId") or member_map.get(d_name.lower())
 
-    tag = f"<@{d_id}>" if d_id else f"`@{d_name}`"
+    live_name = member_map.get(f"id:{d_id}") if d_id else None
+    resolved_name = live_name or (d_name if (d_name and not d_name.isdigit() and d_name != d_id) else "")
+    if d_id and resolved_name:
+        tag = f"<@{d_id}> (`@{resolved_name}`)"
+    elif d_id:
+        tag = f"<@{d_id}>"
+    else:
+        tag = f"`@{d_name}`"
 
     if role == "admin":
         icon = "🛡️"

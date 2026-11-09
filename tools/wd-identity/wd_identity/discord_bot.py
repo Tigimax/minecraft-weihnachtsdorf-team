@@ -3214,7 +3214,16 @@ async def cmd_online_spieler(interaction: discord.Interaction):
         for ign in names:
             ign_clean = ign.strip()
             u = ldap.search_by_minecraft(ign_clean)
-            discord_tag = f"<@{u['discordId']}>" if (u and u.get("discordId")) else (f"`{u['discordName']}`" if (u and u.get("discordName")) else "*Nicht verknüpft*")
+            d_name = u.get("discordName") if u else None
+            d_id = u.get("discordId") if u else None
+            if d_id and d_name and not d_name.isdigit() and d_name != d_id:
+                discord_tag = f"<@{d_id}> (`@{d_name}`)"
+            elif d_id:
+                discord_tag = f"<@{d_id}>"
+            elif d_name:
+                discord_tag = f"`@{d_name}`"
+            else:
+                discord_tag = "*Nicht verknüpft*"
             
             if ign_clean.lower() in admin_uids:
                 badge = "👑 `Admin`"

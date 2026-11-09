@@ -59,6 +59,30 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(escape_sql_literal("it's a 'test'"), "it''s a ''test''")
         self.assertEqual(escape_sql_literal(None), "")
 
+    def test_playerlist_format_entry_resolves_discord_name(self):
+        from wd_identity.playerlist import _format_entry
+
+        # Case 1: ID and clean name present -> shows mention and handle
+        u1 = {"minecraftName": "Steve", "discordId": "123456789", "discordName": "SteveDiscord"}
+        entry1 = _format_entry(u1, "player", is_live=False, member_map={})
+        self.assertIn("<@123456789> (`@SteveDiscord`)", entry1)
+
+        # Case 2: discordName is a raw snowflake, but member_map has resolved name -> shows resolved name
+        u2 = {"minecraftName": "Alex", "discordId": "987654321", "discordName": "987654321"}
+        entry2 = _format_entry(u2, "player", is_live=True, member_map={"id:987654321": "AlexReal"})
+        self.assertIn("<@987654321> (`@AlexReal`)", entry2)
+
+        # Case 3: No discordId -> plain fallback to discordName
+        u3 = {"minecraftName": "Herobrine", "discordName": "HeroUser"}
+        entry3 = _format_entry(u3, "player", is_live=True, member_map={})
+        self.assertIn("`@HeroUser`", entry3)
+
+        # Case 4: User changed Discord username -> member_map live name overrides outdated LDAP discordName
+        u4 = {"minecraftName": "Alex", "discordId": "55555", "discordName": "OldName"}
+        entry4 = _format_entry(u4, "player", is_live=True, member_map={"id:55555": "NewLiveName"})
+        self.assertIn("<@55555> (`@NewLiveName`)", entry4)
+        self.assertNotIn("OldName", entry4)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,7 @@ world_the_end/
 *.tar.gz
 *.zip
 !datapacks/*.zip
+!resourcepack/*.zip
 *.log
 logs/
 crash-reports/

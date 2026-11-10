@@ -62,7 +62,7 @@ class PlankaSyncClient:
         """
         clean_user = sanitize_username(username)
         clean_email = sanitize_email(clean_user, raw_email=email)
-        raw_name = (name or clean_user.capitalize()).strip().replace("$", "")
+        raw_name = (name or clean_user.capitalize()).strip()
         clean_role = role.strip().lower() if role else "admin"
 
         esc_user = escape_sql_literal(clean_user)
@@ -71,70 +71,36 @@ class PlankaSyncClient:
         esc_role = escape_sql_literal(clean_role)
 
         sql = f"""
-        DO $planka_sync_user$
-        DECLARE
-            v_user_id BIGINT;
-            v_email_owner_id BIGINT;
+        DO $$
         BEGIN
-            -- 1. Match by username first
-            SELECT id INTO v_user_id FROM user_account WHERE username = '{esc_user}';
-
-            IF v_user_id IS NOT NULL THEN
-                -- Check if target email belongs to another user to avoid unique constraint collision
-                SELECT id INTO v_email_owner_id FROM user_account WHERE email = '{esc_email}' AND id <> v_user_id;
-
-                IF v_email_owner_id IS NOT NULL THEN
-                    UPDATE user_account
-                    SET role = '{esc_role}',
-                        name = '{esc_name}',
-                        terms_signature = '2796eedee33c0bc4592eb8f0d301acffe60ca01d81e9df4023cb32d05f724323',
-                        terms_accepted_at = COALESCE(terms_accepted_at, NOW()),
-                        is_deactivated = false,
-                        updated_at = NOW()
-                    WHERE id = v_user_id;
-                ELSE
-                    UPDATE user_account
-                    SET email = '{esc_email}',
-                        role = '{esc_role}',
-                        name = '{esc_name}',
-                        terms_signature = '2796eedee33c0bc4592eb8f0d301acffe60ca01d81e9df4023cb32d05f724323',
-                        terms_accepted_at = COALESCE(terms_accepted_at, NOW()),
-                        is_deactivated = false,
-                        updated_at = NOW()
-                    WHERE id = v_user_id;
-                END IF;
+            IF EXISTS (SELECT 1 FROM user_account WHERE username = '{esc_user}' OR email = '{esc_email}') THEN
+                UPDATE user_account
+                SET email = '{esc_email}',
+                    role = '{esc_role}',
+                    name = '{esc_name}',
+                    username = '{esc_user}',
+                    terms_signature = '2796eedee33c0bc4592eb8f0d301acffe60ca01d81e9df4023cb32d05f724323',
+                    terms_accepted_at = COALESCE(terms_accepted_at, NOW()),
+                    is_deactivated = false,
+                    updated_at = NOW()
+                WHERE username = '{esc_user}' OR email = '{esc_email}';
             ELSE
-                -- No account with this username; check if account with this email exists
-                SELECT id INTO v_user_id FROM user_account WHERE email = '{esc_email}';
-                IF v_user_id IS NOT NULL THEN
-                    UPDATE user_account
-                    SET username = '{esc_user}',
-                        role = '{esc_role}',
-                        name = '{esc_name}',
-                        terms_signature = '2796eedee33c0bc4592eb8f0d301acffe60ca01d81e9df4023cb32d05f724323',
-                        terms_accepted_at = COALESCE(terms_accepted_at, NOW()),
-                        is_deactivated = false,
-                        updated_at = NOW()
-                    WHERE id = v_user_id;
-                ELSE
-                    -- Insert new user
-                    INSERT INTO user_account (
-                        email, role, name, username,
-                        terms_signature, terms_accepted_at,
-                        subscribe_to_own_cards, subscribe_to_card_when_commenting,
-                        turn_off_recent_card_highlighting, enable_favorites_by_default,
-                        default_editor_mode, default_home_view, default_projects_order,
-                        is_deactivated, created_at, updated_at, auto_logout_mode
-                    ) VALUES (
-                        '{esc_email}', '{esc_role}', '{esc_name}', '{esc_user}',
-                        '2796eedee33c0bc4592eb8f0d301acffe60ca01d81e9df4023cb32d05f724323', NOW(),
-                        false, true, false, true,
-                        'wysiwyg', 'groupedProjects', 'byDefault',
-                        false, NOW(), NOW(), '30m'
-                    );
-                END IF;
+                INSERT INTO user_account (
+                    email, role, name, username,
+                    terms_signature, terms_accepted_at,
+                    subscribe_to_own_cards, subscribe_to_card_when_commenting,
+                    turn_off_recent_card_highlighting, enable_favorites_by_default,
+                    default_editor_mode, default_home_view, default_projects_order,
+                    is_deactivated, created_at, updated_at, auto_logout_mode
+                ) VALUES (
+                    '{esc_email}', '{esc_role}', '{esc_name}', '{esc_user}',
+                    '2796eedee33c0bc4592eb8f0d301acffe60ca01d81e9df4023cb32d05f724323', NOW(),
+                    false, true, false, true,
+                    'wysiwyg', 'groupedProjects', 'byDefault',
+                    false, NOW(), NOW(), '30m'
+                );
             END IF;
-        END $planka_sync_user$;
+        END $$;
         """
         return self._execute_sql(sql)
 
@@ -148,20 +114,9 @@ class PlankaSyncClient:
         esc_email = escape_sql_literal(clean_email)
 
         sql = f"""
-        DO $planka_deact_user$
-        DECLARE
-            v_user_id BIGINT;
-        BEGIN
-            SELECT id INTO v_user_id FROM user_account WHERE username = '{esc_user}';
-            IF v_user_id IS NULL AND '{esc_email}' <> '' THEN
-                SELECT id INTO v_user_id FROM user_account WHERE email = '{esc_email}';
-            END IF;
-            IF v_user_id IS NOT NULL THEN
-                UPDATE user_account 
-                SET is_deactivated = true, updated_at = NOW() 
-                WHERE id = v_user_id;
-            END IF;
-        END $planka_deact_user$;
+        UPDATE user_account 
+        SET is_deactivated = true, updated_at = NOW() 
+        WHERE username = '{esc_user}' OR email = '{esc_email}';
         """
         return self._execute_sql(sql)
 
@@ -176,14 +131,11 @@ class PlankaSyncClient:
         esc_email = escape_sql_literal(clean_email)
 
         sql = f"""
-        DO $planka_del_user$
+        DO $$
         DECLARE
             v_user_id BIGINT;
         BEGIN
-            SELECT id INTO v_user_id FROM user_account WHERE username = '{esc_user}';
-            IF v_user_id IS NULL AND '{esc_email}' <> '' THEN
-                SELECT id INTO v_user_id FROM user_account WHERE email = '{esc_email}';
-            END IF;
+            SELECT id INTO v_user_id FROM user_account WHERE username = '{esc_user}' OR email = '{esc_email}';
             IF v_user_id IS NOT NULL THEN
                 DELETE FROM session WHERE user_id = v_user_id;
                 DELETE FROM project_manager WHERE user_id = v_user_id;
@@ -195,6 +147,6 @@ class PlankaSyncClient:
                     UPDATE user_account SET is_deactivated = true, updated_at = NOW() WHERE id = v_user_id;
                 END;
             END IF;
-        END $planka_del_user$;
+        END $$;
         """
         return self._execute_sql(sql)

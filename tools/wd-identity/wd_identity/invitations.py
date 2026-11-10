@@ -16,6 +16,7 @@ from wd_identity.mojang_client import get_player_profile
 from wd_identity.playerlist import sync_playerlist_rest
 from wd_identity.utils import (
     check_is_discord_admin,
+    check_is_discord_mod,
     resolve_discord_user,
     sanitize_email,
     sanitize_username,
@@ -74,6 +75,27 @@ def create_user_invitation(
                 f"SICHERHEITSSPERRE: Der Nutzer '{clean_discord}' besitzt keine Discord-Administrator-Rechte!\n"
                 f"Grund: {admin_reason}\n"
                 f"Voraussetzung: Nur bestehende Discord-Administratoren können als 'admin' eingeladen werden."
+            )
+
+    # 1b. Security Check: Mod role requires user to already be Discord Moderator or Admin
+    if clean_role == "mod":
+        check_target = discord_id or clean_discord
+        is_mod, mod_reason = check_is_discord_mod(check_target)
+        if not is_mod:
+            log_admin_event(
+                title="🚨 Sicherheitswarnung: Mod-Einladung verweigert",
+                description=f"Versuch, **{clean_discord}** als **mod** einzuladen, wurde abgewiesen.",
+                color=COLOR_ERROR,
+                fields=[
+                    {"name": "Grund", "value": mod_reason, "inline": False},
+                    {"name": "Initiiert von", "value": inviter, "inline": True},
+                ],
+                author_name=inviter,
+            )
+            raise PermissionError(
+                f"SICHERHEITSSPERRE: Der Nutzer '{clean_discord}' besitzt keine Discord-Moderator-Rechte!\n"
+                f"Grund: {mod_reason}\n"
+                f"Voraussetzung: Nur bestehende Discord-Moderatoren können als 'mod' eingeladen werden."
             )
 
     # 2. Resolve Minecraft IGN if provided

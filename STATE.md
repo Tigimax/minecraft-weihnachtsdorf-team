@@ -135,6 +135,69 @@
 
 ---
 
+### Vorfall K: Persistente Browser-Sessions & 2FA-Gerätespeicherung in Authentik
+- **Symptom:**  
+  Beim Schließen und erneuten Öffnen des Browsers mussten sich Benutzer jedes Mal neu bei Authentik anmelden und erneut einen 2FA-Code eingeben.
+- **Root Cause:**  
+  1. Alle `UserLoginStage`-Instanzen (`default-authentication-login`, `invitation-enrollment-user-login-invitation-enrollment-flow` etc.) standen auf `session_duration: seconds=0` (reines Session-Cookie, das beim Schließen des Browsers gelöscht wird).
+  2. Die MFA-Stage `default-authentication-mfa-validation` stand auf `last_auth_threshold: seconds=0`, wodurch bei jedem Login-Durchlauf erneut 2FA abgefragt wurde.
+  3. Die Proxy-/OAuth2-Provider (`wd-bluemap`, `wd-planka`, `wd-panel`, `wd-plan`, `wd-forward-auth` etc.) hatten `access_token_validity: hours=1`.
+- **Behebung:**  
+  1. `session_duration` und `remember_device` auf allen 5 `UserLoginStage`-Instanzen auf **`days=30`** gesetzt (persistentes Browser-Cookie für 30 Tage).
+  2. `last_auth_threshold` auf `default-authentication-mfa-validation` auf **`days=30`** gesetzt (2FA wird auf demselben Browser für 30 Tage gemerkt).
+  3. `access_token_validity` auf allen Proxy- und OAuth2-Providern auf **`days=30`** (`refresh_token_validity: days=60`) erhöht.
+
+---
+
+### Vorfall L: Rollen-Management (`/rolle`), Moderator-Differenzierung & Temporäre Baurechte (`/mod-baurecht`)
+- **Anforderung:**  
+  1. Flexible Rollenverwaltung über Discord-Befehl `/rolle` (bzw. CLI `wd-admin role`) zwischen `admin`, `mod` und `player`.
+  2. Strikte Differenzierung der Moderator-Rolle von der Admin-Rolle: Moderatoren sind vorrangig für das Ingame-Troubleshooting zuständig (WorldEdit, CoreProtect, Teleportation, Moderation wie Kick/Ban/Mute). Sie haben **keinen** Zugriff auf interne Admin-Kanäle (`#admin-logs`, `#admin-anträge`), Antragsprüfungen oder Backend-Infrastruktur-Tools (Panel, Planka, Plan).
+  3. Pre-Launch-Sperre: Moderatoren haben vor Projektstart standardmäßig weder Whitelist- noch Map-Zugriff.
+  4. Temporäre Bauberechtigung: Administratoren können Moderatoren zeitlich begrenzte Bau-Zeitfenster erteilen (z. B. 3 Stunden über `/mod-baurecht <user> 3`), um Vorbereitungen auf dem Server mit WorldEdit durchführen zu können.
+- **Behebung:**  
+  1. **Rollen-Management CLI & Bot**:
+     - `wd-admin role <ziel> <admin|mod|player>` und Discord Slash-Befehl `/rolle <ziel> <rolle>` implementiert.
+     - Rollenvalidierung: Die Vergabe von `admin` erfordert Discord-Administratorrechte; die Vergabe von `mod` erfordert eine Discord-Moderator-Rolle.
+     - System-Accounts (`tigimax`, `akadmin`) sind unantastbar geschützt.
+     - Synchronisation erfasst OpenLDAP (`cn=wd_admins`, `cn=wd_mods`, `cn=wd_players`), Authentik-Attribute & -Gruppen, LuckPerms-Elterngruppen und das Teilnehmer-Board.
+  2. **Moderator Ingame-Berechtigungen**:
+     - `MinecraftSyncClient.setup_mod_permissions()` konfiguriert die LuckPerms-Gruppe `mod`: Präfix `[Mod]`, `worldedit.*`, `coreprotect.*`, Teleportation (`tp`, `tphere`, `tpa`, `tpahere`), Spieler-Inspektion (`invsee`, `vanish`, `fly`) und Moderation (`kick`, `ban`, `mute`, `warn`).
+  3. **Temporäre Baurechte (`/mod-baurecht`)**:
+     - Persistente Speicherung aktiver Baurechte in `mod_build_grants.json`.
+     - Whitelistet Moderatoren sofort für die gewünschte Stundendauer und entfernt sie nach Ablauf im Pre-Launch-Zustand wieder.
+  4. **Moderator-Onboarding**:
+     - Spezielle Begrüßungsnachricht (`get_mod_welcome_message`), die Aufgaben transparent erläutert.
+
+---
+
+### Vorfall M: Authentik Application Cache Invalidierung & Bereinigung verwaister Attribute
+- **Symptom:**  
+  Nach der Herabstufung eines Accounts von `admin` auf `mod` wurden im Authentik-Dashboard (`/if/user/`) weiterhin alle Admin-Icons (Pterodactyl Panel, Planka, Plan) angezeigt. Zudem war die BlueMap Live-Karte für Moderatoren im Pre-Launch aufrufbar.
+- **Root Cause:**  
+  1. Authentik speichert die Liste erlaubter Anwendungs-Icons für jeden Nutzer in der internen Datenbank-Cache-Tabelle `django_postgres_cache_cacheentry` mit 24 Stunden TTL (`%app_access%`). Bei Rollenänderungen wurde dieser Cache bisher nicht invalidiert.
+  2. Auf der Authentik-Gruppe `wd_mods` war noch das Attribut `is_launched: True` aus einem vorherigen Testdurchlauf gesetzt, wodurch die Expression-Policy `wd-bluemap-access-policy` den Pre-Launch-Schutz umging.
+- **Behebung:**  
+  1. `revoke_proxy_sessions()` in `authentik_client.py` erweitert: Löscht bei jeder Rollen- oder Statusänderung zusätzlich alle `django_postgres_cache_cacheentry`-Einträge mit Schlüssel `%app_access%` des Nutzers.
+  2. Verwaistes Attribut `is_launched` von `wd_mods` restlos entfernt.
+  3. Expression-Policy `wd-bluemap-access-policy` angepasst: Prüft `is_launched` strikt nur noch auf der Gruppe `wd_players` bzw. über den API-Endpunkt `/api/project/status`.
+  4. Bestehende Outpost-Proxy-Sessions bereinigt und `authentik-proxy-1` neu gestartet.
+
+---
+
+### Vorfall N: Telemetrie-Präzisierung im `/live-status` Befehl (Festplatten-Build-Limit & Puffer)
+- **Symptom:**  
+  Der Discord-Befehl `/live-status` zeigte für die Festplatte lediglich `💾 Festplatte: 2237 MB` an. Dies erweckte den Eindruck, der Server besäße insgesamt nur ~2,2 GB Speicherplatz und hätte keinen Puffer mehr.
+- **Root Cause:**  
+  Die Telemetrie-Methode `get_server_telemetry()` las lediglich die genutzten Bytes (`disk_bytes`) aus und formatierte diese ohne Gesamtlimit. Das in Pterodactyl konfigurierte Build-Limit (`disk_space: 60000` = 60 GB) und der reale Host-Speicher (64 GB frei auf `/dev/sda1`) wurden nicht dargestellt.
+- **Behebung:**  
+  1. `mc_sync.py`: Liest nun `disk_limit_mb` und berechnet `disk_percent`.
+  2. `discord_bot.py`: Formatiert die Festplatten-Metrik transparent in Gigabyte:  
+     `💾 Festplatte: 2.2 GB / 59 GB (56.4 GB frei • 3.7%)`.
+  3. Dienst `wd-bot.service` neu gestartet und verifiziert.
+
+---
+
 ## 2. Infrastruktur- & Komponenten-Übersicht
 
 | Service | Host / IP | Status | Beschreibung |
@@ -163,32 +226,34 @@
 
 ---
 
-## 4. Vollständige Suite der 24 Discord Slash-Befehle & Aliase
+## 4. Vollständige Suite der 26 Discord Slash-Befehle & Aliase
 
 1. `/projekt-start` – Schaltet alle registrierten Spieler auf der Minecraft-Whitelist und BlueMap frei.
 2. `/projekt-sperren` – Versetzt den Server in den Wartungs-/Pre-Launch-Modus (Spieler gesperrt, Staff aktiv).
 3. `/zugang-entziehen` – Entzieht einem Nutzer alle Zugriffsrechte restlos.
 4. `/account-loeschen` – Löscht einen Spieler-Account spurlos und vollständig aus allen Systemen (Purge).
-5. `/ban-spieler` (Alias: `/spieler-bannen`) – Bannt einen Spieler auf dem Minecraft-Server und sperrt BlueMap.
-6. `/pardon-spieler` (Alias: `/spieler-entbannen`) – Hebt Sperren auf Minecraft und BlueMap wieder auf.
-7. `/spieler-kick` – Kickt einen Spieler sofort vom Server mit Angabe eines Grundes.
-8. `/passwort-reset` (Alias: `/spieler-zurücksetzen`) – Sendet einen Authentik-Passwort-Recoverylink per DM.
-9. `/einladen` (Aliase: `/invite`, `/einladung`) – Generiert manuell einen Authentik-Registrierungslink per DM.
-10. `/admin-spieler` – Detaillierte Sicherheits- und Datenbankauskunft über einen Nutzer.
-11. `/sync-alle` – Erzwingt sofortigen Abgleich von LDAP, Whitelist, Authentik und LuckPerms.
-12. `/spielerliste-aktualisieren` – Synchronisiert sofort das Live-Board in `#📝teilnehmerliste`.
-13. `/live-status` – Echtzeit-Abfrage von CPU, RAM, Festplatte, Uptime und TPS.
-14. `/online-spieler` – Zeigt alle aktuell ingame verbundenen Spieler und TPS an.
-15. `/wartung-timer` – Startet einen Ingame-Countdown mit Audio-Cues und schaltet danach die Whitelist um.
-16. `/wartung-abbrechen` – Bricht einen laufenden Wartungscountdown sofort ab.
-17. `/mc-befehl` – Führt einen beliebigen RCON-Befehl direkt auf der Hauptwelt aus.
-18. `/admin-rundruf` – Sendet Ingame-Nachrichten (Chat, Titel oder Actionbar) an alle Spieler oder Direktnachrichten.
-19. `/status` – Zeigt deinen eigenen Account-Status, Rollen und 2FA-Status.
-20. `/links` – Übersicht aller geschützten Dienste und Server-Adressen.
-21. `/auth-code` (Kurzform: `/code`) – Fordert einen 6-stelligen Authentik-Einmalcode für Spieler an.
-22. `/anmelden` – Öffnet das interaktive Bewerbungsmodal für Spieler im Kanal `#📝anmeldung`.
-23. `/abmelden` – Ermöglicht Spielern die selbstständige Abmeldung vom Projekt.
-24. `/entbannen` – Öffnet das Einspruchsmodal für abgelehnte oder gesperrte Nutzer im Kanal `#⚖entbannung`.
+5. `/rolle` (Alias: `/role`) – Ändert die Rolle eines Nutzers (admin, mod, player) systemweit mit Discord-Rollenprüfung.
+6. `/mod-baurecht` – Erteilt oder entzieht Moderatoren temporäre Bau- und Serverrechte vor dem Start.
+7. `/ban-spieler` (Alias: `/spieler-bannen`) – Bannt einen Spieler auf dem Minecraft-Server und sperrt BlueMap.
+8. `/pardon-spieler` (Alias: `/spieler-entbannen`) – Hebt Sperren auf Minecraft und BlueMap wieder auf.
+9. `/spieler-kick` – Kickt einen Spieler sofort vom Server mit Angabe eines Grundes.
+10. `/passwort-reset` (Alias: `/spieler-zurücksetzen`) – Sendet einen Authentik-Passwort-Recoverylink per DM.
+11. `/einladen` (Aliase: `/invite`, `/einladung`) – Generiert manuell einen Authentik-Registrierungslink per DM.
+12. `/admin-spieler` – Detaillierte Sicherheits- und Datenbankauskunft über einen Nutzer.
+13. `/sync-alle` – Erzwingt sofortigen Abgleich von LDAP, Whitelist, Authentik und LuckPerms.
+14. `/spielerliste-aktualisieren` – Synchronisiert sofort das Live-Board in `#📝teilnehmerliste`.
+15. `/live-status` – Echtzeit-Abfrage von CPU, RAM, Festplatte, Uptime und TPS.
+16. `/online-spieler` – Zeigt alle aktuell ingame verbundenen Spieler und TPS an.
+17. `/wartung-timer` – Startet einen Ingame-Countdown mit Audio-Cues und schaltet danach die Whitelist um.
+18. `/wartung-abbrechen` – Bricht einen laufenden Wartungscountdown sofort ab.
+19. `/mc-befehl` – Führt einen beliebigen RCON-Befehl direkt auf der Hauptwelt aus.
+20. `/admin-rundruf` – Sendet Ingame-Nachrichten (Chat, Titel oder Actionbar) an alle Spieler oder Direktnachrichten.
+21. `/status` – Zeigt deinen eigenen Account-Status, Rollen und 2FA-Status.
+22. `/links` – Übersicht aller geschützten Dienste und Server-Adressen.
+23. `/auth-code` (Kurzform: `/code`) – Fordert einen 6-stelligen Authentik-Einmalcode für Spieler an.
+24. `/anmelden` – Öffnet das interaktive Bewerbungsmodal für Spieler im Kanal `#📝anmeldung`.
+25. `/abmelden` – Ermöglicht Spielern die selbstständige Abmeldung vom Projekt.
+26. `/entbannen` – Öffnet das Einspruchsmodal für abgelehnte oder gesperrte Nutzer im Kanal `#⚖entbannung`.
 
 ---
 

@@ -152,11 +152,10 @@ def check_is_discord_admin(target: str) -> Tuple[bool, str]:
             gname = (u.get("global_name") or "").lower()
             nick = (m.get("nick") or "").lower()
 
-            if clean_target.isdigit():
-                if uid == clean_target:
-                    found_member = m
-                    break
-            elif clean_target == uname:
+            if clean_target.isdigit() and uid == clean_target:
+                found_member = m
+                break
+            if clean_target in (uname, gname, nick):
                 found_member = m
                 break
 
@@ -182,13 +181,9 @@ def check_is_discord_admin(target: str) -> Tuple[bool, str]:
 def check_is_discord_mod(target: str) -> Tuple[bool, str]:
     """
     Checks whether a given Discord user (by ID, username, global name, or mention)
-    is currently a Moderator, Administrator or Guild Owner on the configured Discord guild.
+    currently has a Moderator role (or Administrator/Owner) on the configured Discord guild.
     Returns (is_mod: bool, reason_or_error: str).
     """
-    is_admin, reason = check_is_discord_admin(target)
-    if is_admin:
-        return True, f"Admin/Owner Status: {reason}"
-
     import json
     import urllib.request
     from wd_identity.config import settings
@@ -208,24 +203,37 @@ def check_is_discord_mod(target: str) -> Tuple[bool, str]:
     guild_id = settings.DISCORD_GUILD_ID
 
     try:
-        mod_role_ids = set()
-        mod_cfg_id = str(getattr(settings, "DISCORD_MOD_ROLE_ID", "")).strip()
-        if mod_cfg_id:
-            mod_role_ids.add(mod_cfg_id)
+        # 1. Guild owner check
+        g_url = f"https://discord.com/api/v10/guilds/{guild_id}"
+        req = urllib.request.Request(g_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            guild_data = json.loads(resp.read().decode("utf-8"))
+            owner_id = str(guild_data.get("owner_id"))
 
+        # 2. Guild roles check
         r_url = f"https://discord.com/api/v10/guilds/{guild_id}/roles"
         req = urllib.request.Request(r_url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             roles_data = json.loads(resp.read().decode("utf-8"))
 
+        mod_role_ids = set()
+        mod_cfg_id = str(getattr(settings, "DISCORD_MOD_ROLE_ID", "")).strip()
+        if mod_cfg_id:
+            mod_role_ids.add(mod_cfg_id)
+
         role_names = {}
         for r in roles_data:
             rid = str(r.get("id"))
-            role_names[rid] = r.get("name", rid)
+            rname = r.get("name", rid)
+            role_names[rid] = rname
             perms = int(r.get("permissions", 0))
-            if (perms & 0x20 == 0x20) or (perms & 0x4 == 0x4):
+            if perms & 0x8 == 0x8:
+                mod_role_ids.add(rid)
+            rname_lower = rname.lower()
+            if "mod" in rname_lower or "moderator" in rname_lower:
                 mod_role_ids.add(rid)
 
+        # 3. Find member
         m_url = f"https://discord.com/api/v10/guilds/{guild_id}/members?limit=1000"
         req = urllib.request.Request(m_url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -239,16 +247,19 @@ def check_is_discord_mod(target: str) -> Tuple[bool, str]:
             gname = (u.get("global_name") or "").lower()
             nick = (m.get("nick") or "").lower()
 
-            if clean_target.isdigit():
-                if uid == clean_target:
-                    found_member = m
-                    break
-            elif clean_target == uname:
+            if clean_target.isdigit() and uid == clean_target:
+                found_member = m
+                break
+            if clean_target in (uname, gname, nick):
                 found_member = m
                 break
 
         if not found_member:
-            return False, f"Discord-Nutzer '{target}' wurde auf dem Server nicht gefunden."
+            return False, f"Discord-Nutzer '{target}' wurde auf dem Weihnachtsdorf-Server nicht gefunden."
+
+        m_uid = str(found_member.get("user", {}).get("id"))
+        if m_uid == owner_id:
+            return True, "Server-Eigentümer (Guild Owner)"
 
         m_roles = [str(r) for r in found_member.get("roles", [])]
         for rid in m_roles:
@@ -256,7 +267,8 @@ def check_is_discord_mod(target: str) -> Tuple[bool, str]:
                 r_name = role_names.get(rid, rid)
                 return True, f"Discord Moderator-Rolle ('{r_name}')"
 
-        return False, f"Nutzer '{target}' besitzt auf dem Discord-Server keine Moderator-Berechtigung."
+        return False, f"Nutzer '{target}' besitzt auf dem Discord-Server keine Moderator-Rolle."
+
     except Exception as e:
         return False, f"Fehler bei der Discord-Berechtigungsprüfung: {e}"
 

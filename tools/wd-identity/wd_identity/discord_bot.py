@@ -38,10 +38,12 @@ from wd_identity.membership import (
     purge_user_completely,
     restore_user_privileges,
     revoke_user_privileges,
+    set_user_role,
 )
+from wd_identity.mojang_client import get_player_profile
 from wd_identity.planka_sync import PlankaSyncClient
 from wd_identity.playerlist import sync_playerlist_bot, sync_playerlist_rest
-from wd_identity.utils import send_dm, send_dm_rest
+from wd_identity.utils import send_dm, send_dm_rest, validate_minecraft_ign
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +61,40 @@ def is_admin_user(user: discord.Member | discord.User) -> bool:
         return False
     if user.guild_permissions.administrator:
         return True
-    admin_role_id = str(getattr(settings, "DISCORD_ADMIN_ROLE_ID", "909437200125538371")).strip()
-    if admin_role_id:
-        for role in user.roles:
-            if str(role.id) == admin_role_id:
-                return True
+    admin_role_id = str(getattr(settings, "DISCORD_ADMIN_ROLE_ID", "909437200125538371"))
+    for role in user.roles:
+        if str(role.id) == admin_role_id or role.name.lower() in ("admin", "administrator"):
+            return True
     return False
 
 
+def get_mod_welcome_message(username: str, ign: str = "") -> str:
+    ign_line = f"• Ingame-Name: `{ign}`\n" if ign else ""
+    return f"""🛡️ **Willkommen im Moderatoren-Team von Weihnachtsdorf 7, {username}!** 🛡️
+
+Du wurdest als **Moderator** freigeschaltet. Als Moderator bist du vor allem direkt auf dem Minecraft-Server als Ansprechpartner da und kannst bei Problemen, Fragen oder Regelverstößen eingreifen.
+
+🎮 **Deine Ingame-Aufgaben & Werkzeuge:**
+{ign_line}• **Hilfe & Support:** Spieler bei Problemen oder Streitigkeiten ingame unterstützen.
+• **CoreProtect (`/co inspect`, `/co rollback`):** Griefing oder Diebstahl aufklären und beheben.
+• **WorldEdit (`//wand`):** Schnelle Reparaturen und Unterstützung bei Bauarbeiten.
+• **Moderation:** `/tp`, `/tphere`, `/invsee`, `/vanish`, `/fly`, `/kick`, `/warn`, `/mute`, `/ban`.
+
+⏰ **Server- & Map-Zugang:**
+• Regulär kannst du den Minecraft-Server und die Live-Karte mit dem offiziellen Projektstart betreten.
+• Falls du vorab bei Vorbereitungen helfen sollst, kann dir ein Admin temporäre Baurechte für ein Zeitfenster freischalten.
+
+📌 **Wichtige Hinweise:**
+• Um administrative Aufgaben (wie Bewerbungen oder Servereinstellungen) brauchst du dich nicht zu kümmern – dein Fokus liegt voll auf dem Spielgeschehen.
+• Bei heiklen Situationen oder Unklarheiten wende dich bitte immer direkt an die Admins.
+
+Vielen Dank für deine Unterstützung im Weihnachtsdorf! 🎅✨"""
+
+
 def get_welcome_message(username: str, role: str, ign: str) -> str:
+    if (role or "").lower() == "mod":
+        return get_mod_welcome_message(username, ign=ign)
+
     return f"""🎄 **Willkommen im Weihnachtsdorf 7 Team, {username}!** 🎄
 
 Dein Zugang als **{role.upper()}** wurde erfolgreich eingerichtet.
@@ -125,17 +152,50 @@ Wir freuen uns auf ein unvergessliches Event mit dir! ✨"""
 # ---------------------------------------------------------------------------
 
 class ApplicationModal(discord.ui.Modal, title="Weihnachtsdorf 7 • Anmeldung"):
+    ign_input = discord.ui.TextInput(
+        label="Minecraft Ingame-Name (IGN)",
+        placeholder="z. B. Steve",
+        min_length=1,
+        max_length=16,
+        required=True,
+    )
     message_input = discord.ui.TextInput(
         label="Deine Nachricht an das Team",
         style=discord.TextStyle.paragraph,
-        placeholder="Wer bist du? Warum möchtest du beim Weihnachtsdorf 7 mitmachen?",
+        placeholder="Wer bist du und warum möchtest du mitmachen? Bitte in eigenen Worten verfassen.",
         min_length=10,
         max_length=1000,
         required=True,
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        await handle_application_submit(interaction, self.message_input.value)
+        raw_ign = (self.ign_input.value or "").strip()
+        if not validate_minecraft_ign(raw_ign):
+            await interaction.response.send_message(
+                f"❌ **Ungültiger Ingame-Name:** '{raw_ign}' entspricht nicht den Minecraft-Richtlinien "
+                f"(1-16 Zeichen, nur Buchstaben, Zahlen und Unterstriche).",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            canonical_ign, _ = await asyncio.to_thread(get_player_profile, raw_ign, require_existing=True)
+        except ValueError as e:
+            await interaction.response.send_message(
+                f"❌ **Minecraft-Account nicht gefunden:** {e}",
+                ephemeral=True,
+            )
+            return
+        except Exception as e:
+            logger.warning(f"Mojang verification error for '{raw_ign}': {e}")
+            await interaction.response.send_message(
+                f"⚠️ **Fehler bei der Mojang-Überprüfung:** Die Mojang API konnte '{raw_ign}' nicht verifizieren ({e}). "
+                f"Bitte versuche es in wenigen Augenblicken erneut.",
+                ephemeral=True,
+            )
+            return
+
+        await handle_application_submit(interaction, self.message_input.value, minecraft_ign=canonical_ign)
 
 
 class UnbanModal(discord.ui.Modal, title="Entbannung / Einspruch"):
@@ -775,7 +835,7 @@ async def trigger_application_modal(interaction: discord.Interaction):
 
     # Check if already registered in LDAP
     ldap = LDAPClient()
-    existing = ldap.search_by_discord_id(str(interaction.user.id))
+    existing = ldap.search_by_discord(str(interaction.user.id)) or ldap.search_by_discord(interaction.user.name)
     if existing:
         await interaction.response.send_message(
             f"✅ **Du bist bereits für Weihnachtsdorf 7 registriert!** (Account: `{existing['uid']}`)\n"
@@ -803,7 +863,7 @@ class OptOutModal(discord.ui.Modal, title="Vom Weihnachtsdorf 7 abmelden"):
         discord_id = str(interaction.user.id)
 
         ldap = LDAPClient()
-        user = ldap.search_by_discord_id(discord_id)
+        user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(interaction.user.name)
         status = applications.get_user_status(discord_id)
 
         if not user and not status.get("has_pending"):
@@ -857,7 +917,7 @@ async def trigger_optout_flow(interaction: discord.Interaction):
 
     discord_id = str(interaction.user.id)
     ldap = LDAPClient()
-    user = ldap.search_by_discord_id(discord_id)
+    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(interaction.user.name)
     status = applications.get_user_status(discord_id)
 
     if not user and not status.get("has_pending"):
@@ -1055,9 +1115,9 @@ async def handle_auth_code_request(interaction: discord.Interaction):
     authentik = AuthentikClient()
 
     discord_id = str(interaction.user.id)
+    discord_tag = interaction.user.name
 
-    user = ldap.search_by_discord_id(discord_id)
-
+    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
     if not user:
         await interaction.followup.send(
             "❌ **Kein Account verknüpft**\n\n"
@@ -1114,13 +1174,18 @@ async def handle_auth_code_request(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-async def handle_application_submit(interaction: discord.Interaction, message_text: str):
+async def handle_application_submit(
+    interaction: discord.Interaction,
+    message_text: str,
+    minecraft_ign: Optional[str] = None,
+):
     """Saves candidate application and dispatches review embed to admin channel."""
     app_id = applications.create_application(
         discord_id=str(interaction.user.id),
         discord_username=interaction.user.name,
         app_type="initial",
         message=message_text,
+        minecraft_ign=minecraft_ign,
     )
 
     await interaction.response.send_message(
@@ -1139,6 +1204,8 @@ async def handle_application_submit(interaction: discord.Interaction, message_te
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Bewerber", value=f"{interaction.user.mention} (`{interaction.user.id}`)", inline=True)
+        if minecraft_ign:
+            embed.add_field(name="Minecraft IGN", value=f"`{minecraft_ign}`", inline=True)
         embed.add_field(name="Antragstyp", value="Initialer Aufnahmeantrag", inline=True)
         embed.add_field(name="Eingereicht am", value=f"<t:{now_ts}:F> (<t:{now_ts}:R>)", inline=False)
         embed.add_field(name="Bewerbungstext", value=f"```{message_text}```", inline=False)
@@ -1147,11 +1214,15 @@ async def handle_application_submit(interaction: discord.Interaction, message_te
         msg = await admin_channel.send(embed=embed, view=AdminActionRow(app_id, is_appeal=False))
         applications.set_channel_message_id(app_id, str(msg.id))
 
+        event_fields = [{"name": "Bewerbungstext", "value": message_text[:1000]}]
+        if minecraft_ign:
+            event_fields.insert(0, {"name": "Minecraft IGN", "value": f"`{minecraft_ign}`", "inline": True})
+
         log_admin_event(
             title="📝 Neue Anmeldung eingereicht",
             description=f"Nutzer {interaction.user.mention} (`{interaction.user.name}`) hat eine Teilnahme-Bewerbung eingereicht (Antrag `#{app_id}`).",
             color=COLOR_INFO,
-            fields=[{"name": "Bewerbungstext", "value": message_text[:1000]}],
+            fields=event_fields,
             author_name=interaction.user.name,
         )
     else:
@@ -1160,11 +1231,29 @@ async def handle_application_submit(interaction: discord.Interaction, message_te
 
 async def handle_unban_submit(interaction: discord.Interaction, statement_text: str):
     """Saves unban appeal and dispatches review embed to admin channel."""
+    status = applications.get_user_status(str(interaction.user.id))
+    ign = (status.get("active_ban") or {}).get("minecraft_ign")
+    if not ign:
+        conn = applications.get_connection()
+        prev_row = conn.execute(
+            "SELECT minecraft_ign FROM applications WHERE discord_id = ? AND minecraft_ign IS NOT NULL AND TRIM(minecraft_ign) != '' ORDER BY id DESC LIMIT 1",
+            (str(interaction.user.id),),
+        ).fetchone()
+        if not prev_row:
+            prev_row = conn.execute(
+                "SELECT minecraft_ign FROM bans WHERE discord_id = ? AND minecraft_ign IS NOT NULL AND TRIM(minecraft_ign) != '' ORDER BY id DESC LIMIT 1",
+                (str(interaction.user.id),),
+            ).fetchone()
+        conn.close()
+        if prev_row:
+            ign = prev_row["minecraft_ign"]
+
     app_id = applications.create_application(
         discord_id=str(interaction.user.id),
         discord_username=interaction.user.name,
         app_type="unban",
         message=statement_text,
+        minecraft_ign=ign,
     )
 
     await interaction.response.send_message(
@@ -1222,84 +1311,106 @@ async def handle_admin_accept(interaction: discord.Interaction, app_id: int):
 
     discord_id = str(app["discord_id"])
     discord_name = app["discord_username"]
+    raw_ign = app.get("minecraft_ign") or discord_name
 
-    # Generate Authentik single-use enrollment link
+    # Account username resolution & superadmin protection
+    from wd_identity.utils import sanitize_username
+    clean_user = sanitize_username(discord_name)
+    if not clean_user or clean_user == "user":
+        clean_user = f"user{discord_id[-4:]}"
+    if clean_user.lower() in ("tigimax", "akadmin"):
+        clean_user = "tigimax_player"
+
+    # 1. Resolve Minecraft IGN & UUID from Mojang
+    try:
+        canonical_ign, mc_uuid = get_player_profile(raw_ign)
+    except Exception as e:
+        logger.warning(f"Failed to lookup Mojang profile for '{raw_ign}', using fallback: {e}")
+        canonical_ign = raw_ign
+        from wd_identity.mojang_client import offline_player_uuid
+        mc_uuid = offline_player_uuid(raw_ign)
+
+    # 2. Provision in OpenLDAP
+    ldap = LDAPClient()
+    ldap.create_or_update_user(
+        username=clean_user,
+        discord_name=discord_name,
+        discord_id=discord_id,
+        email=f"{clean_user}@weihnachtsdorf.local",
+        role="player",
+        minecraft_name=canonical_ign,
+        minecraft_uuid=mc_uuid,
+    )
+
+    # 3. Direct Provisioning in Authentik
     authentik = AuthentikClient()
-    fixed_data = {
-        "discord_id": discord_id,
-        "discord_name": discord_name,
-        "role": "player",
-        "attributes": {
+    upn_alias = canonical_ign if clean_user.lower() == discord_name.strip().lower() else discord_name.strip()
+    authentik.provision_direct_player(
+        username=clean_user,
+        name=discord_name,
+        email=f"{clean_user}@weihnachtsdorf.local",
+        attributes={
             "discord_id": discord_id,
             "discord_name": discord_name,
+            "minecraft_name": canonical_ign,
+            "upn": upn_alias,
             "role": "player",
+            "needs_web_setup": True,
         },
-        "attributes.discord_id": discord_id,
-        "attributes.discord_name": discord_name,
-        "attributes.role": "player",
-    }
-    invite_link = None
-    try:
-        clean_user = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_")) or f"user{discord_id[-4:]}"
-        # Protection: Never overwrite master internal admin account 'tigimax' or 'akadmin'
-        if clean_user.lower() in ("tigimax", "akadmin"):
-            clean_user = "tigimax_player"
-        fixed_data["username"] = clean_user
-        authentik.delete_user(clean_user)
-        invite_link = authentik.create_invitation(
-            name=f"invite-{clean_user}",
-            fixed_data=fixed_data,
-        )
-    except Exception as e:
-        logger.error(f"Failed to generate Authentik invitation for {discord_name}: {e}")
+    )
 
-    # Dispatch DM to applicant
-    dm_sent = False
-    if invite_link:
-        dm_message = (
-            f"🎅 **Glückwunsch! Deine Anmeldung für Weihnachtsdorf 7 wurde angenommen!** 🎄\n\n"
-            f"Du wurdest als **Spieler** zum Event zugelassen.\n"
-            f"Bitte schließe deine Registrierung über folgenden persönlichen Einladungslink ab:\n"
-            f"👉 {invite_link}\n\n"
-            f"📌 **Was dich erwartet:**\n"
-            f"• Passwort & 2FA einrichten (zentraler SSO-Account für alle Portale)\n"
-            f"• Angabe deines Minecraft Ingame-Namens\n"
-            f"• Nach Abschluss ist dein Profil startklar für den Server!\n\n"
-            f"*Dieser Einladungslink ist einmalig gültig und verfällt nach 24 Stunden.*"
-        )
-        dm_sent = send_dm_rest(discord_id, dm_message)
+    # 4. Whitelist in Minecraft (active or staged pre-launch)
+    mc = MinecraftSyncClient()
+    mc.set_player_role(canonical_ign, "player", mc_uuid=mc_uuid)
 
-    # Update DB
+    # 5. Update DB
     applications.accept_application(app_id, str(interaction.user.id), interaction.user.name)
 
-    # Edit embed in admin channel
+    # 6. Dispatch confirmation DM to applicant (with BlueMap link and login hint)
+    login_hint = (
+        f"deinen Discord-Namen `{discord_name}` (oder deinen Minecraft-Namen `{canonical_ign}`)"
+        if clean_user != "tigimax_player"
+        else f"deinen Minecraft-Namen `{canonical_ign}` (oder `{clean_user}`)"
+    )
+    dm_message = (
+        f"🎅 **Glückwunsch! Deine Anmeldung für Weihnachtsdorf 7 wurde angenommen!** 🎄\n\n"
+        f"Du wurdest als **Spieler** freigeschaltet:\n"
+        f"• **Minecraft-Server:** Dein Account `{canonical_ign}` steht ab sofort auf der Whitelist! (IP: `tigimax.mooo.com`)\n"
+        f"• **BlueMap Live-Karte:** 👉 https://map.tigimax.mooo.com/\n\n"
+        f"🔐 **Anmeldung auf der BlueMap / Webdiensten:**\n"
+        f"Wenn du auf https://map.tigimax.mooo.com/ gehst, gib beim Anmelden einfach {login_hint} ein.\n"
+        f"Dieser Bot schickt dir dann automatisch einen 6-stelligen Code per DM, mit dem du direkt dein eigenes Passwort erstellen kannst!\n\n"
+        f"Viel Spaß beim Weihnachtsdorf 7! ✨"
+    )
+    dm_sent = send_dm_rest(discord_id, dm_message)
+
+    # 7. Edit embed in admin channel
     if interaction.message:
         now_ts = int(datetime.now(timezone.utc).timestamp())
         new_embed = interaction.message.embeds[0]
         new_embed.color = discord.Color.green()
         new_embed.add_field(
             name="Status",
-            value=f"✅ **Angenommen** von {interaction.user.mention} (<t:{now_ts}:R>)\n"
-                  f"{'📨 Einladung per DM zugestellt' if dm_sent else '⚠️ DM fehlgeschlagen (bitte Link manuell übermitteln)'}",
+            value=f"✅ **Angenommen & Direkt bereitgestellt** von {interaction.user.mention} (<t:{now_ts}:R>)\n"
+                  f"• Spieler: `{clean_user}` (`{canonical_ign}`)\n"
+                  f"• Whitelist & Authentik: Aktiviert\n"
+                  f"• DM: {'Zugestellt' if dm_sent else 'Fehlgeschlagen'}",
             inline=False,
         )
-        if not dm_sent and invite_link:
-            new_embed.add_field(name="Einladungslink (Backup)", value=f"`{invite_link}`", inline=False)
         await interaction.message.edit(embed=new_embed, view=None)
 
-    msg = f"✅ Antrag #{app_id} angenommen!"
-    if invite_link:
-        msg += f" Einladungslink {'per DM versendet.' if dm_sent else f': {invite_link}'}"
+    msg = f"✅ Antrag #{app_id} für `{canonical_ign}` angenommen und direkt bereitgestellt!"
     await interaction.followup.send(msg, ephemeral=True)
 
     log_admin_event(
-        title="✅ Anmeldung angenommen",
-        description=f"Antrag `#{app_id}` von `<@{discord_id}>` (`{discord_name}`) wurde angenommen.",
+        title="✅ Anmeldung angenommen (Direkt-Provisioning)",
+        description=f"Antrag `#{app_id}` von `<@{discord_id}>` (`{discord_name}`, IGN: `{canonical_ign}`) wurde angenommen und direkt bereitgestellt.",
         color=COLOR_SUCCESS,
         fields=[
             {"name": "Bearbeitet von", "value": interaction.user.mention, "inline": True},
-            {"name": "DM-Zustellung", "value": "✅ Erfolgreich" if dm_sent else "⚠️ Fehlgeschlagen (Link manuell nötig)", "inline": True},
-            {"name": "Einladungslink (Backup)", "value": f"`{invite_link}`" if invite_link else "-", "inline": False},
+            {"name": "Minecraft IGN", "value": f"`{canonical_ign}`", "inline": True},
+            {"name": "Account / Rolle", "value": f"`{clean_user}` (player)", "inline": True},
+            {"name": "DM-Zustellung", "value": "✅ Erfolgreich" if dm_sent else "⚠️ Fehlgeschlagen", "inline": True},
         ],
         author_name=interaction.user.name,
     )
@@ -1333,6 +1444,14 @@ async def handle_admin_reject_submit(interaction: discord.Interaction, app_id: i
         reviewer_name=interaction.user.name,
         reason=clean_reason,
         cooldown_days=None,
+    )
+
+    # Record active ban in SQLite so applicant is eligible for appeal in #⚖entbannung
+    applications.record_ban(
+        discord_id=str(app["discord_id"]),
+        minecraft_ign=app.get("minecraft_ign"),
+        banned_by=interaction.user.name,
+        reason=clean_reason,
     )
 
     dm_message = (
@@ -1389,7 +1508,7 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
     mc = MinecraftSyncClient()
     authentik = AuthentikClient()
 
-    user = ldap.search_by_discord_id(discord_id)
+    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_name)
     was_previously_enrolled = user is not None and user.get("minecraftName")
 
     dm_sent = False
@@ -1410,37 +1529,103 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
         )
         dm_sent = send_dm_rest(discord_id, dm_msg)
     else:
-        # User was rejected initially and had no account yet: Send Authentik invite link
-        clean_user = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_")) or f"user{discord_id[-4:]}"
-        # Protection: Never overwrite master internal admin account 'tigimax' or 'akadmin'
+        # User was rejected initially and had no account yet: Direct provision account without invitation links
+        raw_ign = app.get("minecraft_ign")
+        if not raw_ign:
+            status = applications.get_user_status(discord_id)
+            raw_ign = (status.get("active_ban") or {}).get("minecraft_ign")
+            if not raw_ign:
+                conn = applications.get_connection()
+                prev_row = conn.execute(
+                    "SELECT minecraft_ign FROM applications WHERE discord_id = ? AND minecraft_ign IS NOT NULL AND TRIM(minecraft_ign) != '' ORDER BY id DESC LIMIT 1",
+                    (str(discord_id),),
+                ).fetchone()
+                if not prev_row:
+                    prev_row = conn.execute(
+                        "SELECT minecraft_ign FROM bans WHERE discord_id = ? AND minecraft_ign IS NOT NULL AND TRIM(minecraft_ign) != '' ORDER BY id DESC LIMIT 1",
+                        (str(discord_id),),
+                    ).fetchone()
+                conn.close()
+                if prev_row:
+                    raw_ign = prev_row["minecraft_ign"]
+
+        if not raw_ign:
+            logger.error(f"Cannot accept appeal {app_id}: No Minecraft IGN found for Discord ID {discord_id}")
+            await interaction.followup.send(
+                f"❌ **Fehler:** Für den Discord-Nutzer <@{discord_id}> konnte kein Minecraft-Ingame-Name gefunden werden.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            canonical_ign, mc_uuid = get_player_profile(raw_ign)
+        except Exception as e:
+            logger.warning(f"Failed to lookup Mojang profile for appeal '{raw_ign}', using fallback: {e}")
+            canonical_ign = raw_ign
+            from wd_identity.mojang_client import offline_player_uuid
+            mc_uuid = offline_player_uuid(raw_ign)
+
+        from wd_identity.utils import sanitize_username
+        clean_user = sanitize_username(discord_name)
+        if not clean_user or clean_user == "user":
+            clean_user = f"user{discord_id[-4:]}"
         if clean_user.lower() in ("tigimax", "akadmin"):
             clean_user = "tigimax_player"
-        authentik.delete_user(clean_user)
-        fixed_data = {
-            "discord_id": discord_id,
-            "discord_name": discord_name,
-            "role": "player",
-            "username": clean_user,
-            "attributes": {
+
+        # 1. Provision OpenLDAP
+        ldap.create_or_update_user(
+            username=clean_user,
+            discord_name=discord_name,
+            discord_id=discord_id,
+            email=f"{clean_user}@weihnachtsdorf.local",
+            role="player",
+            minecraft_name=canonical_ign,
+            minecraft_uuid=mc_uuid,
+        )
+
+        # 2. Provision Authentik
+        upn_alias = canonical_ign if clean_user.lower() == discord_name.strip().lower() else discord_name.strip()
+        authentik.provision_direct_player(
+            username=clean_user,
+            name=discord_name,
+            email=f"{clean_user}@weihnachtsdorf.local",
+            attributes={
                 "discord_id": discord_id,
                 "discord_name": discord_name,
+                "minecraft_name": canonical_ign,
+                "upn": upn_alias,
                 "role": "player",
+                "needs_web_setup": True,
             },
-            "attributes.discord_id": discord_id,
-            "attributes.discord_name": discord_name,
-            "attributes.role": "player",
-        }
-        invite_link = authentik.create_invitation(
-            name=f"invite-{clean_user}",
-            fixed_data=fixed_data,
+        )
+
+        # 3. Whitelist in Minecraft
+        mc.set_player_role(canonical_ign, "player", mc_uuid=mc_uuid)
+
+        # 4. Lift active bans
+        applications.lift_ban(discord_id=discord_id, minecraft_ign=canonical_ign)
+
+        # 5. DM user
+        login_hint = (
+            f"deinen Discord-Namen `{discord_name}` (oder deinen Minecraft-Namen `{canonical_ign}`)"
+            if clean_user != "tigimax_player"
+            else f"deinen Minecraft-Namen `{canonical_ign}` (oder `{clean_user}`)"
         )
         dm_msg = (
             f"🎉 **Dein Einspruch für Weihnachtsdorf 7 wurde angenommen!** 🎄\n\n"
-            f"Du kannst dich ab sofort als **Spieler** registrieren:\n"
-            f"👉 {invite_link}\n\n"
-            f"*Dieser Link verfällt nach 24 Stunden.*"
+            f"Du wurdest als **Spieler** freigeschaltet:\n"
+            f"• **Minecraft-Server:** Dein Account `{canonical_ign}` steht ab sofort auf der Whitelist! (IP: `tigimax.mooo.com`)\n"
+            f"• **BlueMap Live-Karte:** 👉 https://map.tigimax.mooo.com/\n\n"
+            f"🔐 **Anmeldung auf der BlueMap / Webdiensten:**\n"
+            f"Wenn du auf https://map.tigimax.mooo.com/ gehst, gib beim Anmelden einfach {login_hint} ein.\n"
+            f"Dieser Bot schickt dir dann automatisch einen 6-stelligen Code per DM, mit dem du direkt dein eigenes Passwort erstellen kannst!\n\n"
+            f"Willkommen im Weihnachtsdorf 7! 🎅"
         )
         dm_sent = send_dm_rest(discord_id, dm_msg)
+        try:
+            await sync_playerlist_bot(bot, force=True)
+        except Exception:
+            pass
 
     applications.accept_application(app_id, str(interaction.user.id), interaction.user.name)
 
@@ -1451,19 +1636,15 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
         if was_previously_enrolled:
             detail_msg = f"Minecraft & BlueMap freigeschaltet ({user.get('minecraftName')})"
         else:
-            detail_msg = "📨 Einladungslink per DM versendet" if dm_sent else "⚠️ DM fehlgeschlagen (bitte Link manuell übermitteln)"
+            detail_msg = f"Direkt freigeschaltet ({canonical_ign})"
         new_embed.add_field(
             name="Status",
             value=f"✅ **Entbannt / Angenommen** von {interaction.user.mention} (<t:{now_ts}:R>)\n{detail_msg}",
             inline=False,
         )
-        if not was_previously_enrolled and not dm_sent and invite_link:
-            new_embed.add_field(name="Einladungslink (Backup)", value=f"`{invite_link}`", inline=False)
         await interaction.message.edit(embed=new_embed, view=None)
 
     msg = f"✅ Entbannungsantrag #{app_id} angenommen!"
-    if not was_previously_enrolled and invite_link:
-        msg += f" Einladungslink {'per DM versendet.' if dm_sent else f': {invite_link}'}"
     await interaction.followup.send(msg, ephemeral=True)
 
     log_admin_event(
@@ -1509,6 +1690,31 @@ async def handle_admin_appeal_reject_submit(
         reviewer_name=interaction.user.name,
         reason=clean_reason,
         cooldown_days=cooldown_days,
+    )
+
+    # Maintain active ban in SQLite
+    status = applications.get_user_status(str(app["discord_id"]))
+    existing_ign = app.get("minecraft_ign") or (status.get("active_ban") or {}).get("minecraft_ign")
+    if not existing_ign:
+        conn = applications.get_connection()
+        prev_row = conn.execute(
+            "SELECT minecraft_ign FROM applications WHERE discord_id = ? AND minecraft_ign IS NOT NULL AND TRIM(minecraft_ign) != '' ORDER BY id DESC LIMIT 1",
+            (str(app["discord_id"]),),
+        ).fetchone()
+        if not prev_row:
+            prev_row = conn.execute(
+                "SELECT minecraft_ign FROM bans WHERE discord_id = ? AND minecraft_ign IS NOT NULL AND TRIM(minecraft_ign) != '' ORDER BY id DESC LIMIT 1",
+                (str(app["discord_id"]),),
+            ).fetchone()
+        conn.close()
+        if prev_row:
+            existing_ign = prev_row["minecraft_ign"]
+
+    applications.record_ban(
+        discord_id=str(app["discord_id"]),
+        minecraft_ign=existing_ign,
+        banned_by=interaction.user.name,
+        reason=clean_reason,
     )
 
     status = applications.get_user_status(str(app["discord_id"]))
@@ -1831,10 +2037,18 @@ async def ensure_channels_and_pins():
 
     # 1. Anmeldung Channel
     anmeldung_ch = None
-    for ch in guild.text_channels:
-        if any(k in ch.name.lower() for k in ("anmeldung", "anmeldungen")) and (not category or ch.category_id == category.id):
-            anmeldung_ch = ch
-            break
+    anmeldung_id = getattr(settings, "DISCORD_CHANNEL_ANMELDUNG_ID", "")
+    if anmeldung_id and anmeldung_id.isdigit():
+        c = guild.get_channel(int(anmeldung_id))
+        if isinstance(c, discord.TextChannel):
+            anmeldung_ch = c
+
+    if not anmeldung_ch:
+        for ch in guild.text_channels:
+            if any(k in ch.name.lower() for k in ("anmeldung", "anmeldungen")):
+                anmeldung_ch = ch
+                if not category or ch.category_id == category.id:
+                    break
 
     if not anmeldung_ch and can_manage_channels:
         try:
@@ -1854,11 +2068,13 @@ async def ensure_channels_and_pins():
                 "Willkommen im weihnachtlichen SMP-Projekt!\n\n"
                 "📝 **So funktioniert die Bewerbung:**\n"
                 "1. Klicke unten auf den Button **„Jetzt bewerben“** oder nutze den Befehl `/anmelden` hier im Channel.\n"
-                "2. Gib eine kurze Nachricht an das Team ein (wer du bist, warum du mitmachen möchtest).\n"
+                "2. Gib deinen Minecraft Ingame-Namen (IGN) sowie eine kurze Nachricht an das Team ein.\n"
                 "3. Dein Antrag wird vertraulich an die Administratoren übermittelt.\n"
-                "4. Nach der Annahme erhältst du eine Direktnachricht (DM) mit deinem persönlichen Registrierungs-Link.\n\n"
+                "4. Nach der Annahme wirst du direkt für den Minecraft-Server und das Webportal freigeschaltet und erhältst eine Bestätigung per Direktnachricht (DM).\n\n"
+                "🤖 **Wichtiger Hinweis zu KI-Bewerbungen:**\n"
+                "Alle eingehenden Anträge werden vor der Bearbeitung automatisch durch einen KI-Detector geprüft. KI-generierte Texte (z. B. ChatGPT) werden **automatisch und ausnahmslos abgelehnt**!\n\n"
                 "🔐 **Login im Webportal:**\n"
-                "Sobald du registriert bist, kannst du dich im Webportal anmelden. Wenn du nach dem 2FA-Code gefragt wirst, sendet dir dieser Bot den 6-stelligen Login-Code automatisch per Direktnachricht (DM) zu!"
+                "Sobald du freigeschaltet bist, kannst du dich im Webportal anmelden. Wenn du nach dem 2FA-Code gefragt wirst, sendet dir dieser Bot den 6-stelligen Login-Code automatisch per Direktnachricht (DM) zu!"
             ),
             color=discord.Color.gold(),
         )
@@ -1885,10 +2101,18 @@ async def ensure_channels_and_pins():
 
     # 2. Entbannung Channel
     entbannung_ch = None
-    for ch in guild.text_channels:
-        if any(k in ch.name.lower() for k in ("entbannung", "entbannungsanträge", "entbannungsantrag")) and (not category or ch.category_id == category.id):
-            entbannung_ch = ch
-            break
+    entbannung_id = getattr(settings, "DISCORD_CHANNEL_ENTBANNUNG_ID", "")
+    if entbannung_id and entbannung_id.isdigit():
+        c = guild.get_channel(int(entbannung_id))
+        if isinstance(c, discord.TextChannel):
+            entbannung_ch = c
+
+    if not entbannung_ch:
+        for ch in guild.text_channels:
+            if any(k in ch.name.lower() for k in ("entbannung", "entbannungsanträge", "entbannungsantrag")):
+                entbannung_ch = ch
+                if not category or ch.category_id == category.id:
+                    break
 
     if not entbannung_ch and can_manage_channels:
         try:
@@ -2070,8 +2294,8 @@ async def ensure_channels_and_pins():
     description="Reiche deine Bewerbung / Aufnahmeantrag für Weihnachtsdorf 7 ein.",
 )
 async def cmd_anmelden(interaction: discord.Interaction):
-    channel_name = getattr(interaction.channel, "name", "")
-    if channel_name != "anmeldung":
+    channel_name = getattr(interaction.channel, "name", "") or ""
+    if "anmeldung" not in channel_name.lower():
         await interaction.response.send_message(
             "❌ **Falscher Channel:** Du kannst dich ausschließlich im Kanal `#anmeldung` bewerben.",
             ephemeral=True,
@@ -2117,8 +2341,8 @@ async def cmd_account_loeschen(
     description="Stelle einen Entbannungs- oder Einspruchsantrag.",
 )
 async def cmd_entbannung(interaction: discord.Interaction):
-    channel_name = getattr(interaction.channel, "name", "")
-    if channel_name != "entbannung":
+    channel_name = getattr(interaction.channel, "name", "") or ""
+    if "entbannung" not in channel_name.lower():
         await interaction.response.send_message(
             "❌ **Falscher Channel:** Entbannungsanträge können nur im Kanal `#entbannung` eingereicht werden.",
             ephemeral=True,
@@ -2384,7 +2608,7 @@ async def cmd_invite(
 
 @tree.command(
     name="einladung",
-    description="Alias für /einladen: Lädt einen neuen Spieler oder Administrator manuell zu Weihnachtsdorf 7 ein (Admin).",
+    description="Alias für /einladen: Lädt einen Spieler oder Admin zu Weihnachtsdorf 7 ein (Admin).",
 )
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
@@ -2426,10 +2650,10 @@ async def cmd_password_reset(interaction: discord.Interaction):
     ldap = LDAPClient()
     authentik = AuthentikClient()
 
+    discord_tag = interaction.user.name
     discord_id = str(interaction.user.id)
 
-    user = ldap.search_by_discord_id(discord_id)
-
+    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
     if not user:
         await interaction.followup.send(
             "❌ Dein Discord-Account ist mit keinem Weihnachtsdorf-Account verknüpft. Bitte kontaktiere einen Administrator.",
@@ -2471,7 +2695,7 @@ async def cmd_password_reset(interaction: discord.Interaction):
 
 @tree.command(
     name="spieler-zurücksetzen",
-    description="Alias für /passwort-reset: Fordere einen einmaligen Link zum Zurücksetzen deines Passworts an (Admin).",
+    description="Alias für /passwort-reset: Einmaligen Link zur Passwort-Zurücksetzung anfordern (Admin).",
 )
 @app_commands.default_permissions(administrator=True)
 async def cmd_spieler_zuruecksetzen(interaction: discord.Interaction):
@@ -2486,10 +2710,10 @@ async def cmd_status(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     ldap = LDAPClient()
 
+    discord_tag = interaction.user.name
     discord_id = str(interaction.user.id)
 
-    user = ldap.search_by_discord_id(discord_id)
-
+    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
     if not user:
         await interaction.followup.send(
             "❌ Kein verknüpfter Account gefunden.",
@@ -2786,6 +3010,196 @@ async def cmd_zugang_entziehen(
 
 
 @tree.command(
+    name="rolle",
+    description="Ändert die Rolle eines Nutzers (Admin, Mod, Spieler) systemweit.",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    ziel="Discord @Mention, ID, Minecraft-Name oder Benutzername",
+    rolle="Neue Rolle (admin, mod, player)",
+)
+@app_commands.choices(
+    rolle=[
+        app_commands.Choice(name="Spieler (Standard)", value="player"),
+        app_commands.Choice(name="Moderator", value="mod"),
+        app_commands.Choice(name="Administrator", value="admin"),
+    ]
+)
+async def cmd_rolle(
+    interaction: discord.Interaction,
+    ziel: str,
+    rolle: app_commands.Choice[str],
+):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können Rollen vergeben.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+
+    try:
+        res = await asyncio.to_thread(
+            set_user_role,
+            target=clean_target,
+            role=rolle.value,
+            initiator=f"{interaction.user.name} ({interaction.user.mention})",
+            force=False,
+        )
+    except Exception as e:
+        logger.error(f"Fehler bei cmd_rolle für '{ziel}': {e}")
+        await interaction.followup.send(f"❌ Fehler beim Ändern der Rolle: {e}")
+        return
+
+    embed = discord.Embed(
+        title="🎭 Rolle erfolgreich geändert",
+        description=f"Die Rolle von **{ziel}** (`{res.get('username')}`) wurde auf **{res.get('role', '').upper()}** gesetzt.",
+        color=discord.Color.green(),
+    )
+    embed.add_field(name="Vorherige Rolle", value=res.get("old_role", "unbekannt").upper(), inline=True)
+    embed.add_field(name="Neue Rolle", value=res.get("role", "").upper(), inline=True)
+    embed.add_field(name="Minecraft IGN", value=res.get("minecraft_name") or "Kein IGN", inline=True)
+    embed.add_field(name="Systeme", value="OpenLDAP, Authentik, LuckPerms & Spielerliste synchronisiert", inline=False)
+    embed.add_field(name="Ausgeführt von", value=interaction.user.mention, inline=False)
+    embed.set_footer(text="Weihnachtsdorf 7 Identity System")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="role",
+    description="Changes a user's role (admin, mod, player) across all systems.",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    target="Discord @Mention, ID, Minecraft Ingame Name, or UID",
+    role="New role (admin, mod, player)",
+)
+@app_commands.choices(
+    role=[
+        app_commands.Choice(name="Player", value="player"),
+        app_commands.Choice(name="Moderator", value="mod"),
+        app_commands.Choice(name="Administrator", value="admin"),
+    ]
+)
+async def cmd_role_alias(
+    interaction: discord.Interaction,
+    target: str,
+    role: app_commands.Choice[str],
+):
+    await cmd_rolle(interaction, ziel=target, rolle=role)
+
+
+@tree.command(
+    name="mod-baurecht",
+    description="Vergibt oder entzieht einem Moderator temporäre Baurechte für die Vorbereitung.",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    ziel="Discord @Mention, Ingame-Name oder UID des Moderators",
+    stunden="Dauer in Stunden (z. B. 1, 2, 3, 5, 8, 24)",
+    entziehen="True = Baurechte sofort entziehen",
+)
+@app_commands.choices(
+    stunden=[
+        app_commands.Choice(name="1 Stunde", value=1.0),
+        app_commands.Choice(name="2 Stunden", value=2.0),
+        app_commands.Choice(name="3 Stunden (Standard)", value=3.0),
+        app_commands.Choice(name="5 Stunden", value=5.0),
+        app_commands.Choice(name="8 Stunden", value=8.0),
+        app_commands.Choice(name="12 Stunden", value=12.0),
+        app_commands.Choice(name="24 Stunden (1 Tag)", value=24.0),
+    ]
+)
+async def cmd_mod_baurecht(
+    interaction: discord.Interaction,
+    ziel: str,
+    stunden: Optional[app_commands.Choice[float]] = None,
+    entziehen: bool = False,
+):
+    if not is_admin_user(interaction.user):
+        await interaction.response.send_message("❌ Nur Administratoren können Baurechte vergeben.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+    mc = MinecraftSyncClient()
+
+    if entziehen:
+        res = await asyncio.to_thread(
+            mc.revoke_mod_build_access,
+            target=clean_target,
+            initiator=f"{interaction.user.name} ({interaction.user.mention})",
+        )
+        embed = discord.Embed(
+            title="🛑 Baurechte entzogen",
+            description=f"Die temporären Baurechte von **{ziel}** (`{res.get('uid')}`) wurden vorzeitig beendet.",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="Minecraft Server", value="Whitelist-Zugang entfernt (Pre-Launch)", inline=True)
+        embed.add_field(name="Ausgeführt von", value=interaction.user.mention, inline=True)
+        await interaction.followup.send(embed=embed)
+        return
+
+    duration = stunden.value if stunden else 3.0
+    try:
+        grant = await asyncio.to_thread(
+            mc.grant_mod_build_access,
+            target=clean_target,
+            duration_hours=duration,
+            initiator=f"{interaction.user.name} ({interaction.user.mention})",
+        )
+    except Exception as e:
+        logger.error(f"Fehler bei cmd_mod_baurecht für '{ziel}': {e}")
+        await interaction.followup.send(f"❌ Fehler beim Erteilen der Baurechte: {e}")
+        return
+
+    exp_str = grant["expires_at"][:19].replace("T", " ") + " UTC"
+    embed = discord.Embed(
+        title="🔨 Temporäre Baurechte aktiviert",
+        description=f"Dem Moderator **{ziel}** (`{grant['uid']}`) wurden erfolgreich Baurechte erteilt.",
+        color=discord.Color.green(),
+    )
+    embed.add_field(name="Minecraft IGN", value=f"`{grant.get('ign')}`", inline=True)
+    embed.add_field(name="Dauer", value=f"{grant.get('duration_hours'):g} Stunde(n)", inline=True)
+    embed.add_field(name="Gültig bis", value=f"`{exp_str}`", inline=True)
+    embed.add_field(name="Ingame-Tools", value="WorldEdit (`//wand`), CoreProtect (`/co`), `/tp`, `/fly`, etc.", inline=False)
+    embed.add_field(name="Ausgeführt von", value=interaction.user.mention, inline=False)
+    embed.set_footer(text="Weihnachtsdorf 7 Identity System")
+    await interaction.followup.send(embed=embed)
+
+
+@tree.command(
+    name="mod-zugang",
+    description="Alias für /mod-baurecht.",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    ziel="Discord @Mention, Ingame-Name oder UID des Moderators",
+    stunden="Dauer in Stunden",
+    entziehen="True = Baurechte sofort entziehen",
+)
+@app_commands.choices(
+    stunden=[
+        app_commands.Choice(name="1 Stunde", value=1.0),
+        app_commands.Choice(name="2 Stunden", value=2.0),
+        app_commands.Choice(name="3 Stunden (Standard)", value=3.0),
+        app_commands.Choice(name="5 Stunden", value=5.0),
+        app_commands.Choice(name="8 Stunden", value=8.0),
+        app_commands.Choice(name="12 Stunden", value=12.0),
+        app_commands.Choice(name="24 Stunden (1 Tag)", value=24.0),
+    ]
+)
+async def cmd_mod_zugang_alias(
+    interaction: discord.Interaction,
+    ziel: str,
+    stunden: Optional[app_commands.Choice[float]] = None,
+    entziehen: bool = False,
+):
+    await cmd_mod_baurecht(interaction, ziel=ziel, stunden=stunden, entziehen=entziehen)
+
+
+@tree.command(
     name="admin-rundruf",
     description="Sendet eine Direktnachricht an alle Mitglieder einer Rolle oder einen bestimmten Nutzer.",
 )
@@ -3035,14 +3449,20 @@ async def cmd_admin_spieler(
     if discord_nutzer:
         target_discord_id = str(discord_nutzer.id)
         target_discord_name = discord_nutzer.name
-        # Search strictly by Discord Snowflake ID
-        user = ldap.search_by_discord_id(target_discord_id)
+        # 1. Search by Discord Snowflake ID
+        user = ldap.search_by_discord(target_discord_id)
+        # 2. Search by Discord username
+        if not user:
+            user = ldap.search_by_discord(discord_nutzer.name)
+        # 3. Search by Discord display name
+        if not user and discord_nutzer.display_name:
+            user = ldap.search_by_discord(discord_nutzer.display_name)
     elif suchbegriff:
         clean = suchbegriff.strip().replace("<@", "").replace(">", "").replace("!", "")
         # 1. If pure digit: Discord ID
         if clean.isdigit():
             target_discord_id = clean
-            user = ldap.search_by_discord_id(clean)
+            user = ldap.search_by_discord(clean)
 
         # 2. Search members in current guild for matching name/display_name
         if not user and interaction.guild:
@@ -3157,12 +3577,20 @@ async def cmd_live_status(interaction: discord.Interaction):
     ram_max = tel.get("memory_max_mb", 0.0)
     ram_pct = tel.get("memory_percent", 0.0)
     disk_used = tel.get("disk_used_mb", 0.0)
+    disk_max = tel.get("disk_max_mb", 0.0)
+    disk_pct = tel.get("disk_percent", 0.0)
+    disk_free_gb = (disk_max - disk_used) / 1024 if disk_max > 0 else 0.0
     uptime_s = tel.get("uptime_seconds", 0)
 
     days = uptime_s // 86400
     hours = (uptime_s % 86400) // 3600
     minutes = (uptime_s % 3600) // 60
     uptime_str = f"{days}d {hours}h {minutes}m" if days > 0 else f"{hours}h {minutes}m"
+
+    disk_val = (
+        f"`{disk_used / 1024:.1f} GB` / `{disk_max / 1024:.0f} GB` ({disk_free_gb:.1f} GB frei • {disk_pct}%)"
+        if disk_max > 0 else f"`{disk_used:.0f} MB`"
+    )
 
     embed = discord.Embed(
         title="📊 Minecraft Live-Servermetriken",
@@ -3175,7 +3603,7 @@ async def cmd_live_status(interaction: discord.Interaction):
     embed.add_field(name="⏱️ Server-Uptime", value=f"`{uptime_str}`", inline=True)
     embed.add_field(name="🖥️ CPU-Last", value=f"`{cpu}%`", inline=True)
     embed.add_field(name="🧠 RAM-Verbrauch", value=f"`{ram_used:.0f} MB` / `{ram_max:.0f} MB` ({ram_pct}%)", inline=True)
-    embed.add_field(name="💾 Festplatte", value=f"`{disk_used:.0f} MB`", inline=True)
+    embed.add_field(name="💾 Festplatte", value=disk_val, inline=True)
     embed.add_field(name="🎮 Engine", value="`Purpur 26.3 (Java 25)`", inline=True)
     embed.set_footer(text=f"Abgerufen von {interaction.user.name} • Pterodactyl Wings Telemetry")
     await interaction.followup.send(embed=embed)
@@ -3214,16 +3642,7 @@ async def cmd_online_spieler(interaction: discord.Interaction):
         for ign in names:
             ign_clean = ign.strip()
             u = ldap.search_by_minecraft(ign_clean)
-            d_name = u.get("discordName") if u else None
-            d_id = u.get("discordId") if u else None
-            if d_id and d_name and not d_name.isdigit() and d_name != d_id:
-                discord_tag = f"<@{d_id}> (`@{d_name}`)"
-            elif d_id:
-                discord_tag = f"<@{d_id}>"
-            elif d_name:
-                discord_tag = f"`@{d_name}`"
-            else:
-                discord_tag = "*Nicht verknüpft*"
+            discord_tag = f"<@{u['discordId']}>" if (u and u.get("discordId")) else (f"`{u['discordName']}`" if (u and u.get("discordName")) else "*Nicht verknüpft*")
             
             if ign_clean.lower() in admin_uids:
                 badge = "👑 `Admin`"
@@ -3429,7 +3848,11 @@ async def on_member_join(member: discord.Member):
 
     # Search for existing account in LDAP
     ldap = LDAPClient()
-    user = await asyncio.to_thread(ldap.search_by_discord_id, str(member.id))
+    user = await asyncio.to_thread(ldap.search_by_discord, str(member.id))
+    if not user:
+        user = await asyncio.to_thread(ldap.search_by_discord, member.name)
+    if not user and member.display_name != member.name:
+        user = await asyncio.to_thread(ldap.search_by_discord, member.display_name)
 
     if not user:
         try:
@@ -3556,6 +3979,20 @@ async def on_member_remove(member: discord.Member):
             )
         except Exception:
             pass
+
+
+@tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """Global fallback handler for unhandled slash command errors to prevent infinite 'thinking' state."""
+    logger.error(f"Unhandled slash command error in {interaction.command.name if interaction.command else 'unknown'}: {error}", exc_info=error)
+    clean_msg = f"❌ **Fehler beim Ausführen des Befehls:** {error}"
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(clean_msg)
+        else:
+            await interaction.response.send_message(clean_msg, ephemeral=True)
+    except Exception as e:
+        logger.error(f"Failed to deliver fallback error message for slash command: {e}")
 
 
 @bot.event

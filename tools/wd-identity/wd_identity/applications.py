@@ -45,6 +45,7 @@ def init_db():
                 discord_username TEXT NOT NULL,
                 app_type TEXT NOT NULL, -- 'initial' or 'unban'
                 message TEXT NOT NULL,
+                minecraft_ign TEXT,
                 status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'accepted', 'rejected'
                 reviewer_id TEXT,
                 reviewer_name TEXT,
@@ -56,6 +57,16 @@ def init_db():
             );
             """
         )
+        # Check if migration is needed for existing applications table without minecraft_ign
+        cursor = conn.execute("PRAGMA table_info(applications);")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "minecraft_ign" not in columns:
+            try:
+                conn.execute("ALTER TABLE applications ADD COLUMN minecraft_ign TEXT;")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS bans (
@@ -72,6 +83,7 @@ def init_db():
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_discord ON applications (discord_id);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_status ON applications (status);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_ign ON applications (minecraft_ign);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_discord ON bans (discord_id);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_ign ON bans (minecraft_ign);")
     conn.close()
@@ -82,6 +94,7 @@ def create_application(
     discord_username: str,
     app_type: str,
     message: str,
+    minecraft_ign: Optional[str] = None,
 ) -> int:
     """Creates a new pending application."""
     init_db()
@@ -89,10 +102,10 @@ def create_application(
     with conn:
         cursor = conn.execute(
             """
-            INSERT INTO applications (discord_id, discord_username, app_type, message, status, updated_at)
-            VALUES (?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+            INSERT INTO applications (discord_id, discord_username, app_type, message, minecraft_ign, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
             """,
-            (str(discord_id), discord_username, app_type, message),
+            (str(discord_id), discord_username, app_type, message, minecraft_ign.strip() if minecraft_ign else None),
         )
         app_id = cursor.lastrowid
     conn.close()
@@ -344,7 +357,8 @@ def purge_user_history(discord_id: Optional[str] = None, minecraft_ign: Optional
             count += c1 + c2
         if minecraft_ign:
             c3 = conn.execute("DELETE FROM bans WHERE LOWER(minecraft_ign) = LOWER(?)", (minecraft_ign.strip(),)).rowcount
-            count += c3
+            c4 = conn.execute("DELETE FROM applications WHERE LOWER(minecraft_ign) = LOWER(?)", (minecraft_ign.strip(),)).rowcount
+            count += c3 + c4
     conn.close()
     return count
 

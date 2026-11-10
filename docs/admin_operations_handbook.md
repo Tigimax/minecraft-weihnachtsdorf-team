@@ -235,7 +235,32 @@ wd-admin list
 ```
 - Zeigt Staff-Mitglieder und reguläre Spieler getrennt mit Discord-Tag, verknüpftem Minecraft Ingame-Namen, UUID und Whitelist-Status (`[PRE-REGISTERED]` vs. `[WHITELISTED]`) an.
 
-#### 5. Benachrichtigungen per Bot senden (Notify / Broadcast)
+#### 5. Rolle eines bestehenden Accounts ändern
+```bash
+wd-admin role <target> <admin|mod|player> [--force]
+```
+- Ändert die Rolle eines existierenden Nutzers systemweit:
+  - Aktualisiert die Gruppen in OpenLDAP (`cn=wd_admins`, `cn=wd_mods` oder `cn=wd_players`).
+  - Setzt das Rollen-Attribut in Authentik und stößt LDAP-Synchronisation an.
+  - Passt Minecraft LuckPerms-Elterngruppen (`admin`, `mod`, `default`) und Whitelist sofort an.
+  - Aktualisiert das Discord `#spielerliste`-Board und schreibt ein Audit-Event in `#admin-logs`.
+- **Sicherheits-Schutz**: Die Vergabe der Rolle `admin` verlangt standardmäßig, dass der Nutzer Discord-Administrator-Rechte besitzt; die Vergabe der Rolle `mod` erfordert eine Discord-Moderator-Rolle (jeweils mit `--force` überstimmbar). Die Rollen geschützter System-Accounts (`tigimax`, `akadmin`) können nicht abgewandelt werden.
+
+#### 6. Temporäre Baurechte für Moderatoren (Pre-Launch)
+```bash
+# Moderator temporär für 3 Stunden freischalten (Whitelist + WorldEdit)
+wd-admin mod-access <target> 3
+
+# Alle aktuell aktiven temporären Baurechte anzeigen
+wd-admin mod-access --list
+
+# Baurechte vorzeitig entziehen
+wd-admin mod-access <target> --revoke
+```
+- **Moderatoren-Profil**: Moderatoren greifen vor allem direkt ingame ein, wenn Administratoren abwesend sind. Sie besitzen WorldEdit (`//wand`), CoreProtect (`/co`), Teleportations- und Moderationsbefehle (`/kick`, `/ban`, `/mute`, `/warn`, `/invsee`, `/vanish`, `/fly`), aber **keinen** Zugriff auf Admin-Kanäle (`#admin-logs`, `#admin-anträge`) oder Antrags-Reviews.
+- **Pre-Launch Schutz**: Vor Projektstart können Moderatoren den Server nur betreten, wenn ein Administrator ihnen ein temporäres Zeitfenster erteilt hat. Nach Ablauf wird der Whitelist-Zugang automatisch wieder gesperrt.
+
+#### 7. Benachrichtigungen per Bot senden (Notify / Broadcast)
 ```bash
 # Nachricht an alle Admins senden:
 wd-admin notify --role admin "Hallo Team, hier ist das neue Git-Repository: https://github.com/Tigimax/minecraft-weihnachtsdorf-team"
@@ -311,6 +336,8 @@ Neben der CLI bietet der Bot `WHD Privileges` eine vollwertige Administration ü
 | `/projekt-start` | Schaltet alle vorregistrierten Spieler auf der Whitelist und BlueMap frei | Admin |
 | `/projekt-sperren` | Versetzt Server in Pre-Launch/Wartungsmodus (Whitelist & BlueMap nur Staff) | Admin |
 | `/zugang-entziehen <user>` | Vollständiger Entzug über LDAP, Authentik, Planka, Whitelist & DB | Admin |
+| `/rolle <ziel> <rolle>` | Ändert die Rolle eines Nutzers (admin, mod, player) systemweit (Alias: `/role`) | Admin |
+| `/mod-baurecht <ziel> [stunden] [entziehen]` | Erteilt oder entzieht Moderatoren temporäre Bau- & Serverrechte vor dem Start | Admin |
 | `/account-loeschen <ziel> [grund]` | Löscht einen Account spurlos und vollständig aus allen Systemen (Purge) | Admin |
 | `/ban-spieler <user> [grund]` | Bannt Spieler auf Minecraft und sperrt BlueMap-Zugang (Alias: `/spieler-bannen`) | Staff |
 | `/pardon-spieler <user>` | Hebt Sperre auf Minecraft und BlueMap wieder auf (Alias: `/spieler-entbannen`) | Staff |

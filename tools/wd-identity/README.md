@@ -131,7 +131,26 @@ wd-admin list
 ```
 Gibt eine tabellarische Übersicht aller Staff-Mitglieder sowie aller regulären Spieler mit Rolle, Discord-Tag, Minecraft-IGN, UUID und Whitelist-Status (`[PRE-REGISTERED]` vs. `[WHITELISTED]`) aus.
 
-### 5. Benachrichtigungen per Bot senden (Notify / Broadcast)
+### 5. Rolle eines Accounts ändern
+```bash
+wd-admin role <target> <admin|mod|player> [--force]
+```
+- Passt die Rolle eines existierenden Accounts (UID, Discord-Tag/ID, IGN) systemweit an:
+  - Aktualisiert die Gruppen in OpenLDAP (`cn=wd_admins`, `cn=wd_mods`, `cn=wd_players`).
+  - Setzt Rollen-Attribute in Authentik und triggert LDAP-Sync.
+  - Aktualisiert Minecraft LuckPerms-Parent (`admin`, `mod`, `default`) und Whitelist.
+  - Synchronisiert das Live-Board in `#📝teilnehmerliste` und loggt nach `#📜admin-logs`.
+
+### 6. Temporäre Baurechte für Moderatoren (Pre-Launch)
+```bash
+wd-admin mod-access <target> <hours>
+wd-admin mod-access --list
+wd-admin mod-access <target> --revoke
+```
+- Erteilt Moderatoren zeitlich begrenzte Baurechte (z. B. 3 Stunden) vor offiziellem Projektstart.
+- Whitelistet den Moderator, weist LuckPerms-Gruppe `mod` (WorldEdit, CoreProtect, TP, etc.) zu und sendet eine Discord-Benachrichtigung.
+
+### 7. Benachrichtigungen per Bot senden (Notify / Broadcast)
 ```bash
 # Nachricht an alle Admins senden
 wd-admin notify --role admin "Hallo Team, hier ist der Link zum Git: https://github.com/Tigimax/minecraft-weihnachtsdorf-team"

@@ -4,6 +4,7 @@ Interacts with Pterodactyl Wings API on Node 2 to manage whitelist and LuckPerms
 Includes state tracking for idempotency and automatic revocation of removed staff.
 """
 
+from datetime import datetime, timezone, timedelta
 import json
 import logging
 from pathlib import Path
@@ -33,6 +34,13 @@ PROJECT_STATE_PATHS = [
     Path("/tmp/wd_project_state.json"),
 ]
 
+MOD_GRANTS_PATHS = [
+    Path("/var/lib/wd-identity/mod_build_grants.json"),
+    Path("/opt/wd-identity/.mod_build_grants.json"),
+    Path.home() / ".mod_build_grants.json",
+    Path("/tmp/mod_build_grants.json"),
+]
+
 
 class MinecraftSyncClient:
     def __init__(self):
@@ -42,6 +50,235 @@ class MinecraftSyncClient:
         self.ldap = LDAPClient()
         self.state_file = self._resolve_state_file()
         self.project_state_file = self._resolve_project_state_file()
+        self.mod_grants_file = self._resolve_mod_grants_file()
+
+    def _resolve_mod_grants_file(self) -> Path:
+        for p in MOD_GRANTS_PATHS:
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                if not p.exists() or p.stat().st_size == 0:
+                    with open(p, "w", encoding="utf-8") as f:
+                        json.dump({}, f, indent=2)
+                return p
+            except (OSError, PermissionError):
+                continue
+        fallback = Path("/tmp/mod_build_grants.json")
+        if not fallback.exists() or fallback.stat().st_size == 0:
+            try:
+                with open(fallback, "w", encoding="utf-8") as f:
+                    json.dump({}, f, indent=2)
+            except Exception:
+                pass
+        return fallback
+
+    def _load_mod_grants(self) -> Dict[str, Any]:
+        if self.mod_grants_file.exists():
+            try:
+                with open(self.mod_grants_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Could not read mod grants file {self.mod_grants_file}: {e}")
+        return {}
+
+    def _save_mod_grants(self, grants: Dict[str, Any]) -> None:
+        try:
+            with open(self.mod_grants_file, "w", encoding="utf-8") as f:
+                json.dump(grants, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Could not save mod grants file {self.mod_grants_file}: {e}")
+
+    def get_active_mod_grants(self) -> Dict[str, Any]:
+        """Returns all currently active (unexpired) temporary mod build grants."""
+        raw = self._load_mod_grants()
+        now = datetime.now(timezone.utc)
+        active = {}
+        has_expired = False
+
+        for k, v in raw.items():
+            exp_str = v.get("expires_at")
+            if not exp_str:
+                continue
+            try:
+                exp_dt = datetime.fromisoformat(exp_str)
+                if exp_dt > now:
+                    active[k] = v
+                else:
+                    has_expired = True
+            except Exception:
+                has_expired = True
+
+        if has_expired:
+            self._save_mod_grants(active)
+
+        return active
+
+    def has_active_mod_grant(self, uid: str, ign: Optional[str] = None) -> bool:
+        """Checks if a given mod UID or IGN currently has an active build grant."""
+        active = self.get_active_mod_grants()
+        if uid in active:
+            return True
+        if ign:
+            for g in active.values():
+                if g.get("ign") and g.get("ign").lower() == ign.lower():
+                    return True
+        return False
+
+    def setup_mod_permissions(self) -> bool:
+        """Configures LuckPerms group 'mod' with required moderator permissions."""
+        cmds = [
+            'lp group mod meta setprefix 50 "&9[Mod] &r"',
+            # WorldEdit
+            "lp group mod permission set worldedit.* true",
+            # CoreProtect
+            "lp group mod permission set coreprotect.* true",
+            # Teleport & Info
+            "lp group mod permission set minecraft.command.tp true",
+            "lp group mod permission set minecraft.command.teleport true",
+            "lp group mod permission set essentials.tp true",
+            "lp group mod permission set essentials.tphere true",
+            "lp group mod permission set essentials.tpa true",
+            "lp group mod permission set essentials.tpahere true",
+            "lp group mod permission set essentials.invsee true",
+            "lp group mod permission set essentials.vanish true",
+            "lp group mod permission set essentials.gamemode true",
+            "lp group mod permission set essentials.fly true",
+            # Moderation
+            "lp group mod permission set minecraft.command.kick true",
+            "lp group mod permission set minecraft.command.ban true",
+            "lp group mod permission set essentials.kick true",
+            "lp group mod permission set essentials.ban true",
+            "lp group mod permission set essentials.tempban true",
+            "lp group mod permission set essentials.mute true",
+            "lp group mod permission set essentials.tempmute true",
+            "lp group mod permission set essentials.warn true",
+            "lp group mod permission set essentials.helpop.receive true",
+        ]
+        return self.execute_commands(cmds)
+
+    def grant_mod_build_access(
+        self, target: str, duration_hours: float, initiator: str = "Admin"
+    ) -> Dict[str, Any]:
+        """
+        Grants a moderator temporary building rights (whitelist + WorldEdit + mod role)
+        during the pre-launch phase for the specified number of hours.
+        """
+        clean_target = str(target).strip()
+        user = (
+            self.ldap.get_user(clean_target)
+            or self.ldap.search_by_discord(clean_target)
+            or self.ldap.search_by_minecraft(clean_target)
+        )
+        if not user:
+            raise ValueError(f"Benutzer '{clean_target}' konnte in LDAP nicht gefunden werden.")
+
+        uid = user["uid"]
+        user_dn = user["dn"]
+        mod_dns = set(self.ldap.get_group_members(self.ldap.mod_group_dn))
+        if user_dn not in mod_dns:
+            raise ValueError(f"Benutzer '{uid}' ist kein Mitglied der Gruppe 'mod'. Baurechte können nur Moderatoren gewährt werden.")
+
+        ign = user.get("minecraftName")
+        if not ign:
+            raise ValueError(f"Moderator '{uid}' hat keinen Minecraft Ingame-Namen verknüpft.")
+
+        mc_uuid = user.get("minecraftUuid")
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(hours=duration_hours)
+
+        grants = self._load_mod_grants()
+        grants[uid] = {
+            "uid": uid,
+            "ign": ign,
+            "uuid": mc_uuid,
+            "granted_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "duration_hours": duration_hours,
+            "initiator": initiator,
+        }
+        self._save_mod_grants(grants)
+
+        # Ensure permissions and whitelist
+        self.setup_mod_permissions()
+        target_lp = mc_uuid if mc_uuid else ign
+        self.execute_commands([
+            f"whitelist add {ign}",
+            f"lp user {target_lp} parent set mod",
+        ])
+
+        # Send DM notification to mod
+        discord_handle = user.get("discordId") or user.get("discordName")
+        if discord_handle:
+            try:
+                from wd_identity.utils import send_dm
+                exp_local = expires_at.strftime("%H:%M UTC")
+                msg = (
+                    f"🔨 **Temporäre Baurechte aktiviert!**\n\n"
+                    f"Hallo {uid}, dir wurden soeben von **{initiator}** für **{duration_hours:g} Stunde(n)** "
+                    f"Baurechte auf dem Server freigeschaltet (gültig bis {exp_local}).\n"
+                    f"Du kannst den Server ab sofort betreten und WorldEdit für Vorbereitungen nutzen.\n"
+                    f"Nach Ablauf des Zeitfensters wird dein Zugang automatisch wieder in den Wartungsmodus versetzt."
+                )
+                send_dm(discord_handle, msg)
+            except Exception as e:
+                logger.warning(f"Could not send build grant DM to {uid}: {e}")
+
+        # Audit logging
+        try:
+            from wd_identity.audit_logger import log_admin_event, COLOR_INFO
+            log_admin_event(
+                title="🔨 Temporäre Baurechte für Mod erteilt",
+                description=f"Dem Moderator **{uid}** (`{ign}`) wurden für **{duration_hours:g}h** Baurechte auf dem Server erteilt.",
+                color=COLOR_INFO,
+                fields=[
+                    {"name": "Moderator", "value": f"`{uid}` ({ign})", "inline": True},
+                    {"name": "Dauer", "value": f"{duration_hours:g} Stunde(n)", "inline": True},
+                    {"name": "Gültig bis", "value": expires_at.strftime("%Y-%m-%d %H:%M UTC"), "inline": True},
+                    {"name": "Erteilt von", "value": initiator, "inline": True},
+                ],
+                author_name=initiator,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to post audit log for mod build grant: {e}")
+
+        return grants[uid]
+
+    def revoke_mod_build_access(self, target: str, initiator: str = "Admin") -> Dict[str, Any]:
+        """Revokes temporary building access from a moderator."""
+        clean_target = str(target).strip()
+        user = (
+            self.ldap.get_user(clean_target)
+            or self.ldap.search_by_discord(clean_target)
+            or self.ldap.search_by_minecraft(clean_target)
+        )
+        uid = user["uid"] if user else clean_target
+        ign = user.get("minecraftName") if user else clean_target
+
+        grants = self._load_mod_grants()
+        had_grant = grants.pop(uid, None)
+        self._save_mod_grants(grants)
+
+        if not self.is_project_launched() and ign:
+            self.execute_commands([
+                f"whitelist remove {ign}",
+                f'kick {ign} "Temporäre Baurechte beendet (Pre-Launch)"',
+            ])
+
+        try:
+            from wd_identity.audit_logger import log_admin_event, COLOR_WARNING
+            log_admin_event(
+                title="🛑 Temporäre Baurechte für Mod beendet",
+                description=f"Die Baurechte von **{uid}** wurden vorzeitig beendet.",
+                color=COLOR_WARNING,
+                fields=[
+                    {"name": "Moderator", "value": f"`{uid}`", "inline": True},
+                    {"name": "Beendet von", "value": initiator, "inline": True},
+                ],
+                author_name=initiator,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to post audit log for mod build revocation: {e}")
+
+        return {"success": True, "uid": uid, "had_grant": bool(had_grant)}
 
     def _resolve_project_state_file(self) -> Path:
         for p in PROJECT_STATE_PATHS:
@@ -192,11 +429,22 @@ class MinecraftSyncClient:
                 )
                 return True
 
-        if clean_role not in ("admin", "mod"):
-            logger.warning(f"Unknown role {clean_role}, defaulting to mod")
-            clean_role = "mod"
+        if clean_role == "mod":
+            self.setup_mod_permissions()
+            has_grant = self.has_active_mod_grant(uid=ign, ign=ign)
+            if self.is_project_launched() or has_grant:
+                cmds = self._build_set_role_commands(ign, "mod", mc_uuid)
+                return self.execute_commands(cmds)
+            else:
+                logger.info(
+                    f"Mod '{ign}' registered in pre-launch mode without active build grant. Whitelist will activate at launch or upon grant."
+                )
+                return True
 
-        cmds = self._build_set_role_commands(ign, clean_role, mc_uuid)
+        if clean_role != "admin":
+            logger.warning(f"Unknown role {clean_role}, defaulting to admin")
+
+        cmds = self._build_set_role_commands(ign, "admin", mc_uuid)
         if not cmds:
             return False
         return self.execute_commands(cmds)
@@ -293,6 +541,7 @@ class MinecraftSyncClient:
                 unchanged_users.append({"uid": uid, "ign": ign, "role": "admin"})
 
         # Process Mods
+        active_grants = self.get_active_mod_grants()
         for mod in mods:
             uid = mod["uid"]
             ign = mod.get("minecraftName")
@@ -304,12 +553,24 @@ class MinecraftSyncClient:
                 skipped_users.append({"uid": uid, "reason": f"Invalid Minecraft IGN: {ign}"})
                 continue
 
-            current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": True}
-            if force or uid not in prev_state or prev_state[uid] != current_state[uid]:
-                commands_to_run.extend(self._build_set_role_commands(ign, "mod", mc_uuid))
-                synced_mods.append({"uid": uid, "ign": ign, "uuid": mc_uuid})
+            has_grant = uid in active_grants or any(g.get("ign", "").lower() == ign.lower() for g in active_grants.values())
+            is_mod_whitelisted = is_launched or has_grant
+
+            if is_mod_whitelisted:
+                current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": True}
+                if force or uid not in prev_state or prev_state[uid] != current_state[uid]:
+                    commands_to_run.extend(self._build_set_role_commands(ign, "mod", mc_uuid))
+                    synced_mods.append({"uid": uid, "ign": ign, "uuid": mc_uuid})
+                else:
+                    unchanged_users.append({"uid": uid, "ign": ign, "role": "mod"})
             else:
-                unchanged_users.append({"uid": uid, "ign": ign, "role": "mod"})
+                current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": False}
+                if prev_state.get(uid, {}).get("whitelisted") is True:
+                    commands_to_run.append(f"whitelist remove {ign}")
+                    commands_to_run.append(f'kick {ign} "Bau-Zeitfenster abgelaufen (Pre-Launch)"')
+                    revoked_users.append({"uid": uid, "ign": ign, "uuid": mc_uuid})
+                else:
+                    staged_players.append({"uid": uid, "ign": ign, "uuid": mc_uuid, "role": "mod"})
 
         # Process Players
         for player in players:
@@ -382,15 +643,20 @@ class MinecraftSyncClient:
                 return {}
             data = r.json()
             util = data.get("utilization", {})
+            config_build = data.get("configuration", {}).get("build", {})
             mem_bytes = util.get("memory_bytes", 0)
             mem_limit = util.get("memory_limit_bytes", 0)
+            disk_bytes = util.get("disk_bytes", 0)
+            disk_limit_mb = config_build.get("disk_space", 0)
             return {
                 "state": util.get("state") or data.get("state", "unknown"),
                 "cpu_percent": round(util.get("cpu_absolute", 0.0), 1),
                 "memory_used_mb": round(mem_bytes / (1024 * 1024), 1),
                 "memory_max_mb": round(mem_limit / (1024 * 1024), 1),
                 "memory_percent": round((mem_bytes / mem_limit) * 100, 1) if mem_limit else 0.0,
-                "disk_used_mb": round(util.get("disk_bytes", 0) / (1024 * 1024), 1),
+                "disk_used_mb": round(disk_bytes / (1024 * 1024), 1),
+                "disk_max_mb": round(disk_limit_mb, 1),
+                "disk_percent": round((disk_bytes / (disk_limit_mb * 1024 * 1024)) * 100, 1) if disk_limit_mb else 0.0,
                 "uptime_seconds": round(util.get("uptime", 0) / 1000),
             }
         except Exception as e:

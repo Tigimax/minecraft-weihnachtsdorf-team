@@ -8,14 +8,14 @@ import logging
 from typing import Any, Dict, Optional, Union
 
 from wd_identity import applications
-from wd_identity.audit_logger import COLOR_ERROR, COLOR_INFO, COLOR_WARNING, log_admin_event
+from wd_identity.audit_logger import COLOR_ERROR, COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING, log_admin_event
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity.config import settings
 from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.planka_sync import PlankaSyncClient
 from wd_identity.playerlist import sync_playerlist_rest
-from wd_identity.utils import sanitize_username
+from wd_identity.utils import check_is_discord_admin, check_is_discord_mod, sanitize_username
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +108,6 @@ def revoke_user_privileges(
     # 2. Authentik IdP: Deactivate user and block BlueMap policy, delete pending invitations
     auth_deact_ok = authentik.deactivate_user(username)
     auth_ban_ok = authentik.set_user_banned(username, True)
-    for grp in ("wd_admins", "wd_mods", "wd_players"):
-        authentik.remove_user_from_group(username, grp)
     inv_del_count = authentik.delete_invitations(username)
     if discord_name and discord_name != username:
         inv_del_count += authentik.delete_invitations(discord_name)
@@ -257,6 +255,14 @@ def restore_user_privileges(
     if not user:
         raise ValueError(f"Benutzer '{target_str}' konnte in LDAP nicht gefunden werden.")
 
+    # If resolved to a protected system account without Minecraft IGN (e.g. 'tigimax'),
+    # but a corresponding player account (e.g. 'tigimax_player') exists, target the player account.
+    if user.get("uid", "").lower() in PROTECTED_INTERNAL_ACCOUNTS and not user.get("minecraftName"):
+        player_alt = ldap.get_user(f"{user['uid']}_player")
+        if player_alt:
+            logger.info(f"Target '{target_str}' resolved to player account '{player_alt['uid']}' instead of system account '{user['uid']}'.")
+            user = player_alt
+
     username = user["uid"]
     user_dn = user["dn"]
     discord_id = user.get("discordId")
@@ -269,10 +275,9 @@ def restore_user_privileges(
     target_group_dn = ldap.admin_group_dn if clean_role == "admin" else ldap.player_group_dn
     ldap.add_member_to_group(target_group_dn, user_dn)
 
-    # 2. Authentik: activate, unban & sync role group
+    # 2. Authentik: activate & unban
     authentik.activate_user(username)
     authentik.set_user_banned(username, False)
-    authentik.sync_user_groups(username, clean_role)
 
     try:
         authentik.trigger_ldap_sync()
@@ -318,6 +323,187 @@ def restore_user_privileges(
     return {
         "success": True,
         "username": username,
+        "role": clean_role,
+        "minecraft_name": ign,
+        "minecraft_uuid": mc_uuid,
+    }
+
+
+def set_user_role(
+    target: Union[str, Dict[str, Any]],
+    role: str,
+    initiator: str = "Admin",
+    force: bool = False,
+) -> Dict[str, Any]:
+    """
+    Changes a user's role across OpenLDAP, Authentik, Minecraft (LuckPerms & Whitelist),
+    and updates the Discord #spielerliste live board and #admin-logs.
+
+    ROLE can be 'admin', 'mod', or 'player'.
+    TARGET can be an LDAP user dict, Discord ID, Discord name, or username/IGN.
+    """
+    clean_role = (role or "player").lower().strip()
+    if clean_role not in ("admin", "mod", "player"):
+        raise ValueError(f"Ungültige Rolle '{role}'. Erlaubt sind: admin, mod, player.")
+
+    ldap = LDAPClient()
+    authentik = AuthentikClient()
+    mc = MinecraftSyncClient()
+
+    user = None
+    target_str = ""
+
+    if isinstance(target, dict) and "uid" in target:
+        user = target
+        target_str = user["uid"]
+    else:
+        target_str = str(target).strip()
+        if target_str.isdigit():
+            user = ldap.search_by_discord(target_str)
+        if not user:
+            user = (
+                ldap.get_user(target_str)
+                or ldap.search_by_discord(target_str)
+                or ldap.search_by_minecraft(target_str)
+            )
+
+    if not user:
+        raise ValueError(f"Benutzer '{target_str}' konnte in LDAP nicht gefunden werden.")
+
+    # If resolved to a protected system account without Minecraft IGN (e.g. 'tigimax'),
+    # but a corresponding player account (e.g. 'tigimax_player') exists, target the player account.
+    if user.get("uid", "").lower() in PROTECTED_INTERNAL_ACCOUNTS and not user.get("minecraftName"):
+        player_alt = ldap.get_user(f"{user['uid']}_player")
+        if player_alt:
+            logger.info(f"Target '{target_str}' resolved to player account '{player_alt['uid']}' instead of system account '{user['uid']}'.")
+            user = player_alt
+
+    username = user["uid"]
+    user_dn = user["dn"]
+    discord_id = user.get("discordId")
+    discord_name = user.get("discordName")
+    ign = user.get("minecraftName")
+    mc_uuid = user.get("minecraftUuid")
+
+    # Determine old role from current LDAP groups
+    try:
+        admin_dns = set(ldap.get_group_members(ldap.admin_group_dn))
+        mod_dns = set(ldap.get_group_members(ldap.mod_group_dn))
+        if user_dn in admin_dns:
+            old_role = "admin"
+        elif user_dn in mod_dns:
+            old_role = "mod"
+        else:
+            old_role = "player"
+    except Exception:
+        old_role = user.get("role") or "player"
+
+    if username.lower() in PROTECTED_INTERNAL_ACCOUNTS and clean_role != "admin":
+        raise PermissionError(
+            f"Rolle des geschützten System-Accounts '{username}' kann nicht von admin abgewandelt werden."
+        )
+
+    # Security check: Admin role requires user to already be Discord Admin unless force is specified
+    if clean_role == "admin" and not force:
+        check_target = discord_id or discord_name or username
+        if check_target:
+            is_admin, admin_reason = check_is_discord_admin(check_target)
+            if not is_admin:
+                raise PermissionError(
+                    f"SICHERHEITSSPERRE: Der Nutzer '{check_target}' besitzt keine Discord-Administrator-Rechte!\n"
+                    f"Grund: {admin_reason}\n"
+                    f"Voraussetzung: Nur bestehende Discord-Administratoren können als 'admin' festgelegt werden."
+                )
+
+    # Security check: Mod role requires user to already be Discord Moderator or Admin unless force is specified
+    if clean_role == "mod" and not force:
+        check_target = discord_id or discord_name or username
+        if check_target:
+            is_mod, mod_reason = check_is_discord_mod(check_target)
+            if not is_mod:
+                raise PermissionError(
+                    f"SICHERHEITSSPERRE: Der Nutzer '{check_target}' besitzt keine Discord-Moderator-Rechte!\n"
+                    f"Grund: {mod_reason}\n"
+                    f"Voraussetzung: Nur bestehende Discord-Moderatoren können als 'mod' festgelegt werden."
+                )
+
+    # 1. OpenLDAP: assign to target group and remove from other role groups
+    if clean_role == "admin":
+        target_group = ldap.admin_group_dn
+        remove_groups = [ldap.mod_group_dn, ldap.player_group_dn]
+    elif clean_role == "mod":
+        target_group = ldap.mod_group_dn
+        remove_groups = [ldap.admin_group_dn, ldap.player_group_dn]
+    else:
+        target_group = ldap.player_group_dn
+        remove_groups = [ldap.admin_group_dn, ldap.mod_group_dn]
+
+    ldap.add_member_to_group(target_group, user_dn)
+    for rg in remove_groups:
+        ldap.remove_member_from_group(rg, user_dn)
+
+    # 2. Authentik IdP: Update role attribute, sync group membership, and invalidate active proxy sessions
+    try:
+        authentik.set_user_attributes(username, {"role": clean_role})
+        authentik.sync_user_groups(username, clean_role)
+        authentik.revoke_proxy_sessions(username)
+        authentik.trigger_ldap_sync()
+    except Exception as e:
+        logger.warning(f"Fehler bei Authentik-Rollenupdate für {username}: {e}")
+
+    # 3. Minecraft Server: LuckPerms & Whitelist
+    mc_ok = False
+    if ign:
+        try:
+            target_lp = mc_uuid if mc_uuid else ign
+            mc.execute_commands([
+                f"lp user {target_lp} parent remove admin",
+                f"lp user {target_lp} parent remove mod",
+            ])
+            mc_ok = mc.set_player_role(ign, clean_role, mc_uuid=mc_uuid)
+            mc.sync_all(force=True)
+        except Exception as e:
+            logger.error(f"Fehler bei Minecraft Rollen-Sync für {ign}: {e}")
+
+    # 4. Audit Logging to #admin-logs
+    try:
+        log_admin_event(
+            title="🎭 Rolle geändert",
+            description=f"Die Rolle von **{discord_name or username}** wurde von `{old_role.upper()}` auf `{clean_role.upper()}` geändert.",
+            color=COLOR_SUCCESS,
+            fields=[
+                {"name": "Benutzername", "value": f"`{username}`", "inline": True},
+                {"name": "Neue Rolle", "value": f"**{clean_role.upper()}**", "inline": True},
+                {"name": "Vorherige Rolle", "value": f"`{old_role.upper()}`", "inline": True},
+                {"name": "Minecraft IGN", "value": f"`{ign}`" if ign else "Kein IGN", "inline": True},
+                {"name": "Geändert von", "value": initiator, "inline": True},
+            ],
+            author_name=initiator,
+        )
+    except Exception as e:
+        logger.error(f"Failed to post audit log for role change of {username}: {e}")
+
+    # 5. Synchronize Playerlist live embed
+    try:
+        sync_playerlist_rest(force=True)
+    except Exception as e:
+        logger.warning(f"Failed to update playerlist board after role change: {e}")
+
+    # 6. Dispatch role-specific explanation message via Discord DM
+    if clean_role == "mod":
+        try:
+            from wd_identity.discord_bot import get_mod_welcome_message
+            from wd_identity.utils import send_dm
+            dm_target = discord_id or discord_name or username
+            mod_text = get_mod_welcome_message(username, ign=ign or "")
+            send_dm(dm_target, mod_text)
+        except Exception as e:
+            logger.warning(f"Failed to send mod onboarding message to {username}: {e}")
+
+    return {
+        "success": True,
+        "username": username,
+        "old_role": old_role,
         "role": clean_role,
         "minecraft_name": ign,
         "minecraft_uuid": mc_uuid,

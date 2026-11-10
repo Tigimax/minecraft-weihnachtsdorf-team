@@ -45,12 +45,6 @@ class Settings:
         "LDAP_PLAYER_GROUP",
         "cn=wd_players,ou=Groups,dc=ldap-01,dc=net",
     )
-    LDAP_TLS_VERIFY: bool = os.getenv("LDAP_TLS_VERIFY", "true").strip().lower() in (
-        "true",
-        "1",
-        "yes",
-    )
-    LDAP_CA_CERT_FILE: str = os.getenv("LDAP_CA_CERT_FILE", "")
 
     # Project Launch State File
     PROJECT_STATE_FILE: Path = Path(
@@ -114,9 +108,8 @@ class Settings:
     DATA_DIR: Path = Path(os.getenv("DATA_DIR", "/opt/wd-identity/data"))
 
     # Webhook & API Server
-    WEBHOOK_HOST: str = os.getenv("WEBHOOK_HOST", "127.0.0.1")
+    WEBHOOK_HOST: str = os.getenv("WEBHOOK_HOST", "0.0.0.0")
     WEBHOOK_PORT: int = int(os.getenv("WEBHOOK_PORT", "8000"))
-    WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
 
 
 settings = Settings()

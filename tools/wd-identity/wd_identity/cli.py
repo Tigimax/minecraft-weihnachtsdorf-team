@@ -395,6 +395,103 @@ def notify_cmd(
         sys.exit(1)
 
 
+@cli.command("role")
+@click.argument("target")
+@click.argument("role", type=click.Choice(["admin", "mod", "player"], case_sensitive=False))
+@click.option("--force", "-f", is_flag=True, help="Sicherheitsprüfungen (z. B. Discord Admin) überspringen.")
+def role_cmd(target: str, role: str, force: bool):
+    """
+    Ändert die Rolle eines Nutzers (admin, mod, player) über alle Systeme hinweg
+    (OpenLDAP, Authentik, LuckPerms, Whitelist, Spielerliste).
+    TARGET kann UID, Discord-Tag, Discord-ID oder Ingame-Name sein.
+    """
+    from wd_identity.membership import set_user_role
+    clean_target = target.strip()
+    clean_role = role.lower().strip()
+    click.echo(f"[*] Ändere Rolle von '{clean_target}' auf '{clean_role}'...")
+    try:
+        res = set_user_role(clean_target, clean_role, initiator="wd-admin CLI", force=force)
+        click.secho(
+            f"\n[+] Rolle für '{res['username']}' erfolgreich auf '{res['role'].upper()}' geändert!\n"
+            f"    • Vorherige Rolle: {res.get('old_role', 'unbekannt').upper()}\n"
+            f"    • OpenLDAP: Gruppenmitgliedschaft aktualisiert ({res['role']})\n"
+            f"    • Authentik: Attribute & LDAP-Sync ausgelöst\n"
+            f"    • Minecraft: LuckPerms & Whitelist angepasst\n"
+            f"    • Spielerliste: Aktualisiert\n",
+            fg="green",
+        )
+    except Exception as e:
+        click.secho(f"[-] Fehler: {e}", fg="red")
+        sys.exit(1)
+
+
+@cli.command("mod-access")
+@click.argument("target", required=False)
+@click.argument("hours", type=float, required=False)
+@click.option("--revoke", "-r", is_flag=True, help="Temporäre Baurechte sofort entziehen.")
+@click.option("--list", "-l", "list_grants", is_flag=True, help="Alle aktiven temporären Baurechte auflisten.")
+def mod_access_cmd(target: Optional[str], hours: Optional[float], revoke: bool, list_grants: bool):
+    """
+    Vergibt oder entzieht einem Moderator temporäre Bau- und Serverrechte (Pre-Launch).
+    Beispiel: wd-admin mod-access GamerMod 3
+    """
+    mc = MinecraftSyncClient()
+
+    if list_grants or (not target and not revoke):
+        grants = mc.get_active_mod_grants()
+        if not grants:
+            click.echo("[*] Keine aktiven temporären Baurechte für Moderatoren vergeben.")
+            return
+
+        click.secho(f"\n=== Aktive temporäre Baurechte ({len(grants)} Moderator(en)) ===\n", bold=True)
+        fmt = "{:<16} {:<18} {:<12} {:<24} {:<16}"
+        click.secho(fmt.format("MODERATOR", "MINECRAFT IGN", "DAUER", "GÜLTIG BIS (UTC)", "ERTEILT VON"), bold=True)
+        click.echo("-" * 90)
+        for g in grants.values():
+            click.echo(
+                fmt.format(
+                    g.get("uid", "-"),
+                    g.get("ign", "-"),
+                    f"{g.get('duration_hours', 0):g}h",
+                    g.get("expires_at", "-")[:19].replace("T", " "),
+                    g.get("initiator", "-"),
+                )
+            )
+        click.echo("")
+        return
+
+    if not target:
+        click.secho("[-] Bitte gib einen Moderator an.", fg="red")
+        sys.exit(1)
+
+    clean_target = target.strip()
+    if revoke:
+        click.echo(f"[*] Entziehe temporäre Baurechte von '{clean_target}'...")
+        res = mc.revoke_mod_build_access(clean_target, initiator="wd-admin CLI")
+        click.secho(f"[+] Baurechte für '{res['uid']}' wurden erfolgreich beendet.", fg="green")
+        return
+
+    if hours is None or hours <= 0:
+        click.secho("[-] Bitte gib eine gültige Dauer in Stunden an (z. B. '3' für 3 Stunden).", fg="red")
+        sys.exit(1)
+
+    click.echo(f"[*] Erteile temporäre Baurechte für '{clean_target}' ({hours:g} Stunde(n))...")
+    try:
+        grant = mc.grant_mod_build_access(clean_target, hours, initiator="wd-admin CLI")
+        click.secho(
+            f"\n[+] Temporäre Baurechte für '{grant['uid']}' ({grant['ign']}) erfolgreich aktiviert!\n"
+            f"    • Dauer: {grant['duration_hours']:g} Stunde(n)\n"
+            f"    • Gültig bis: {grant['expires_at'][:19].replace('T', ' ')} UTC\n"
+            f"    • Whitelist: Aktiviert\n"
+            f"    • LuckPerms: Gruppe 'mod' (inkl. WorldEdit & CoreProtect) zugewiesen\n"
+            f"    • Benachrichtigung: Per Discord-DM an Moderator zugestellt\n",
+            fg="green",
+        )
+    except Exception as e:
+        click.secho(f"[-] Fehler: {e}", fg="red")
+        sys.exit(1)
+
+
 @cli.command("list")
 def list_cmd():
     """

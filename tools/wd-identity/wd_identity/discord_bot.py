@@ -2705,75 +2705,179 @@ async def cmd_spieler_zuruecksetzen(interaction: discord.Interaction):
 
 @tree.command(
     name="status",
-    description="Zeigt deinen aktuellen Account-Status und deine Berechtigungen an.",
+    description="Zeigt den Account- und Freischaltungs-Status eines Spielers oder dir selbst an.",
 )
-async def cmd_status(interaction: discord.Interaction):
+@app_commands.describe(
+    spieler="Optional: Spieler-IGN, Discord @Mention, Discord-Name oder Username (Standard: dein Account)",
+)
+async def cmd_status(
+    interaction: discord.Interaction,
+    spieler: Optional[str] = None,
+):
     await interaction.response.defer(ephemeral=True)
     ldap = LDAPClient()
+    mc = MinecraftSyncClient()
+    is_live = mc.is_project_launched()
+    is_admin = is_admin_user(interaction.user)
 
-    discord_tag = interaction.user.name
-    discord_id = str(interaction.user.id)
+    user = None
+    target_input = (spieler or "").strip()
 
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
-    if not user:
-        await interaction.followup.send(
-            "❌ Kein verknüpfter Account gefunden.",
-            ephemeral=True,
-        )
-        return
+    if target_input:
+        clean_target = target_input.replace("<@", "").replace(">", "").replace("!", "").strip().lstrip("@")
+        if clean_target.isdigit():
+            user = ldap.search_by_discord(clean_target)
+        if not user:
+            user = (
+                ldap.get_user(clean_target)
+                or ldap.search_by_minecraft(clean_target)
+                or ldap.search_by_discord(clean_target)
+            )
+        if not user:
+            try:
+                from wd_identity.utils import resolve_discord_user
+                d_id, _ = resolve_discord_user(clean_target)
+                if d_id:
+                    user = ldap.search_by_discord(d_id)
+            except Exception:
+                pass
 
+        if not user:
+            await interaction.followup.send(
+                f"❌ Kein registrierter Spieler mit der Angabe `{target_input}` gefunden.\n"
+                f"*Hinweis: Du kannst nach Minecraft Ingame-Namen, Discord-Namen oder LDAP-Benutzernamen suchen.*",
+                ephemeral=True,
+            )
+            return
+    else:
+        discord_tag = interaction.user.name
+        discord_id = str(interaction.user.id)
+        user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
+        if not user:
+            user = ldap.get_user(interaction.user.name.lower())
+
+        if not user:
+            await interaction.followup.send(
+                "❌ Kein verknüpfter Account für dein Discord-Profil gefunden.\n"
+                "Falls du noch nicht registriert bist, nutze `/anmelden` oder reiche eine Bewerbung ein.",
+                ephemeral=True,
+            )
+            return
+
+    # Check staff / role
     admins, mods = ldap.get_admins_and_mods()
     players = ldap.get_players()
     admin_uids = [a["uid"] for a in admins]
     mod_uids = [m["uid"] for m in mods]
     player_uids = [p["uid"] for p in players]
 
-    mc = MinecraftSyncClient()
-    is_live = mc.is_project_launched()
+    uid = user.get("uid", "")
+    ign = user.get("minecraftName") or ""
+    mc_uuid = user.get("minecraftUuid") or ""
+    d_name = user.get("discordName") or ""
+    d_id = user.get("discordId") or ""
 
-    if user["uid"] in admin_uids:
-        role = "Administrator 🔴"
-        whitelist_info = "Aktiviert (Staff)"
-    elif user["uid"] in mod_uids:
-        role = "Moderator 🟡"
-        whitelist_info = "Aktiviert (Staff)"
-    elif user["uid"] in player_uids:
-        role = "Spieler 🟢"
+    # Determine role
+    if uid in admin_uids:
+        role_title = "Administrator 🔴"
+        role_type = "admin"
+        whitelist_info = "🟢 Aktiviert (Projektleitung / Staff)"
+        bluemap_info = "🟢 Freigeschaltet (Vollzugriff)"
+    elif uid in mod_uids:
+        role_title = "Moderator 🟡"
+        role_type = "mod"
+        has_grant = mc.has_active_mod_grant(uid=uid, ign=ign)
         if is_live:
-            whitelist_info = "Aktiviert (Live)"
+            whitelist_info = "🟢 Aktiviert (Live)"
+        elif has_grant:
+            whitelist_info = "🟢 Aktiviert (Temporäre Baurechte)"
         else:
-            whitelist_info = "Vorab registriert (Freischaltung zum Projektstart 🎅)"
+            whitelist_info = "⏳ Vorab registriert (Aktiv bei Baurechten / Projektstart)"
+        bluemap_info = "🟢 Freigeschaltet (Staff-Zugang)"
+    elif uid in player_uids:
+        role_title = "Spieler 🟢"
+        role_type = "player"
+        if is_live:
+            whitelist_info = "🟢 Aktiviert (Live auf Server)"
+            bluemap_info = "🟢 Freigeschaltet"
+        else:
+            whitelist_info = "⏳ Vorab registriert (Freischaltung zum Projektstart 🎅)"
+            bluemap_info = "⏳ Bereitgestellt (ab Projektstart aktiv)"
     else:
-        role = "Benutzer ⚪"
-        whitelist_info = "Keine Rolle zugewiesen"
+        role_title = "Benutzer ⚪"
+        role_type = "user"
+        whitelist_info = "⚪ Keine Rolle zugewiesen"
+        bluemap_info = "⚪ Kein Zugriff"
+
+    # Check ban status
+    ban_info = None
+    if d_id:
+        try:
+            status = applications.get_user_status(d_id)
+            if status.get("is_banned"):
+                ban_row = status.get("active_ban") or {}
+                ban_reason = ban_row.get("reason", "Kein Grund angegeben")
+                ban_info = f"⛔ Gesperrt ({ban_reason})"
+                whitelist_info = "⛔ Gesperrt (Blacklist)"
+                bluemap_info = "⛔ Gesperrt"
+        except Exception:
+            pass
+
+    # Check temporary build grant (mods only)
+    mod_grant_info = None
+    if role_type == "mod":
+        grants = mc.get_active_mod_grants()
+        g = grants.get(uid)
+        if g:
+            exp_str = g.get("expires_at", "")
+            mod_grant_info = f"🔨 Aktiv bis `{exp_str}` (erteilt von {g.get('granted_by', 'Admin')})"
+        else:
+            mod_grant_info = "ℹ️ Inaktiv (Wartungsmodus bis Projektstart oder `/mod-baurechte`)"
 
     embed = discord.Embed(
-        title="Weihnachtsdorf 7 • Account Status",
-        color=discord.Color.blue(),
-    )
-    embed.add_field(name="Username", value=f"`{user['uid']}`", inline=True)
-    embed.add_field(name="Rolle", value=role, inline=True)
-    embed.add_field(
-        name="Minecraft IGN",
-        value=f"`{user.get('minecraftName') or 'Nicht hinterlegt'}`",
-        inline=False,
-    )
-    embed.add_field(
-        name="Minecraft UUID",
-        value=f"`{user.get('minecraftUuid') or 'Nicht hinterlegt'}`",
-        inline=False,
-    )
-    embed.add_field(
-        name="Minecraft Whitelist",
-        value=whitelist_info,
-        inline=False,
-    )
-    embed.add_field(
-        name="2FA Status",
-        value="Aktiv (TOTP verpflichtend)",
-        inline=False,
+        title=f"Weihnachtsdorf 7 • Status von {ign or d_name or uid}",
+        color=discord.Color.red() if ban_info else (discord.Color.gold() if role_type in ("admin", "mod") else discord.Color.green()),
     )
 
+    # Avatar thumbnail (Minotar / Crafatar)
+    if mc_uuid:
+        embed.set_thumbnail(url=f"https://crafatar.com/avatars/{mc_uuid}?size=128&overlay")
+    elif ign:
+        embed.set_thumbnail(url=f"https://minotar.net/helm/{ign}/128.png")
+
+    # Core profile fields
+    embed.add_field(name="Rolle", value=role_title, inline=True)
+    if ign:
+        embed.add_field(name="Minecraft IGN", value=f"**`{ign}`**", inline=True)
+    else:
+        embed.add_field(name="Minecraft IGN", value="*Noch nicht hinterlegt*", inline=True)
+
+    discord_display = f"<@{d_id}> (`@{d_name}`)" if d_id and d_name else (f"<@{d_id}>" if d_id else (f"`@{d_name}`" if d_name else "*Nicht verknüpft*"))
+    embed.add_field(name="Discord", value=discord_display, inline=True)
+
+    embed.add_field(name="Minecraft Whitelist", value=whitelist_info, inline=True)
+    embed.add_field(name="BlueMap-Zugang", value=bluemap_info, inline=True)
+
+    if mc_uuid:
+        embed.add_field(name="Minecraft UUID", value=f"`{mc_uuid}`", inline=False)
+
+    if mod_grant_info:
+        embed.add_field(name="Baurechte (Mod)", value=mod_grant_info, inline=False)
+
+    if ban_info:
+        embed.add_field(name="Sicherheitsstatus", value=ban_info, inline=False)
+
+    # Admin or Self details
+    is_self = (d_id == str(interaction.user.id)) or (interaction.user.name.lower() == (d_name or "").lower())
+    if is_admin or is_self:
+        embed.add_field(name="SSO-Username", value=f"`{uid}`", inline=True)
+        mail = user.get("mail")
+        if mail:
+            mail_display = mail if is_admin or is_self else mail[:2] + "***@" + mail.split("@")[-1]
+            embed.add_field(name="E-Mail", value=f"`{mail_display}`", inline=True)
+        embed.add_field(name="2FA Status", value="✅ Aktiv (TOTP / Einmal-Code)", inline=True)
+
+    embed.set_footer(text="Weihnachtsdorf 7 Identity System • Abfrage in Echtzeit")
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 

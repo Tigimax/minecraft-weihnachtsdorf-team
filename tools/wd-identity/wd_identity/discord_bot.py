@@ -2859,21 +2859,31 @@ async def cmd_status(
         except Exception as e:
             logger.debug(f"Could not resolve discord avatar for {d_id}: {e}")
 
+    # Resolve Mojang online UUID if missing or offline
+    clean_uuid = (mc_uuid or "").replace("-", "").strip()
+    if ign and (not clean_uuid or clean_uuid.startswith("7642e72f") or len(clean_uuid) != 32):
+        try:
+            from wd_identity.mojang_client import get_player_profile
+            _, real_uuid = get_player_profile(ign)
+            if real_uuid:
+                clean_uuid = real_uuid.replace("-", "").strip()
+        except Exception:
+            pass
+
     embed = discord.Embed(
         title=f"Weihnachtsdorf 7 • Status von {ign or d_name or uid}",
         color=discord.Color.red() if ban_info else (discord.Color.gold() if role_type in ("admin", "mod") else discord.Color.green()),
     )
 
-    # Display Discord icon in author header beside skin thumbnail
+    # Display Discord icon in author header beside skin thumbnail (EXACTLY ONCE)
     if d_avatar_url:
-        embed.set_author(name=f"Spielerprofil: {ign or d_name or uid}", icon_url=d_avatar_url)
+        embed.set_author(name=f"Discord: @{d_name or uid}", icon_url=d_avatar_url)
 
-    # Avatar thumbnail (Minotar Helm renders Minecraft 3D skin head reliably)
-    clean_uuid = (mc_uuid or "").replace("-", "")
-    if ign:
-        embed.set_thumbnail(url=f"https://minotar.net/helm/{ign}/128.png")
-    elif clean_uuid:
-        embed.set_thumbnail(url=f"https://minotar.net/helm/{clean_uuid}/128.png")
+    # Avatar thumbnail (mc-heads API queries live Mojang skin by UUID with helm overlay)
+    if clean_uuid:
+        embed.set_thumbnail(url=f"https://mc-heads.net/avatar/{clean_uuid}/128")
+    elif ign:
+        embed.set_thumbnail(url=f"https://mc-heads.net/avatar/{ign}/128")
     elif d_avatar_url:
         embed.set_thumbnail(url=d_avatar_url)
 
@@ -2909,11 +2919,7 @@ async def cmd_status(
             embed.add_field(name="E-Mail", value=f"`{mail_display}`", inline=True)
         embed.add_field(name="2FA Status", value="✅ Aktiv (TOTP / Einmal-Code)", inline=True)
 
-    # Footer with Discord icon under the skin
-    if d_avatar_url:
-        embed.set_footer(text=f"Discord: @{d_name or uid} • Weihnachtsdorf 7 Identity", icon_url=d_avatar_url)
-    else:
-        embed.set_footer(text="Weihnachtsdorf 7 Identity System • Abfrage in Echtzeit")
+    embed.set_footer(text="Weihnachtsdorf 7 Identity System • Abfrage in Echtzeit")
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 

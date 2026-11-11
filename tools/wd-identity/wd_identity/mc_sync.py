@@ -162,7 +162,7 @@ class MinecraftSyncClient:
         Grants a moderator temporary building rights (whitelist + WorldEdit + mod role)
         during the pre-launch phase for the specified number of hours.
         """
-        clean_target = str(target).strip()
+        clean_target = str(target).strip().lstrip("@")
         user = (
             self.ldap.get_user(clean_target)
             or self.ldap.search_by_discord(clean_target)
@@ -245,7 +245,7 @@ class MinecraftSyncClient:
 
     def revoke_mod_build_access(self, target: str, initiator: str = "Admin") -> Dict[str, Any]:
         """Revokes temporary building access from a moderator."""
-        clean_target = str(target).strip()
+        clean_target = str(target).strip().lstrip("@")
         user = (
             self.ldap.get_user(clean_target)
             or self.ldap.search_by_discord(clean_target)

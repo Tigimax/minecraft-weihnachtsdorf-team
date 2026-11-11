@@ -46,6 +46,8 @@ def revoke_user_privileges(
         target_str = user["uid"]
     else:
         target_str = str(target).strip()
+        if target_str.startswith("@"):
+            target_str = target_str[1:].strip()
         if target_str.isdigit():
             user = ldap.search_by_discord(target_str)
         if not user:
@@ -54,6 +56,14 @@ def revoke_user_privileges(
                 or ldap.search_by_discord(target_str)
                 or ldap.search_by_minecraft(target_str)
             )
+        if not user:
+            try:
+                from wd_identity.utils import resolve_discord_user
+                d_id, _ = resolve_discord_user(target_str)
+                if d_id:
+                    user = ldap.search_by_discord(d_id)
+            except Exception:
+                pass
 
     if user and user.get("uid", "").lower() in PROTECTED_INTERNAL_ACCOUNTS:
         logger.warning(

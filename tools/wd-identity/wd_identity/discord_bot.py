@@ -13,6 +13,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import json
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 import urllib.parse
 import urllib.request
@@ -988,7 +989,7 @@ async def trigger_purge_flow(
     grund: Optional[str] = None,
 ):
     """Initiates the account purge flow with confirmation."""
-    clean_target = (ziel or "").strip().replace("<@", "").replace(">", "").replace("!", "")
+    clean_target = (ziel or "").strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
     caller_is_admin = is_admin_user(interaction.user)
 
     if clean_target and clean_target != str(interaction.user.id) and clean_target.lower() != interaction.user.name.lower():
@@ -2286,6 +2287,188 @@ async def ensure_channels_and_pins():
 
 
 # ---------------------------------------------------------------------------
+# Autocomplete Handlers
+# ---------------------------------------------------------------------------
+
+_ac_cache_users: List[Dict[str, Any]] = []
+_ac_cache_time: float = 0.0
+
+
+def _get_autocomplete_users() -> List[Dict[str, Any]]:
+    """Returns cached LDAP users (admins, mods, players) for autocomplete."""
+    global _ac_cache_users, _ac_cache_time
+    now = time.time()
+    if _ac_cache_users and (now - _ac_cache_time) < 30.0:
+        return _ac_cache_users
+
+    try:
+        ldap = LDAPClient()
+        admins, mods = ldap.get_admins_and_mods()
+        players = ldap.get_players()
+
+        system_accounts = {"tigimax", "akadmin"}
+        cached: List[Dict[str, Any]] = []
+
+        for a in admins:
+            if a.get("uid", "").lower() in system_accounts:
+                continue
+            cached.append({
+                "uid": a.get("uid", ""),
+                "ign": a.get("minecraftName") or "",
+                "discord_name": a.get("discordName") or "",
+                "discord_id": a.get("discordId") or "",
+                "role": "admin",
+            })
+
+        for m in mods:
+            if m.get("uid", "").lower() in system_accounts:
+                continue
+            cached.append({
+                "uid": m.get("uid", ""),
+                "ign": m.get("minecraftName") or "",
+                "discord_name": m.get("discordName") or "",
+                "discord_id": m.get("discordId") or "",
+                "role": "mod",
+            })
+
+        for p in players:
+            if p.get("uid", "").lower() in system_accounts:
+                continue
+            cached.append({
+                "uid": p.get("uid", ""),
+                "ign": p.get("minecraftName") or "",
+                "discord_name": p.get("discordName") or "",
+                "discord_id": p.get("discordId") or "",
+                "role": "player",
+            })
+
+        _ac_cache_users = cached
+        _ac_cache_time = now
+        return cached
+    except Exception as e:
+        logger.warning(f"Error fetching users for autocomplete: {e}")
+        return _ac_cache_users
+
+
+async def player_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[str]]:
+    """
+    Autocomplete callback for target/spieler/nutzer arguments across slash commands.
+    Provides real-time suggestions matching LDAP admins, mods, players, and Discord guild members.
+    Works whether searching by @mention, Discord username, Minecraft IGN, or UID.
+    """
+    raw = (current or "").strip()
+    q = raw.lstrip("@").lower()
+    is_at_search = raw.startswith("@")
+
+    choices: List[app_commands.Choice[str]] = []
+    seen_values = set()
+
+    users = _get_autocomplete_users()
+    matched_discord_ids = set()
+    matched_discord_names = set()
+
+    # 1. Match LDAP users
+    for u in users:
+        uid = u["uid"]
+        ign = u["ign"]
+        d_name = u["discord_name"]
+        d_id = str(u["discord_id"]) if u["discord_id"] else ""
+        role = u["role"]
+
+        if d_id:
+            matched_discord_ids.add(d_id)
+        if d_name:
+            matched_discord_names.add(d_name.lower())
+
+        if q:
+            matches = (
+                (ign and q in ign.lower())
+                or (d_name and q in d_name.lower())
+                or (uid and q in uid.lower())
+                or (d_id and q == d_id)
+            )
+            if not matches:
+                continue
+
+        if role == "admin":
+            icon = "👑 Admin"
+        elif role == "mod":
+            icon = "🛡️ Mod"
+        else:
+            icon = "🎮"
+
+        if ign and d_name:
+            label = f"{icon}: {ign} (@{d_name})"
+        elif ign:
+            label = f"{icon}: {ign}"
+        elif d_name:
+            label = f"⏳ {uid} (@{d_name})"
+        else:
+            label = f"⏳ {uid}"
+
+        # If user explicitly started typing with '@' and discord_name exists: provide @d_name
+        # Otherwise prefer Minecraft IGN if available, else @d_name, else uid
+        if is_at_search and d_name:
+            val = f"@{d_name}"
+        elif ign:
+            val = ign
+        elif d_name:
+            val = f"@{d_name}"
+        else:
+            val = uid
+
+        if val not in seen_values:
+            seen_values.add(val)
+            choices.append(app_commands.Choice(name=label[:100], value=val[:100]))
+
+        if len(choices) >= 25:
+            return choices
+
+    # 2. Match Discord guild members not registered in LDAP yet (exclude bots)
+    guild = interaction.guild or (bot.guilds[0] if bot.guilds else None)
+    if guild and len(choices) < 25:
+        members = guild.members
+        for m in members:
+            if m.bot:
+                continue
+            if str(m.id) in matched_discord_ids or m.name.lower() in matched_discord_names:
+                continue
+
+            m_name = m.name
+            m_nick = m.nick or ""
+            m_global = m.global_name or ""
+            m_disp = m.display_name or m_name
+
+            if q:
+                matches_guild = (
+                    q in m_name.lower()
+                    or q in m_nick.lower()
+                    or q in m_global.lower()
+                    or q == str(m.id)
+                )
+                if not matches_guild:
+                    continue
+
+            if m_disp.lower() != m_name.lower():
+                label = f"💬 @{m_name} ({m_disp}) [Discord]"
+            else:
+                label = f"💬 @{m_name} [Discord]"
+
+            val = f"@{m_name}" if is_at_search else m_name
+            if val not in seen_values:
+                seen_values.add(val)
+                choices.append(app_commands.Choice(name=label[:100], value=val[:100]))
+
+            if len(choices) >= 25:
+                break
+
+    return choices[:25]
+
+
+# ---------------------------------------------------------------------------
 # Slash Commands
 # ---------------------------------------------------------------------------
 
@@ -2367,7 +2550,7 @@ async def cmd_ban_player(interaction: discord.Interaction, target: str, grund: O
 
     await interaction.response.defer(ephemeral=True)
 
-    clean_target = target.strip().replace("<@", "").replace(">", "").replace("!", "")
+    clean_target = target.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
     clean_reason = (grund or "Regelverstoß").strip()
 
     ldap = LDAPClient()
@@ -2378,7 +2561,19 @@ async def cmd_ban_player(interaction: discord.Interaction, target: str, grund: O
     if clean_target.isdigit():
         user = ldap.search_by_discord(clean_target)
     if not user:
-        user = ldap.get_user(clean_target) or ldap.search_by_minecraft(clean_target)
+        user = (
+            ldap.get_user(clean_target)
+            or ldap.search_by_minecraft(clean_target)
+            or ldap.search_by_discord(clean_target)
+        )
+    if not user:
+        try:
+            from wd_identity.utils import resolve_discord_user
+            d_id, _ = resolve_discord_user(clean_target)
+            if d_id:
+                user = ldap.search_by_discord(d_id)
+        except Exception:
+            pass
 
     discord_id = None
     ign = None
@@ -2471,7 +2666,7 @@ async def cmd_pardon_player(interaction: discord.Interaction, target: str):
 
     await interaction.response.defer(ephemeral=True)
 
-    clean_target = target.strip().replace("<@", "").replace(">", "").replace("!", "")
+    clean_target = target.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
 
     ldap = LDAPClient()
     mc = MinecraftSyncClient()
@@ -2481,7 +2676,19 @@ async def cmd_pardon_player(interaction: discord.Interaction, target: str):
     if clean_target.isdigit():
         user = ldap.search_by_discord(clean_target)
     if not user:
-        user = ldap.get_user(clean_target) or ldap.search_by_minecraft(clean_target)
+        user = (
+            ldap.get_user(clean_target)
+            or ldap.search_by_minecraft(clean_target)
+            or ldap.search_by_discord(clean_target)
+        )
+    if not user:
+        try:
+            from wd_identity.utils import resolve_discord_user
+            d_id, _ = resolve_discord_user(clean_target)
+            if d_id:
+                user = ldap.search_by_discord(d_id)
+        except Exception:
+            pass
 
     discord_id = None
     ign = None
@@ -3454,8 +3661,20 @@ async def cmd_admin_rundruf(
     target_label = ""
 
     if nutzer:
-        clean_user = nutzer.strip().replace("<@", "").replace(">", "").replace("!", "")
-        u = ldap.search_by_discord(clean_user) or ldap.get_user(clean_user)
+        clean_user = nutzer.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
+        u = (
+            ldap.search_by_discord(clean_user)
+            or ldap.get_user(clean_user)
+            or ldap.search_by_minecraft(clean_user)
+        )
+        if not u:
+            try:
+                from wd_identity.utils import resolve_discord_user
+                d_id, _ = resolve_discord_user(clean_user)
+                if d_id:
+                    u = ldap.search_by_discord(d_id)
+            except Exception:
+                pass
         target_label = f"Nutzer `{clean_user}`"
         recipients.append(clean_user if not u else (u.get("discordId") or u.get("discordName") or u["uid"]))
     elif rolle:
@@ -4046,6 +4265,28 @@ async def cmd_wartung_abbrechen(interaction: discord.Interaction):
         return
 
     await cancel_maintenance_countdown(interaction)
+
+
+# ---------------------------------------------------------------------------
+# Autocomplete Registrations
+# ---------------------------------------------------------------------------
+cmd_status.autocomplete("spieler")(player_autocomplete)
+cmd_rolle.autocomplete("ziel")(player_autocomplete)
+cmd_role_alias.autocomplete("target")(player_autocomplete)
+cmd_ban_player.autocomplete("target")(player_autocomplete)
+cmd_spieler_bannen.autocomplete("target")(player_autocomplete)
+cmd_pardon_player.autocomplete("target")(player_autocomplete)
+cmd_spieler_entbannen.autocomplete("target")(player_autocomplete)
+cmd_einladen.autocomplete("nutzer")(player_autocomplete)
+cmd_invite.autocomplete("user")(player_autocomplete)
+cmd_einladung_alias.autocomplete("nutzer")(player_autocomplete)
+cmd_zugang_entziehen.autocomplete("ziel")(player_autocomplete)
+cmd_mod_baurecht.autocomplete("ziel")(player_autocomplete)
+cmd_mod_zugang_alias.autocomplete("ziel")(player_autocomplete)
+cmd_admin_rundruf.autocomplete("nutzer")(player_autocomplete)
+cmd_spieler_kick.autocomplete("ziel")(player_autocomplete)
+cmd_account_loeschen.autocomplete("ziel")(player_autocomplete)
+cmd_admin_spieler.autocomplete("suchbegriff")(player_autocomplete)
 
 
 @tasks.loop(seconds=30)

@@ -33,6 +33,19 @@ Das Paket **`wd-identity`** bildet das zentrale administrative Steuerungs-Backen
   - Ingame-Broadcasts (`broadcast_ingame()` für Chat, Actionbar und Titel).
   - Steuerung von `whitelist add/remove` und LuckPerms Parent-Gruppen (`admin`/`mod`).
   - Idempotentes State-Tracking (`mc_sync_state.json`) verhindert Konsolen-Spam und Lock-Contention.
+- **Minecraft ↔ Discord ↔ BlueMap Live-Chat-Bridge (`chat_bridge.py`, `bluemap_chat.py`)**:
+  - **Vollwertige Chat-Bridge ohne DiscordSRV**: Bidirektionale Synchronisation zwischen Minecraft Server, Discord und dem BlueMap WebChat.
+  - **Dynamisches Pre-Launch vs. Live-Channel Routing**: Vor dem offiziellen Projektstart (`/projekt-sperren`) werden Chat-Nachrichten in den Pre-Launch-Kanal (`DISCORD_CHANNEL_CHAT_PRELAUNCH_ID="1570031673809043476"`) geroutet. Bei Projektstart (`/projekt-start`) schaltet die Bridge automatisch und verzögerungsfrei auf den offiziellen Live-Kanal (`DISCORD_CHANNEL_CHAT_LIVE_ID="913851557102112799"`) um (`is_project_launched() == True`).
+  - **Automatische Webhook-Verwaltung (`wd-chat-bridge`)**: Automatische Erstellung und Cache von Channel-Webhooks mit Discord Rate-Limit Schutz (Bounded Queue + asynchroner Worker), Markdown-Escaping und striktem Mention-Schutz (`allowed_mentions: {"parse": []}`).
+  - **Avatar- & Profil-Auflösung**: Discord-Nachrichten zeigen die echten Profilbilder der Discord-Nutzer (gecached mit 60s TTL); Minecraft-Nachrichten nutzen hochauflösende Crafatar Head-Renders.
+  - **Rangfarben-Synchronisation**: Einheitliche Farbcodierung (`ROLE_COLORS`: `admin` = `#ff5555`/rot, `mod` = `#5555ff`/blau, `player` = `#ffffff`/weiß) in Minecraft (`tellraw`), im BlueMap WebChat (`bluemap-chat.js` / `bluemap-chat.css`) sowie in LuckPerms Prefixes (`&c[Admin] &r`, `&9[Mod] &r`).
+  - **Vanish-Schutz & Command-Interception (`BlueMapLiveBridge.java` v1.1.0)**: Unterdrückt Join-, Quit-, Death- und Chat-Events für unsichtbare Teammitglieder (`vanished`/`vanish` Metadata). Fängt `tellraw @a`-Befehle für `[D]`, `[Web]` und `[Weihnachtsdorf]` ab, gibt sie sauber im Konsolen-Log (`Bukkit.getConsoleSender().sendMessage`) aus und unterdrückt bei 0 Online-Spielern (`Bukkit.getOnlinePlayers().isEmpty()`) die Ausführung, womit `No player was found` restlos eliminiert wird.
+  - **Netzwerk-Sicherheit & SSE-Lifecycle**: Schutz der internen Endpunkte durch IP-Whitelisting (`BRIDGE_TRUSTED_IPS`, `PROXY_TRUSTED_IPS`) und Uvicorn Graceful SSE Shutdown (`notify_shutdown`), um Hänger bei Service-Restarts zu verhindern.
+- **Live-Admin-Konsole (`discord_bot.py`, `mc_sync.py`)**:
+  - **Echtzeit-Log-Streaming**: Dedizierter Admin-Konsolen-Kanal (`#ingame-console`, `DISCORD_CHANNEL_CONSOLE_ID="1570071015730716823"`) mit 2-Sekunden-Streaming (`console_log_sync_loop`) und automatischer Gruppierung in 1900-Zeichen Codeblöcke (`chunk_code_blocks`).
+  - **Terminal-Bereinigung**: Gründliches Filtern von ANSI-Escape-Sequenzen, VT100-Steuerzeichen und JLine-Prompt-Artefakten (`clean_console_line`, `console_filter`).
+  - **Direkte Befehlsausführung**: Admins können Minecraft-Befehle direkt als Textnachricht in den Konsolen-Channel schreiben. Eine Sicherheits-Blacklist blockiert destruktive Befehle (`stop`, `restart`, `op`, `deop`, `ban-ip`, `kill-all`, `whitelist off`).
+  - **Befehlsausgabe-Capture (`run_and_capture`)**: Führt Konsolenbefehle (z. B. via `/mc-befehl`) aus und fängt den direkten Konsolen-Output zur Rückmeldung im Discord ab.
 - **Planka Kanban Provisioning**:
   - Idempotente Benutzer-Synchronisation via SSH in den Docker Postgres-Container auf `usrv01`.
   - Automatische bcrypt-Kennwort-Synchronisation und Deaktivierung bei Rechte-Entzug.
@@ -56,18 +69,30 @@ tools/wd-identity/
 │   ├── wd-bot.service            # Systemd Service für Discord Gateway Bot
 │   └── wd-identity.service       # Systemd Service für FastAPI Webhook Server (:8000)
 ├── tests/
+│   ├── test_applications.py
+│   ├── test_autocomplete.py
+│   ├── test_bluemap_bridge_ip.py
+│   ├── test_chat_bridge.py
 │   ├── test_config.py
+│   ├── test_launch_gate.py
 │   ├── test_mc_sync_logic.py
+│   ├── test_mfa_bot.py
 │   ├── test_mojang.py
+│   ├── test_notify.py
+│   ├── test_purge_account.py
+│   ├── test_role_management.py
+│   ├── test_security_hardening.py
 │   └── test_utils.py
 ├── wd_identity/
 │   ├── __init__.py
 │   ├── applications.py           # SQLite Lifecycle für Bewerbungen, Entbannungen & Cooldowns
 │   ├── audit_logger.py           # Zentraler REST Logger für #📜admin-logs
 │   ├── authentik_client.py       # API Client für Authentik Invitations, Users & Recovery
+│   ├── bluemap_chat.py           # BlueMap WebChat Handler, SSE Broadcast & IP Guard
+│   ├── chat_bridge.py            # Discord ↔ MC Chat Bridge, Webhook Queue & Console Filter
 │   ├── cli.py                    # Click CLI Implementierung (wd-admin)
 │   ├── config.py                 # Pydantic Settings & Environment Parsing
-│   ├── discord_bot.py            # Discord Bot, 22 Slash Commands & Persistent Views
+│   ├── discord_bot.py            # Discord Bot, 26 Slash Commands, Console Sync & Persistent Views
 │   ├── invitations.py            # Einladungs-Generator & Permissions-Guard
 │   ├── ldap_client.py            # OpenLDAP Client mit wdAccount Schema & Group Management
 │   ├── mc_sync.py                # Wings API Client, Telemetrie, TPS & RCON Broadcast
@@ -226,16 +251,16 @@ Dieser leitet die Befehle automatisch per SSH transparent an `idp-01` (`192.168.
 
 ## Tests ausführen
 
-Mit `uv` (schnellste & isolierte Methode):
+Mit `pytest` in der virtuellen Umgebung:
 ```bash
-uv run --directory tools/wd-identity python -m unittest discover -s tests -v
+tools/wd-identity/.venv/bin/pytest tools/wd-identity/tests -q
 ```
 
-Oder klassisch mit virtuellem Environment / PYTHONPATH:
+Oder via `uv`:
 ```bash
-PYTHONPATH=tools/wd-identity python3 -m unittest discover -s tools/wd-identity/tests/ -v
+uv run --directory tools/wd-identity pytest tests -q
 ```
-Alle 58 Unittests in 9 Test-Suites (Input-Sanitization, SQL-Escaping, Mojang-Resolution, Launch Gate, MFA-Bot-Codes, Purge-Logik und Audit-Logging) laufen vollständig durch.
+Alle **161 Unittests** in 14 Test-Suites (Input-Sanitization, Chat-Bridge-Routing, ANSI-/JLine-Filterung, IP-Whitelisting, Mojang-Resolution, Launch Gate, MFA-Bot-Codes, Purge-Logik und Audit-Logging) laufen zu 100 % grün durch.
 
 ---
 

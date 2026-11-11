@@ -97,8 +97,11 @@ Alle Spieler-, Moderatoren- und Administratoren-Berechtigungen werden zentral ü
 |---|---|---|
 | **`#📋admin-anträge`** | Antragsprüfung für Admins | Interaktive Prüfung von Bewerbungen & Entbannungen (`[✅ Annehmen]`, `[❌ Ablehnen & Sperre]`) |
 | **`#✉admin-einladungen`** | Manuelle Einladungs-Zentrale | Generierung von 24h Authentik-Registrierungslinks (Admin-Einladungen nur für Discord-Admins) |
-| **`#🎛admin-steuerung`** | Admin-Command-Center | Interaktives Steuerungs-Panel mit 24 Slash-Befehlen zur Server- & Spielerverwaltung |
+| **`#🎛admin-steuerung`** | Admin-Command-Center | Interaktives Steuerungs-Panel mit 26 Slash-Befehlen zur Server- & Spielerverwaltung |
 | **`#📜admin-logs`** | Zentrales Audit-Log | Echtzeit-Protokollierung aller Bewerbungen, Entbannungen, Leaves, Kicks und Server-Events |
+| **`#💻ingame-konsole`** | Live-Admin-Konsole | 2s Log-Streaming, ANSI-/VT100-Filterung & direkte Befehlsausführung (mit Sicherheits-Blacklist) |
+| **`#💬ingame-chat`** | Öffentlicher Chat-Spiegel | Bidirektionale Bridge MC ↔ Discord ↔ BlueMap mit Rangfarben (aktiv nach `/projekt-start`) |
+| **`#💬prelaunch-chat`** | Pre-Launch Chat-Spiegel | Team- & Staff-Chatbridge während der Vorbereitungsphase (vor `/projekt-start`) |
 | **`#📝anmeldung`** | Öffentliches Onboarding | Pinned Guide mit `[📝 Jetzt bewerben]`, `[🔑 Login-Code]` und Self-Service `[🚪 Abmelden]` Button |
 | **`#⚖entbannung`** | Einsprüche & Appeals | Pinned Leitfaden mit `[⚖️ Einspruch / Entbannung beantragen]` Modal |
 | **`#📝teilnehmerliste`** | Öffentliche Live-Übersicht | Automatischer 30s-Sync der registrierten Spieler und Rollen |
@@ -107,7 +110,8 @@ Alle Spieler-, Moderatoren- und Administratoren-Berechtigungen werden zentral ü
 
 | Bereich | Befehle (CLI / Discord) | Wirkung |
 |---|---|---|
-| **Projekt-Status** | `wd-admin project [status\|launch\|lock]`<br>`/projekt-start`, `/projekt-sperren` | Pre-Launch Gate: Schaltet registrierte Spieler auf Whitelist & BlueMap frei oder sperrt Server in Wartungsmodus |
+| **Projekt-Status** | `wd-admin project [status\|launch\|lock]`<br>`/projekt-start`, `/projekt-sperren` | Pre-Launch Gate: Schaltet registrierte Spieler auf Whitelist & BlueMap frei oder sperrt Server in Wartungsmodus; schaltet Chat-Bridge zwischen Pre-Launch- und Live-Kanal um |
+| **Chat & Live-Konsole** | `#💻ingame-konsole`, `#💬ingame-chat`<br>`/mc-befehl <befehl>` | Bidirektionale Chat-Bridge ohne DiscordSRV; 2s Live-Konsole mit ANSI-Filterung & Direkteingabe; Output-Capture bei `/mc-befehl` |
 | **Einladungen & 2FA** | `wd-admin invite <user> [--role admin\|mod\|player]`<br>`/einladen`, `/auth-code` (`/code`) | Single-Use Authentik-Einladung per DM zustellen; 6-stelliger Bot-Login-Code für Spieler |
 | **Zugang & Löschung** | `wd-admin revoke`, `wd-admin purge`, `wd-admin ban/pardon`<br>`/zugang-entziehen`, `/account-loeschen`, `/ban-spieler`, `/pardon-spieler` | Vollständiger Entzug oder Purge über LDAP, Authentik, Planka, Whitelist und DB; Cooldown-System |
 | **Server-Telemetrie** | `/live-status`, `/online-spieler` | Echtzeit-CPU, RAM, Festplatte, Uptime, TPS und Liste aller Ingame-Spieler via Wings API |

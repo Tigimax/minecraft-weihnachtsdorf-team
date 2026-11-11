@@ -87,6 +87,15 @@ flowchart TD
 ### 15. Discord Slash Commands & Alias-Harmonisierung • [BEHOBEN]
 * **Lösung**: Vollständige Suite von 24 Kernbefehlen auf Guild-Ebene synchronisiert. `@tree.command(name="auth-code")` und `/code` nativ registriert. Aliase `/spieler-bannen`, `/spieler-entbannen`, `/einladung`, `/spieler-zurücksetzen` und `/spielerliste-aktualisieren` nahtlos bereitgestellt.
 
+### 16. Minecraft ↔ Discord ↔ BlueMap Live-Chat-Bridge & Live-Admin-Konsole • [BEHOBEN]
+* **Lösung**: Vollständige bidirektionale Chat-Bridge ohne DiscordSRV (`chat_bridge.py`, `bluemap_chat.py`, `BlueMapLiveBridge.java` v1.1.0).
+  - Dynamisches Channel-Routing (`#💬prelaunch-chat` vor `/projekt-start`, `#💬ingame-chat` nach `/projekt-start`).
+  - Webhook-Queue (`wd-chat-bridge`) mit Discord-Rate-Limit-Schutz und Avatar-Auflösung via LDAP.
+  - Rangfarben-Abgleich (`ROLE_COLORS`: Admin `#ff5555`, Mod `#5555ff`, Player `#ffffff`) im MC-Chat (`tellraw`) und BlueMap WebChat.
+  - Vanish-Schutz für unsichtbare Staff-Mitglieder und `ServerCommandEvent`-Interception (unterdrückt `No player was found` bei 0 Spielern und loggt Chat sauber in die Konsole).
+  - Live-Admin-Konsole `#💻ingame-konsole` (`1570071015730716823`) mit 2s Log-Streaming, gründlicher ANSI-/VT100-/JLine-Bereinigung und direkter Befehlseingabe (Sicherheits-Blacklist für `stop`, `restart`, `op`, `deop`, `ban-ip`, etc.).
+  - Konsolen-Output-Capture via `run_and_capture()` für `/mc-befehl`.
+
 ---
 
 ## ⏳ Verbleibende Punkte vor dem Launch

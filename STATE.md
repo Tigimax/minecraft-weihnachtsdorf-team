@@ -1,6 +1,6 @@
 # Projekt-Status & Vorfall-Log: Weihnachtsdorf 7
 
-**Stand:** 30. Oktober 2026  
+**Stand:** 11. November 2026  
 **Dokument-Zweck:** Zentrale Dokumentation des aktuellen Systemzustands, offener Aufgaben sowie aufgetretener Vorfälle (Troubleshooting-Protokoll).
 
 ---
@@ -198,6 +198,36 @@
 
 ---
 
+### Vorfall O: Kryptische ANSI-/Terminal-Symbole & JLine-Artefakte im Discord-Konsolen-Kanal (`clean_console_line`)
+- **Symptom:**  
+  Im Discord-Konsolen-Kanal (`1570071015730716823`) wurden rohe Terminal-Escape-Sequenzen aus Pterodactyl/JLine übertragen, wie z. B.:
+  `[K[14:05:25 INFO]: [37m[[1m[37m[96mL[36mP[0m[37m][0m [36m[97m- [36mWeight: [97mNone[0m`
+  `>....[?1h=[?2004h>....`
+- **Root Cause:**  
+  Die Konsolen-Log-Synchronisation (`console_log_sync_loop`) streamte Rohzeilen ohne Bereinigung von VT100/ANSI-Farbcodes, Carriage-Returns (`\r`) und JLine-Prompt-Prefixen (`>....`), die im Terminal interaktiv überschrieben werden, im Discord-Codeblock jedoch als kryptischer Müll sichtbar blieben.
+- **Behebung:**  
+  1. Implementierung der Filterfunktion `clean_console_line(line: str) -> str` in `chat_bridge.py`:
+     - Entfernt `\r`, Steuerzeichen (`[\x00-\x08\x0b-\x1f\x7f]`), reguläre ANSI-Sequenzen (`\x1b\[...`), OSC-Codes (`\x1b\]...`) und Terminal-Sequenzen mit fehlendem `\x1b` (`\x1b?\[(?:K|\?[0-9;]+[hl]=?|[0-9;]{1,10}m)`).
+     - Entfernt JLine-Prompt-Artefakte `(?:>+\.{2,}\s*)+` am Zeilenanfang und Zeilenende.
+  2. Aktualisierung von `console_filter(lines)`: Bereinigt jede Zeile, verwirft leere Zeilen (`not cleaned.strip()`) und unterdrückt Bot-Echos sowie Sicherheitsnetz-Meldungen (`no player was found`).
+  3. Automatische Bereinigung von 33 fehlerhaften Alt-Nachrichten im Discord-Kanal via Discord Bulk-Delete API.
+
+---
+
+### Vorfall P: `tellraw @a` `No player was found` bei 0 Online-Spielern & fehlendes Konsolen-Logging (`BlueMapLiveBridge.java` v1.1.0)
+- **Symptom:**  
+  Wenn Discord- oder BlueMap-WebChat-Nachrichten an Minecraft weitergeleitet wurden während 0 Spieler online waren, scheiterte `tellraw @a` mit der Fehlermeldung `System chat: No player was found`. Zudem erschienen `tellraw`-Nachrichten generell nicht im Server-Konsolen-Log.
+- **Root Cause:**  
+  Der Vanilla Minecraft Server führt `tellraw @a` nur aus, wenn mindestens ein Spieler online ist; andernfalls wird ein Fehlerstatus ausgegeben. Zudem spiegelt Paper `tellraw`-Pakete nicht nativ in die Serverkonsole.
+- **Behebung:**  
+  1. `@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)` für `ServerCommandEvent` und `RemoteServerCommandEvent` in `BlueMapLiveBridge.java` hinzugefügt:
+     - Erkennt `tellraw @a ` mit Präfixen `[D] `, `[Web] ` oder `[Weihnachtsdorf]`.
+     - Extrahiert und unescaped den Plaintext aus allen `"text":"..."`-Feldern und gibt ihn via `Bukkit.getConsoleSender().sendMessage(plainText)` sauber in die Konsole aus (`[14:32:01 INFO]: [D] <Tigimax> Hallo`).
+     - Prüft `Bukkit.getOnlinePlayers().isEmpty()`: Wenn niemand online ist, wird `event.setCancelled(true)` aufgerufen. Dadurch führt Minecraft `tellraw @a` gar nicht erst aus und die Fehlermeldung `No player was found` ist vollständig eliminiert.
+  2. Plugin `BlueMapLiveBridge.jar` mit JDK 25 im Paper-Container neu gebaut, auf `mc-node2` (`192.168.1.149`) installiert und ins Repository übernommen.
+
+---
+
 ## 2. Infrastruktur- & Komponenten-Übersicht
 
 | Service | Host / IP | Status | Beschreibung |
@@ -207,7 +237,9 @@
 | **Planka Kanban** | `usrv01` (`192.168.1.174:3000`) | **Aktiv** | Staff-Planung (`https://tigimax.mooo.com`) mit Forward-Auth Auto-Login |
 | **Pterodactyl Wings** | `mc-node1` (`192.168.1.149:8080`) | **Aktiv** | Minecraft Node 2 Daemon, RCON & Telemetrie-Schnittstelle |
 | **BlueMap** | `mc-node1` (`192.168.1.148:8123`) | **Aktiv** | Web-Weltkarte (`https://map.tigimax.mooo.com`), geschützt via `wd-bluemap-access-policy` |
-| **WHD Discord Bot** | `idp-01` (`wd-bot.service`) | **Aktiv** | Discord-Bot (`WHD Privileges`) mit 24 Slash Commands & Audit Logging |
+| **BlueMapLiveBridge** | `mc-main` (`192.168.1.149`) | **Aktiv** | Paper-Plugin v1.1.0: 2s Spielerpositions-Export, Chat-Events, Vanish-Filter & tellraw Interception |
+| **Chat & Console Bridge** | `idp-01` (`wd-identity` / `wd-bot`) | **Aktiv** | Bidirektionale Bridge MC ↔ Discord ↔ BlueMap, dynamisches Channel-Routing & Live-Konsole |
+| **WHD Discord Bot** | `idp-01` (`wd-bot.service`) | **Aktiv** | Discord-Bot (`WHD Privileges`) mit 26 Slash Commands, Live-Konsole & Audit Logging |
 | **WD Identity API** | `idp-01` (`wd-identity.service`) | **Aktiv** | Webhook & CLI-Backend (`/opt/wd-identity`), Port 8000 |
 
 ---
@@ -220,6 +252,9 @@
 | **`#✉admin-einladungen`** | `1565288748718100552` | Nur Admins | Interaktive Erstellung von Authentik-Einladungen (Admin-Rolle nur für Discord-Admins) |
 | **`#🎛admin-steuerung`** | `1565299837522673674` | Nur Admins | Admin-Steuerungszentrale & Index aller Slash-Befehle |
 | **`#📜admin-logs`** | `1565288746088402974` | Nur Admins | Vollständiges System- & Sicherheits-Audit-Log (Echtzeit-REST) |
+| **`#💻ingame-konsole`** | `1570071015730716823` | Nur Admins | Live-Admin-Konsole: 2s Log-Streaming, ANSI-Filterung & direkte Befehlsausführung (mit Blacklist) |
+| **`#💬ingame-chat`** | `913851557102112799` | Öffentlich | Offizieller Live-Chat-Kanal (nach `/projekt-start` automatisch aktiv) |
+| **`#💬prelaunch-chat`** | `1570031673809043476` | Team / Pre-Launch | Chat-Kanal während der Vorbereitungsphase (vor `/projekt-start`) |
 | **`#📝anmeldung`** | `1565033506227355838` | Öffentlich | Aufnahme-Bewerbung (`[📝 Jetzt bewerben]`), 2FA-Code (`[🔑 Login-Code]`) & Self-Opt-Out (`[🚪 Abmelden]`) |
 | **`#⚖entbannung`** | `1565291901156851722` | Öffentlich | Entbannungs- & Einspruchsantrag (`[⚖️ Einspruch / Entbannung beantragen]`) |
 | **`#📝teilnehmerliste`** | `1565283582593998888` | Öffentlich | Live-Board aller registrierten Spieler und Rollen (30s Sync) |

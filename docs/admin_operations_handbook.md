@@ -75,7 +75,17 @@ sudo systemctl status mariadb redis-server php8.3-fpm
   ```
 
 #### Live-Konsole & Chat-Befehle
-- Über Pterodactyl Console auf https://panel.tigimax.mooo.com
+- **Über das Pterodactyl Web-Panel**: Console auf https://panel.tigimax.mooo.com
+- **Über den Discord-Admin-Kanal `#💻ingame-konsole` (`1570071015730716823`)**:
+  - Live Log-Streaming alle 2 Sekunden via `console_log_sync_loop`.
+  - ANSI- und VT100-bereinigte Textausgabe (`clean_console_line`), frei von JLine-Prompt-Artefakten (`>....`).
+  - **Direkte Befehlseingabe**: Administratoren können beliebige Minecraft-Befehle direkt als Textnachricht in den Konsolen-Channel schreiben (ohne Slash-Präfix).
+  - **Sicherheits-Blacklist**: Destruktive oder gefährliche Befehle (`stop`, `restart`, `op`, `deop`, `ban-ip`, `kill-all`, `whitelist off`) werden vom Bot blockiert.
+  - **Befehlsausgabe via `/mc-befehl`**: Führt Befehle via `run_and_capture()` aus und liefert die direkte Server-Rückmeldung im Discord-Embed.
+- **Bidirektionale Chat-Bridge (Minecraft ↔ Discord ↔ BlueMap)**:
+  - Vor dem offiziellen Projektstart (`/projekt-sperren`): Nachrichten werden in `#💬prelaunch-chat` (`1570031673809043476`) geroutet.
+  - Nach dem offiziellen Projektstart (`/projekt-start`): Automatischer Wechsel auf `#💬ingame-chat` (`913851557102112799`).
+  - `BlueMapLiveBridge.java` spiegelt alle Chat-Nachrichten sauber in die Konsole und unterdrückt `No player was found` bei 0 Online-Spielern.
 - **Wichtige Ingame-Befehle (für Admins)**:
   ```text
   /spark health            -> TPS, MSPT, CPU und Memory sofort anzeigen
@@ -328,6 +338,12 @@ Neben der CLI bietet der Bot `WHD Privileges` eine vollwertige Administration ü
   Interaktives Command-Center mit Kurzbeschreibung und Direktzugriff auf alle Admin Slash-Commands und Schnellzugriffs-Buttons.
 - **`#📜admin-logs`**:
   Echtzeit-Audit-Log aller Sicherheits-, Aufnahme-, Entbannungs-, Server- und Moderations-Ereignisse.
+- **`#💻ingame-konsole`** (`1570071015730716823`):
+  Live-Admin-Konsole mit 2-Sekunden Log-Streaming, bereinigten ANSI-/VT100-Logs und direkter Befehlseingabe (geschützt via Sicherheits-Blacklist).
+- **`#💬ingame-chat`** (`913851557102112799`):
+  Live-Chat-Spiegel nach offiziellem Projektstart (`/projekt-start`).
+- **`#💬prelaunch-chat`** (`1570031673809043476`):
+  Pre-Launch-Chat-Spiegel während der Vorbereitungsphase (`/projekt-sperren`).
 
 #### 2. Referenz der 24 Discord Slash-Befehle & Aliase
 

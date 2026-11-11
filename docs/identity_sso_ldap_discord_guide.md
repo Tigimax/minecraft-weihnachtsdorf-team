@@ -188,6 +188,18 @@ Um die Benutzerfreundlichkeit für reguläre Spieler zu maximieren, ohne Abstric
   - `/sync-alle` / `/spielerliste-aktualisieren`: Synchronisation aller Systeme und des Live-Boards.
   - `/live-status`, `/online-spieler`, `/spieler-kick`, `/wartung-timer`, `/wartung-abbrechen`, `/mc-befehl`, `/admin-rundruf`.
 
+### 7.1 Live-Admin-Konsole & Chat-Bridge
+- **Live-Admin-Konsole (`#💻ingame-konsole`, `1570071015730716823`)**:
+  - Echtzeit-Log-Streaming im 2-Sekunden-Intervall via `console_log_sync_loop`.
+  - Vollständige Filterung aller ANSI-/VT100-Farbcodes und JLine-Prompt-Artefakte (`clean_console_line`).
+  - **Direkte Befehlsausführung**: Administratoren können Befehle unmittelbar als Nachricht im Konsolen-Kanal eingeben. Eine Sicherheits-Blacklist schützt vor destruktiven Befehlen (`stop`, `restart`, `op`, `deop`, `ban-ip`, `kill-all`, `whitelist off`).
+  - **Output-Capture**: `/mc-befehl <cmd>` fängt die Konsolenausgabe via `run_and_capture()` ab und liefert das Ergebnis direkt in Discord zurück.
+- **Bidirektionale Chat-Bridge (Minecraft ↔ Discord ↔ BlueMap WebChat)**:
+  - **Dynamischer Kanal-Wechsel**: Routet vor dem Projektstart (`/projekt-sperren`) in `#💬prelaunch-chat` (`1570031673809043476`), nach `/projekt-start` automatisch in `#💬ingame-chat` (`913851557102112799`).
+  - **Identitätsauflösung & Rangfarben**: Nutzt LDAP (`discordId`) zur Avatar- und Rollen-Ermittlung (`ROLE_COLORS`: Admin `#ff5555`, Mod `#5555ff`, Player `#ffffff`).
+  - **`BlueMapLiveBridge.java` (v1.1.0)**: Filtert Vanish-Events unsichtbarer Staff-Mitglieder und spiegelt `tellraw`-Nachrichten ins Konsolen-Log, während bei 0 Spielern `No player was found` unterdrückt wird.
+  - **Netzwerk-Schutz**: IP-Whitelisting (`BRIDGE_TRUSTED_IPS`, `PROXY_TRUSTED_IPS`) sichert den Webhook-Endpunkt auf Port 8000.
+
 ---
 
 ## 8. CLI-Administration (`wd-admin`)

@@ -2834,16 +2834,48 @@ async def cmd_status(
         else:
             mod_grant_info = "ℹ️ Inaktiv (Wartungsmodus bis Projektstart oder `/mod-baurechte`)"
 
+    # Fetch live Discord avatar if available
+    d_avatar_url = None
+    if d_id and d_id.isdigit():
+        try:
+            guild = interaction.guild
+            member = guild.get_member(int(d_id)) if guild else None
+            if not member and guild:
+                try:
+                    member = await guild.fetch_member(int(d_id))
+                except Exception:
+                    pass
+            if member:
+                d_avatar_url = member.display_avatar.url
+            else:
+                user_obj = bot.get_user(int(d_id))
+                if not user_obj:
+                    try:
+                        user_obj = await bot.fetch_user(int(d_id))
+                    except Exception:
+                        pass
+                if user_obj:
+                    d_avatar_url = user_obj.display_avatar.url
+        except Exception as e:
+            logger.debug(f"Could not resolve discord avatar for {d_id}: {e}")
+
     embed = discord.Embed(
         title=f"Weihnachtsdorf 7 • Status von {ign or d_name or uid}",
         color=discord.Color.red() if ban_info else (discord.Color.gold() if role_type in ("admin", "mod") else discord.Color.green()),
     )
 
-    # Avatar thumbnail (Minotar / Crafatar)
-    if mc_uuid:
-        embed.set_thumbnail(url=f"https://crafatar.com/avatars/{mc_uuid}?size=128&overlay")
-    elif ign:
+    # Display Discord icon in author header beside skin thumbnail
+    if d_avatar_url:
+        embed.set_author(name=f"Spielerprofil: {ign or d_name or uid}", icon_url=d_avatar_url)
+
+    # Avatar thumbnail (Minotar Helm renders Minecraft 3D skin head reliably)
+    clean_uuid = (mc_uuid or "").replace("-", "")
+    if ign:
         embed.set_thumbnail(url=f"https://minotar.net/helm/{ign}/128.png")
+    elif clean_uuid:
+        embed.set_thumbnail(url=f"https://minotar.net/helm/{clean_uuid}/128.png")
+    elif d_avatar_url:
+        embed.set_thumbnail(url=d_avatar_url)
 
     # Core profile fields
     embed.add_field(name="Rolle", value=role_title, inline=True)
@@ -2877,7 +2909,11 @@ async def cmd_status(
             embed.add_field(name="E-Mail", value=f"`{mail_display}`", inline=True)
         embed.add_field(name="2FA Status", value="✅ Aktiv (TOTP / Einmal-Code)", inline=True)
 
-    embed.set_footer(text="Weihnachtsdorf 7 Identity System • Abfrage in Echtzeit")
+    # Footer with Discord icon under the skin
+    if d_avatar_url:
+        embed.set_footer(text=f"Discord: @{d_name or uid} • Weihnachtsdorf 7 Identity", icon_url=d_avatar_url)
+    else:
+        embed.set_footer(text="Weihnachtsdorf 7 Identity System • Abfrage in Echtzeit")
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 

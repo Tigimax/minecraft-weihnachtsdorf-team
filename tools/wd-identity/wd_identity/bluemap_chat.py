@@ -128,7 +128,7 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
         {"text": clean_msg, "color": "white"}
     ])
     try:
-        await asyncio.to_thread(mc.execute_commands, [f"tellraw @a {tellraw_payload}"])
+        await asyncio.to_thread(mc.execute_commands, [f"execute in minecraft:overworld run tellraw @a {tellraw_payload}"])
     except Exception as e:
         logger.warning(f"Failed to broadcast webchat to Minecraft: {e}")
 

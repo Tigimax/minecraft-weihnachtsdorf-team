@@ -710,7 +710,7 @@ class MinecraftSyncClient:
         """Sends chat notification and optional title to all online players."""
         cmds = []
         clean_msg = message.replace('"', '\\"')
-        cmds.append(f'tellraw @a {{"text":"[Weihnachtsdorf] {clean_msg}","color":"gold"}}')
+        cmds.append(f'execute in minecraft:overworld run tellraw @a {{"text":"[Weihnachtsdorf] {clean_msg}","color":"gold"}}')
         if title:
             clean_title = title.replace('"', '\\"')
             cmds.append(f'title @a title {{"text":"{clean_title}","color":"red","bold":true}}')

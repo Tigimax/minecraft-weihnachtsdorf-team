@@ -121,6 +121,24 @@ def _format_entry(u: Dict[str, Any], role: str, is_live: bool, member_map: Dict[
     return line
 
 
+def _chunk_lines(lines: List[str], max_items: int = 12, max_chars: int = 950) -> List[List[str]]:
+    chunks: List[List[str]] = []
+    current: List[str] = []
+    current_len = 0
+    for line in lines:
+        line_len = len(line) + (1 if current else 0)
+        if current and (len(current) >= max_items or current_len + line_len > max_chars):
+            chunks.append(current)
+            current = [line]
+            current_len = len(line)
+        else:
+            current.append(line)
+            current_len += line_len
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, Any], str]:
     if member_map is None:
         member_map = get_guild_member_map()
@@ -163,21 +181,27 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
 
     # 1. Staff / Admins
     if admin_lines:
-        fields.append({
-            "name": f"👑 Projektleitung & Administration ({len(admins_sorted)})",
-            "value": "\n".join(admin_lines),
-            "inline": False,
-        })
+        admin_chunks = _chunk_lines(admin_lines, max_items=12, max_chars=950)
+        for i, chunk in enumerate(admin_chunks):
+            title = f"👑 Projektleitung & Administration ({len(admins_sorted)})" if len(admin_chunks) == 1 else f"👑 Projektleitung & Administration (Teil {i + 1})"
+            fields.append({
+                "name": title,
+                "value": "\n".join(chunk),
+                "inline": False,
+            })
 
     # 2. Moderation (if any)
     if mod_lines:
-        fields.append({
-            "name": f"⚔️ Moderation ({len(mods_sorted)})",
-            "value": "\n".join(mod_lines),
-            "inline": False,
-        })
+        mod_chunks = _chunk_lines(mod_lines, max_items=12, max_chars=950)
+        for i, chunk in enumerate(mod_chunks):
+            title = f"⚔️ Moderation ({len(mods_sorted)})" if len(mod_chunks) == 1 else f"⚔️ Moderation (Teil {i + 1})"
+            fields.append({
+                "name": title,
+                "value": "\n".join(chunk),
+                "inline": False,
+            })
 
-    # 3. Regular Players (chunk into 20 players per field if necessary)
+    # 3. Regular Players
     if not player_lines:
         fields.append({
             "name": "🎮 Angemeldete Spieler (0)",
@@ -185,10 +209,14 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
             "inline": False,
         })
     else:
-        chunk_size = 20
-        for i in range(0, len(player_lines), chunk_size):
-            chunk = player_lines[i:i + chunk_size]
-            title = f"🎮 Angemeldete Spieler ({len(players_sorted)})" if len(player_lines) <= chunk_size else f"🎮 Angemeldete Spieler ({i + 1}–{min(i + chunk_size, len(player_lines))} von {len(players_sorted)})"
+        player_chunks = _chunk_lines(player_lines, max_items=12, max_chars=950)
+        total = len(players_sorted)
+        offset = 0
+        for chunk in player_chunks:
+            start = offset + 1
+            end = offset + len(chunk)
+            offset = end
+            title = f"🎮 Angemeldete Spieler ({total})" if len(player_chunks) == 1 else f"🎮 Angemeldete Spieler ({start}–{end} von {total})"
             fields.append({
                 "name": title,
                 "value": "\n".join(chunk),

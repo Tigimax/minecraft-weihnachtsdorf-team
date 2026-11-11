@@ -152,10 +152,11 @@ def check_is_discord_admin(target: str) -> Tuple[bool, str]:
             gname = (u.get("global_name") or "").lower()
             nick = (m.get("nick") or "").lower()
 
-            if clean_target.isdigit() and uid == clean_target:
-                found_member = m
-                break
-            if clean_target in (uname, gname, nick):
+            if clean_target.isdigit():
+                if uid == clean_target:
+                    found_member = m
+                    break
+            elif clean_target == uname:
                 found_member = m
                 break
 
@@ -247,10 +248,11 @@ def check_is_discord_mod(target: str) -> Tuple[bool, str]:
             gname = (u.get("global_name") or "").lower()
             nick = (m.get("nick") or "").lower()
 
-            if clean_target.isdigit() and uid == clean_target:
-                found_member = m
-                break
-            if clean_target in (uname, gname, nick):
+            if clean_target.isdigit():
+                if uid == clean_target:
+                    found_member = m
+                    break
+            elif clean_target == uname:
                 found_member = m
                 break
 

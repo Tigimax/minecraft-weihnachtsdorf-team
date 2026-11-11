@@ -9,7 +9,11 @@ import subprocess
 
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity.discord_bot import handle_auth_code_request
-from wd_identity.webhook import MFADispatchRequest, mfa_auto_dispatch
+from wd_identity.webhook import (
+    MFADispatchRequest,
+    mfa_auto_dispatch,
+    reset_mfa_cooldown_tracker,
+)
 
 
 class TestAuthentikClientMFA(unittest.TestCase):
@@ -190,6 +194,8 @@ class TestDiscordBotAuthCode(unittest.IsolatedAsyncioTestCase):
 
 
 class TestWebhookMFAAutoDispatch(unittest.TestCase):
+    def setUp(self):
+        reset_mfa_cooldown_tracker()
     @patch("wd_identity.webhook.send_dm")
     @patch("wd_identity.webhook.AuthentikClient")
     @patch("wd_identity.webhook.LDAPClient")

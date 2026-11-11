@@ -9,6 +9,7 @@ import json
 import logging
 from pathlib import Path
 import sys
+import time
 from typing import Any, Dict, List, Optional, Tuple
 import requests
 
@@ -40,6 +41,24 @@ MOD_GRANTS_PATHS = [
     Path.home() / ".mod_build_grants.json",
     Path("/tmp/mod_build_grants.json"),
 ]
+
+
+def new_log_lines(prev: List[str], cur: List[str]) -> List[str]:
+    """
+    Extracts newly appended log lines between prev and cur polls.
+    Finds the longest overlap k (suffix of prev == prefix of cur) and returns cur[k:].
+    If prev is empty, returns [] (suppresses back-posting on initial poll).
+    If k == 0 and prev is not empty, returns cur completely (log rotation / complete switch).
+    """
+    if not prev or not cur:
+        return []
+
+    max_k = min(len(prev), len(cur))
+    for k in range(max_k, 0, -1):
+        if prev[-k:] == cur[:k]:
+            return cur[k:]
+
+    return list(cur)
 
 
 class MinecraftSyncClient:
@@ -681,6 +700,32 @@ class MinecraftSyncClient:
             return "20.0, 20.0, 20.0 (Normal)"
         except Exception:
             return "Unbekannt"
+
+    def get_log_lines(self, size: int = 100) -> List[str]:
+        """Fetches the latest console log lines from Wings API."""
+        url = f"{self.api_url}/api/servers/{self.server_uuid}/logs?size={size}"
+        try:
+            r = requests.get(url, headers=self._headers, timeout=5)
+            if not r.ok:
+                return []
+            data = r.json()
+            if isinstance(data, dict):
+                return data.get("data", [])
+            return []
+        except Exception:
+            return []
+
+    def run_and_capture(self, cmd: str, wait: float = 0.8) -> List[str]:
+        """Executes a console command and captures new log output lines produced by it."""
+        before = self.get_log_lines()
+        ok = self.execute_commands([cmd])
+        if not ok:
+            raise RuntimeError(f"Failed to execute command '{cmd}' via Wings API")
+        time.sleep(wait)
+        after = self.get_log_lines()
+        if not before:
+            return list(after)
+        return new_log_lines(before, after)
 
     def get_online_players(self) -> Tuple[int, int, List[str]]:
         """Queries currently connected players."""

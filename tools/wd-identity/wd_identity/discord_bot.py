@@ -20,6 +20,7 @@ import urllib.request
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+import httpx
 
 from wd_identity import applications
 from wd_identity.audit_logger import (
@@ -31,10 +32,11 @@ from wd_identity.audit_logger import (
     log_admin_event,
 )
 from wd_identity.authentik_client import AuthentikClient
+from wd_identity import chat_bridge
 from wd_identity.config import settings
 from wd_identity.invitations import create_user_invitation
 from wd_identity.ldap_client import LDAPClient
-from wd_identity.mc_sync import MinecraftSyncClient
+from wd_identity.mc_sync import MinecraftSyncClient, new_log_lines
 from wd_identity.membership import (
     purge_user_completely,
     restore_user_privileges,
@@ -62,10 +64,11 @@ def is_admin_user(user: discord.Member | discord.User) -> bool:
         return False
     if user.guild_permissions.administrator:
         return True
-    admin_role_id = str(getattr(settings, "DISCORD_ADMIN_ROLE_ID", "909437200125538371"))
-    for role in user.roles:
-        if str(role.id) == admin_role_id or role.name.lower() in ("admin", "administrator"):
-            return True
+    admin_role_id = str(getattr(settings, "DISCORD_ADMIN_ROLE_ID", "909437200125538371")).strip()
+    if admin_role_id:
+        for role in user.roles:
+            if str(role.id) == admin_role_id:
+                return True
     return False
 
 
@@ -836,7 +839,7 @@ async def trigger_application_modal(interaction: discord.Interaction):
 
     # Check if already registered in LDAP
     ldap = LDAPClient()
-    existing = ldap.search_by_discord(str(interaction.user.id)) or ldap.search_by_discord(interaction.user.name)
+    existing = ldap.search_by_discord_id(str(interaction.user.id))
     if existing:
         await interaction.response.send_message(
             f"✅ **Du bist bereits für Weihnachtsdorf 7 registriert!** (Account: `{existing['uid']}`)\n"
@@ -864,7 +867,7 @@ class OptOutModal(discord.ui.Modal, title="Vom Weihnachtsdorf 7 abmelden"):
         discord_id = str(interaction.user.id)
 
         ldap = LDAPClient()
-        user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(interaction.user.name)
+        user = ldap.search_by_discord_id(discord_id)
         status = applications.get_user_status(discord_id)
 
         if not user and not status.get("has_pending"):
@@ -918,7 +921,7 @@ async def trigger_optout_flow(interaction: discord.Interaction):
 
     discord_id = str(interaction.user.id)
     ldap = LDAPClient()
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(interaction.user.name)
+    user = ldap.search_by_discord_id(discord_id)
     status = applications.get_user_status(discord_id)
 
     if not user and not status.get("has_pending"):
@@ -1116,9 +1119,8 @@ async def handle_auth_code_request(interaction: discord.Interaction):
     authentik = AuthentikClient()
 
     discord_id = str(interaction.user.id)
-    discord_tag = interaction.user.name
 
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
+    user = ldap.search_by_discord_id(discord_id)
     if not user:
         await interaction.followup.send(
             "❌ **Kein Account verknüpft**\n\n"
@@ -1509,7 +1511,7 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
     mc = MinecraftSyncClient()
     authentik = AuthentikClient()
 
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_name)
+    user = ldap.search_by_discord_id(discord_id)
     was_previously_enrolled = user is not None and user.get("minecraftName")
 
     dm_sent = False
@@ -2857,10 +2859,9 @@ async def cmd_password_reset(interaction: discord.Interaction):
     ldap = LDAPClient()
     authentik = AuthentikClient()
 
-    discord_tag = interaction.user.name
     discord_id = str(interaction.user.id)
 
-    user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
+    user = ldap.search_by_discord_id(discord_id)
     if not user:
         await interaction.followup.send(
             "❌ Dein Discord-Account ist mit keinem Weihnachtsdorf-Account verknüpft. Bitte kontaktiere einen Administrator.",
@@ -2957,11 +2958,8 @@ async def cmd_status(
             )
             return
     else:
-        discord_tag = interaction.user.name
         discord_id = str(interaction.user.id)
-        user = ldap.search_by_discord(discord_id) or ldap.search_by_discord(discord_tag)
-        if not user:
-            user = ldap.get_user(interaction.user.name.lower())
+        user = ldap.search_by_discord_id(discord_id)
 
         if not user:
             await interaction.followup.send(
@@ -3768,7 +3766,14 @@ async def cmd_mc_befehl(interaction: discord.Interaction, befehl: str):
     await interaction.response.defer(ephemeral=False)
 
     mc = MinecraftSyncClient()
-    ok = await asyncio.to_thread(mc.execute_commands, [clean_cmd])
+    output_lines: List[str] = []
+    try:
+        raw_output = await asyncio.to_thread(mc.run_and_capture, clean_cmd)
+        output_lines = chat_bridge.console_filter(raw_output)
+        ok = True
+    except Exception as e:
+        logger.warning(f"Failed to execute mc-befehl '/{clean_cmd}': {e}")
+        ok = False
 
     log_admin_event(
         title="💻 Minecraft-Konsolenbefehl ausgeführt",
@@ -3782,13 +3787,28 @@ async def cmd_mc_befehl(interaction: discord.Interaction, befehl: str):
         author_name=interaction.user.name,
     )
 
+    safe_cmd = clean_cmd.replace("`", "'")
+    if len(safe_cmd) > 250:
+        safe_cmd = safe_cmd[:247] + "..."
+
     embed = discord.Embed(
         title="💻 Minecraft Konsole",
-        description=f"Befehl: `/{clean_cmd}`",
+        description=f"Befehl: `/{safe_cmd}`",
         color=discord.Color.green() if ok else discord.Color.red(),
         timestamp=datetime.now(timezone.utc),
     )
     embed.add_field(name="Status", value="✅ Befehl erfolgreich an Server gesendet." if ok else "❌ Übertragungsfehler zur Server-Konsole.", inline=False)
+    if ok:
+        if output_lines:
+            out_text = "\n".join(line.rstrip() for line in output_lines).strip().replace("```", "'''")
+            if out_text:
+                if len(out_text) > 990:
+                    out_text = out_text[:987] + "..."
+                embed.add_field(name="Ausgabe", value=f"```{out_text}```", inline=False)
+            else:
+                embed.add_field(name="Ausgabe", value="*(Keine Konsolenausgabe)*", inline=False)
+        else:
+            embed.add_field(name="Ausgabe", value="*(Keine Konsolenausgabe)*", inline=False)
     embed.set_footer(text=f"Ausgeführt von {interaction.user.name}")
     await interaction.followup.send(embed=embed)
 
@@ -3878,20 +3898,14 @@ async def cmd_admin_spieler(
     if discord_nutzer:
         target_discord_id = str(discord_nutzer.id)
         target_discord_name = discord_nutzer.name
-        # 1. Search by Discord Snowflake ID
-        user = ldap.search_by_discord(target_discord_id)
-        # 2. Search by Discord username
-        if not user:
-            user = ldap.search_by_discord(discord_nutzer.name)
-        # 3. Search by Discord display name
-        if not user and discord_nutzer.display_name:
-            user = ldap.search_by_discord(discord_nutzer.display_name)
+        # Search strictly by Discord Snowflake ID
+        user = ldap.search_by_discord_id(target_discord_id)
     elif suchbegriff:
         clean = suchbegriff.strip().replace("<@", "").replace(">", "").replace("!", "")
         # 1. If pure digit: Discord ID
         if clean.isdigit():
             target_discord_id = clean
-            user = ldap.search_by_discord(clean)
+            user = ldap.search_by_discord_id(clean)
 
         # 2. Search members in current guild for matching name/display_name
         if not user and interaction.guild:
@@ -4300,6 +4314,180 @@ async def before_playerlist_sync_loop():
     await bot.wait_until_ready()
 
 
+_last_log: List[str] = []
+
+
+@tasks.loop(seconds=2)
+async def console_log_sync_loop():
+    """Background task to stream live Minecraft console logs into the console Discord channel."""
+    global _last_log
+    try:
+        console_id = str(getattr(settings, "DISCORD_CHANNEL_CONSOLE_ID", "") or "")
+        if not console_id or not console_id.isdigit():
+            return
+
+        channel = bot.get_channel(int(console_id))
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(int(console_id))
+            except Exception as e:
+                logger.debug(f"Could not fetch console channel {console_id}: {e}")
+                return
+
+        mc = MinecraftSyncClient()
+        cur = await asyncio.to_thread(mc.get_log_lines)
+        if not cur:
+            return
+
+        new = new_log_lines(_last_log, cur)
+        _last_log = cur
+
+        if not new:
+            return
+
+        filtered = chat_bridge.console_filter(new)
+        if not filtered:
+            return
+
+        chunks = chat_bridge.chunk_code_blocks(filtered, limit=1900)
+        if not chunks:
+            return
+
+        if len(chunks) <= 3:
+            for ch in chunks:
+                await channel.send(ch)
+        else:
+            await channel.send(chunks[0])
+            await channel.send(chunks[1])
+            lines_sent = len(chunks[0].strip("`").strip("\n").split("\n")) + len(chunks[1].strip("`").strip("\n").split("\n"))
+            rem = len(filtered) - lines_sent
+            if rem <= 0:
+                rem = len(chunks) - 2
+            await channel.send(f"```\n… {rem} weitere Zeilen\n```")
+    except Exception as e:
+        logger.debug(f"Error in console_log_sync_loop: {e}")
+
+
+@console_log_sync_loop.before_loop
+async def before_console_log_sync_loop():
+    await bot.wait_until_ready()
+
+
+@bot.listen("on_message")
+async def bridge_on_message(message: discord.Message):
+    """
+    Message listener for bidirectional Minecraft<->Discord chat bridge and live console commands.
+    """
+    if not message.author or message.author.bot or message.webhook_id:
+        return
+    if not message.guild:
+        return
+    if settings.DISCORD_GUILD_ID and str(message.guild.id) != str(settings.DISCORD_GUILD_ID):
+        return
+
+    chan_id = str(message.channel.id)
+
+    # 1. Chat Channel Handling
+    if chan_id in (str(settings.DISCORD_CHANNEL_CHAT_PRELAUNCH_ID), str(settings.DISCORD_CHANNEL_CHAT_LIVE_ID)):
+        active_chat_id = await asyncio.to_thread(chat_bridge.active_chat_channel_id)
+        if chan_id == str(active_chat_id):
+            if not chat_bridge.rate_ok(str(message.author.id)):
+                return
+
+            player = await asyncio.to_thread(chat_bridge.resolve_active_player, str(message.author.id))
+            if not player:
+                try:
+                    await message.add_reaction("🔒")
+                except Exception:
+                    pass
+                return
+
+            ign, uuid = player
+            text = chat_bridge.clean_discord_text(message)
+            if not text:
+                return
+
+            tellraw_cmd = chat_bridge.build_tellraw(ign, text)
+            mc = MinecraftSyncClient()
+            try:
+                await asyncio.to_thread(mc.execute_commands, [tellraw_cmd])
+            except Exception as e:
+                logger.warning(f"Failed to broadcast tellraw to Minecraft: {e}")
+
+            # Fire & forget POST to BlueMap webchat bridge
+            port = getattr(settings, "WEBHOOK_PORT", 8000)
+            bluemap_url = f"http://127.0.0.1:{port}/api/bluemap/chat/ingame"
+            bluemap_payload = {
+                "type": "chat",
+                "uuid": uuid,
+                "username": ign,
+                "message": text,
+                "source": "discord",
+            }
+
+            async def _forward_bluemap():
+                try:
+                    async with httpx.AsyncClient(timeout=3.0) as client:
+                        await client.post(bluemap_url, json=bluemap_payload)
+                except Exception as e:
+                    logger.debug(f"Failed to post discord chat to BlueMap: {e}")
+
+            asyncio.create_task(_forward_bluemap())
+            return
+
+    # 2. Console Channel Handling
+    console_id = str(getattr(settings, "DISCORD_CHANNEL_CONSOLE_ID", "") or "")
+    if console_id and chan_id == console_id:
+        author = message.author
+        if not isinstance(author, discord.Member):
+            return
+
+        is_strict_admin = author.guild_permissions.administrator
+        if not is_strict_admin:
+            admin_role_id = str(getattr(settings, "DISCORD_ADMIN_ROLE_ID", "") or "")
+            if admin_role_id:
+                is_strict_admin = any(str(r.id) == admin_role_id for r in author.roles)
+
+        if not is_strict_admin:
+            return
+
+        cmd = message.content.strip()
+        if cmd.startswith("/"):
+            cmd = cmd[1:].strip()
+        if not cmd:
+            return
+
+        first_word = cmd.split()[0].lower() if cmd.split() else ""
+        cmd_lower = cmd.lower()
+        if first_word in ("stop", "restart", "op", "deop", "ban-ip", "kill-all") or cmd_lower.startswith("whitelist off"):
+            try:
+                await message.reply("❌ Dieser Befehl ist in der Chat-Konsole gesperrt. Bitte nutze das Panel oder `/mc-befehl`.")
+            except Exception as e:
+                logger.debug(f"Failed to send forbidden command reply: {e}")
+            return
+
+        try:
+            log_admin_event(
+                title="💻 Minecraft-Konsolenbefehl ausgeführt",
+                description=f"Administrator {message.author.mention} hat einen Konsolenbefehl ausgeführt.",
+                color=COLOR_INFO,
+                fields=[
+                    {"name": "Befehl", "value": f"`/{cmd}`", "inline": True},
+                    {"name": "Status", "value": "✅ Gesendet", "inline": True},
+                    {"name": "Ausgeführt von", "value": message.author.mention, "inline": True},
+                ],
+                author_name=message.author.name,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to log console command admin event: {e}")
+
+        mc = MinecraftSyncClient()
+        try:
+            await asyncio.to_thread(mc.execute_commands, [cmd])
+        except Exception as e:
+            logger.warning(f"Failed to execute console command '{cmd}': {e}")
+
+
 @bot.event
 async def on_member_join(member: discord.Member):
     """
@@ -4317,11 +4505,7 @@ async def on_member_join(member: discord.Member):
 
     # Search for existing account in LDAP
     ldap = LDAPClient()
-    user = await asyncio.to_thread(ldap.search_by_discord, str(member.id))
-    if not user:
-        user = await asyncio.to_thread(ldap.search_by_discord, member.name)
-    if not user and member.display_name != member.name:
-        user = await asyncio.to_thread(ldap.search_by_discord, member.display_name)
+    user = await asyncio.to_thread(ldap.search_by_discord_id, str(member.id))
 
     if not user:
         try:
@@ -4499,6 +4683,15 @@ async def on_ready():
             logger.info("Started playerlist automatic synchronization loop (30s interval).")
     except Exception as e:
         logger.error(f"Failed to start playerlist_sync_loop: {e}")
+
+    # Start live console log streaming loop (2s interval)
+    try:
+        if getattr(settings, "DISCORD_CHANNEL_CONSOLE_ID", None):
+            if not console_log_sync_loop.is_running():
+                console_log_sync_loop.start()
+                logger.info("Started console live log synchronization loop (2s interval).")
+    except Exception as e:
+        logger.error(f"Failed to start console_log_sync_loop: {e}")
 
 
 def run_bot():

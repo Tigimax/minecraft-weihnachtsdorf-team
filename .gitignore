@@ -29,6 +29,8 @@ plugins/.paper-remapped/
 volumes/
 *.secret
 forwarding.secret
+*.db
+tools/wd-identity/data/*.db
 
 # Environment & credentials
 .env

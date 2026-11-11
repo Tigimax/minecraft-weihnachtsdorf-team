@@ -12,6 +12,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.metadata.MetadataValue;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.net.URI;
@@ -65,23 +66,49 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
+        if (isVanished(event.getPlayer())) {
+            return;
+        }
         postEvent("chat", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), event.getMessage());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
+        if (isVanished(event.getPlayer())) {
+            return;
+        }
         postEvent("join", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), "");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
+        if (isVanished(event.getPlayer())) {
+            return;
+        }
         postEvent("quit", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), "");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onDeath(PlayerDeathEvent event) {
+        if (isVanished(event.getEntity())) {
+            return;
+        }
         String deathMsg = event.getDeathMessage() != null ? event.getDeathMessage() : "";
         postEvent("death", event.getEntity().getUniqueId().toString(), event.getEntity().getName(), deathMsg);
+    }
+
+    private boolean isVanished(Player player) {
+        if (player == null) {
+            return false;
+        }
+        if (player.hasMetadata("vanished")) {
+            for (MetadataValue mv : player.getMetadata("vanished")) {
+                if (mv.asBoolean()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void postEvent(String type, String uuid, String username, String message) {
@@ -113,7 +140,7 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
         boolean first = true;
         Collection<? extends Player> onlinePlayers = Bukkit.getOnlinePlayers();
         for (Player p : onlinePlayers) {
-            if (p.getGameMode() == GameMode.SPECTATOR || p.isInvisible() || p.hasMetadata("vanished")) {
+            if (p.getGameMode() == GameMode.SPECTATOR || p.isInvisible() || isVanished(p)) {
                 continue;
             }
             Location loc = p.getLocation();

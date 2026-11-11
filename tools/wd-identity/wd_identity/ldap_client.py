@@ -56,7 +56,18 @@ class LDAPClient:
         self.player_group = self.player_group_dn
 
     def _get_connection(self) -> Connection:
-        tls = Tls(validate=ssl.CERT_NONE)
+        if getattr(settings, "LDAP_TLS_VERIFY", True):
+            ca_file = getattr(settings, "LDAP_CA_CERT_FILE", "")
+            tls_kwargs = {"validate": ssl.CERT_REQUIRED, "valid_names": ["ldap-01.net"]}
+            if ca_file and ca_file.strip():
+                tls_kwargs["ca_certs_file"] = ca_file.strip()
+            tls = Tls(**tls_kwargs)
+        else:
+            logger.warning(
+                "SECURITY WARNING: LDAP TLS certificate verification is disabled (LDAP_TLS_VERIFY=False)."
+            )
+            tls = Tls(validate=ssl.CERT_NONE)
+
         server = Server(self.server_uri, use_ssl=True, tls=tls, get_info=ALL)
         conn = Connection(
             server,
@@ -118,6 +129,37 @@ class LDAPClient:
             if not conn.entries:
                 return None
             return self._format_entry(conn.entries[0])
+        finally:
+            conn.unbind()
+
+    def search_by_discord_id(self, discord_id: str) -> Optional[Dict[str, Any]]:
+        """Search user strictly by immutable discordId (never falls back to discordName or uid)."""
+        if not discord_id or not str(discord_id).strip():
+            return None
+        target_id = str(discord_id).strip()
+        esc_val = escape_filter_chars(target_id)
+
+        conn = self._get_connection()
+        try:
+            user_filter = f"(&(objectClass=person)(discordId={esc_val}))"
+            conn.search(
+                self.user_ou,
+                user_filter,
+                attributes=[
+                    "uid",
+                    "cn",
+                    "sn",
+                    "mail",
+                    "objectClass",
+                    "discordName",
+                    "discordId",
+                    "minecraftName",
+                    "minecraftUuid",
+                ],
+            )
+            if conn.entries:
+                return self._format_entry(conn.entries[0])
+            return None
         finally:
             conn.unbind()
 

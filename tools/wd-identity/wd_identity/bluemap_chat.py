@@ -5,6 +5,7 @@ enforcing authentic Minecraft usernames derived securely from Authentik SSO sess
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,6 +25,41 @@ router = APIRouter(tags=["bluemap-chat"])
 # Internal registry of active SSE subscriber queues
 _active_sse_queues: List[asyncio.Queue] = []
 PROTECTED_INTERNAL_ACCOUNTS = {"tigimax", "akadmin"}
+
+
+def client_ip_allowed(request: Request, allowed_csv: str) -> bool:
+    """
+    Validates if the direct client IP of the request is within the allowed CSV of IPs or CIDR networks.
+    Empty or whitespace allowed_csv disables filtering (returns True).
+    Evaluates only direct connection IP (request.client), never X-Forwarded-For.
+    """
+    if not allowed_csv or not allowed_csv.strip():
+        return True
+
+    client = getattr(request, "client", None)
+    if not client:
+        return False
+    host = getattr(client, "host", None)
+    if not host:
+        return False
+
+    try:
+        client_ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+
+    for item in allowed_csv.split(","):
+        raw_net = item.strip()
+        if not raw_net:
+            continue
+        try:
+            net = ipaddress.ip_network(raw_net, strict=False)
+            if client_ip in net:
+                return True
+        except (ValueError, TypeError):
+            continue
+
+    return False
 
 
 def resolve_minecraft_player_from_authentik(authentik_user: str) -> Tuple[str, str]:
@@ -73,6 +109,11 @@ async def whoami(request: Request):
     BlueMap Integration endpoint.
     Returns the verified Minecraft username and UUID for the currently authenticated session.
     """
+    if not client_ip_allowed(request, settings.PROXY_TRUSTED_IPS):
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning(f"Forbidden access to /addons/integration/whoami from {client_ip}")
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     auth_user = request.headers.get("x-authentik-username", "")
     if not auth_user:
         return {}
@@ -87,6 +128,11 @@ async def whoami(request: Request):
 @router.get("/addons/integration/playerhead/{map_id}")
 async def playerhead(map_id: str, request: Request):
     """Redirects to the 32x32 playerhead avatar for the logged-in BlueMap user."""
+    if not client_ip_allowed(request, settings.PROXY_TRUSTED_IPS):
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning(f"Forbidden access to /addons/integration/playerhead from {client_ip}")
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     auth_user = request.headers.get("x-authentik-username", "")
     _, uuid = resolve_minecraft_player_from_authentik(auth_user)
     clean_uuid = uuid.replace("-", "") if uuid else "steve"
@@ -106,6 +152,11 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
     Receives web chat messages from BlueMap, broadcasts to Minecraft via RCON,
     and echoes to all active BlueMap SSE listeners with verified Minecraft identity.
     """
+    if not client_ip_allowed(request, settings.PROXY_TRUSTED_IPS):
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning(f"Forbidden web chat send attempt from {client_ip}")
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     auth_user = request.headers.get("x-authentik-username", "")
     if not auth_user:
         raise HTTPException(status_code=401, detail="Nicht eingeloggt. Bitte über Authentik anmelden.")
@@ -142,6 +193,19 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
         "message": clean_msg,
     }
     await broadcast_bluemap_event(event_payload)
+
+    # 3. Enqueue to Discord bridge
+    try:
+        from wd_identity import chat_bridge
+        await chat_bridge.enqueue_to_discord({
+            "type": "chat",
+            "uuid": uuid or "0",
+            "username": ign,
+            "message": clean_msg,
+        })
+    except Exception as e:
+        logger.warning(f"Failed to enqueue webchat to discord: {e}")
+
     return {"ok": True}
 
 
@@ -187,14 +251,28 @@ class IngameChatEvent(BaseModel):
     uuid: Optional[str] = "0"
     username: Optional[str] = ""
     message: Optional[str] = ""
+    source: Optional[str] = ""
 
 
 @router.post("/api/bluemap/chat/ingame")
-async def ingame_chat_event(event: IngameChatEvent):
+async def ingame_chat_event(event: IngameChatEvent, request: Request):
     """
     Internal bridge receiver called by Minecraft server (BlueMapLiveBridge)
     to forward in-game chat, join, leave, and death events to BlueMap web chat.
     """
-    payload = event.dict()
+    if not client_ip_allowed(request, settings.BRIDGE_TRUSTED_IPS):
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning(f"Forbidden ingame chat event from {client_ip}")
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    payload = event.model_dump() if hasattr(event, "model_dump") else event.dict()
     await broadcast_bluemap_event(payload)
+
+    if event.source != "discord":
+        try:
+            from wd_identity import chat_bridge
+            await chat_bridge.enqueue_to_discord(payload)
+        except Exception as e:
+            logger.warning(f"Failed to enqueue ingame event to discord: {e}")
+
     return {"ok": True}

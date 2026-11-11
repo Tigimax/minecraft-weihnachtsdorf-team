@@ -3089,7 +3089,28 @@ async def cmd_zugang_entziehen(
 
     await interaction.response.defer(ephemeral=False)
 
-    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
+
+    # Guard against targeting bots
+    if clean_target == str(bot.user.id) or clean_target == "1564751378436456468":
+        await interaction.followup.send(
+            "❌ Du hast versehentlich den **Bot (WHD Privileges)** ausgewählt!\n"
+            "Bitte wähle deinen eigenen Benutzeraccount **@Tigimax** (oder gib deinen Minecraft-Namen `Tigimax` ein).",
+            ephemeral=True,
+        )
+        return
+
+    if clean_target.isdigit():
+        try:
+            m = interaction.guild.get_member(int(clean_target)) if interaction.guild else None
+            if m and m.bot:
+                await interaction.followup.send(
+                    f"❌ **@{m.name}** ist ein Discord-Bot und kein Spieler-Account!",
+                    ephemeral=True,
+                )
+                return
+        except Exception:
+            pass
 
     if account_behalten:
         res = await asyncio.to_thread(
@@ -3183,7 +3204,28 @@ async def cmd_rolle(
 
     await interaction.response.defer(ephemeral=False)
 
-    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
+
+    # Guard against targeting bots
+    if clean_target == str(bot.user.id) or clean_target == "1564751378436456468":
+        await interaction.followup.send(
+            "❌ Du hast versehentlich den **Bot (WHD Privileges)** ausgewählt!\n"
+            "Bitte wähle deinen eigenen Benutzeraccount **@Tigimax** (oder gib deinen Minecraft-Namen `Tigimax` ein).",
+            ephemeral=True,
+        )
+        return
+
+    if clean_target.isdigit():
+        try:
+            m = interaction.guild.get_member(int(clean_target)) if interaction.guild else None
+            if m and m.bot:
+                await interaction.followup.send(
+                    f"❌ **@{m.name}** ist ein Discord-Bot und kein Spieler-Account!",
+                    ephemeral=True,
+                )
+                return
+        except Exception:
+            pass
 
     try:
         res = await asyncio.to_thread(
@@ -3269,7 +3311,28 @@ async def cmd_mod_baurecht(
 
     await interaction.response.defer(ephemeral=False)
 
-    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
+
+    # Guard against targeting bots
+    if clean_target == str(bot.user.id) or clean_target == "1564751378436456468":
+        await interaction.followup.send(
+            "❌ Du hast versehentlich den **Bot (WHD Privileges)** ausgewählt!\n"
+            "Bitte wähle deinen eigenen Benutzeraccount **@Tigimax** (oder gib deinen Minecraft-Namen `Tigimax` ein).",
+            ephemeral=True,
+        )
+        return
+
+    if clean_target.isdigit():
+        try:
+            m = interaction.guild.get_member(int(clean_target)) if interaction.guild else None
+            if m and m.bot:
+                await interaction.followup.send(
+                    f"❌ **@{m.name}** ist ein Discord-Bot und kein Spieler-Account!",
+                    ephemeral=True,
+                )
+                return
+        except Exception:
+            pass
     mc = MinecraftSyncClient()
 
     if entziehen:
@@ -3819,7 +3882,28 @@ async def cmd_spieler_kick(interaction: discord.Interaction, ziel: str, grund: O
         await interaction.response.send_message("❌ Nur Administratoren können Spieler kicken.", ephemeral=True)
         return
 
-    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "")
+    clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
+
+    # Guard against targeting bots
+    if clean_target == str(bot.user.id) or clean_target == "1564751378436456468":
+        await interaction.followup.send(
+            "❌ Du hast versehentlich den **Bot (WHD Privileges)** ausgewählt!\n"
+            "Bitte wähle deinen eigenen Benutzeraccount **@Tigimax** (oder gib deinen Minecraft-Namen `Tigimax` ein).",
+            ephemeral=True,
+        )
+        return
+
+    if clean_target.isdigit():
+        try:
+            m = interaction.guild.get_member(int(clean_target)) if interaction.guild else None
+            if m and m.bot:
+                await interaction.followup.send(
+                    f"❌ **@{m.name}** ist ein Discord-Bot und kein Spieler-Account!",
+                    ephemeral=True,
+                )
+                return
+        except Exception:
+            pass
     clean_reason = (grund or "Vom Administrator gekickt").strip()
 
     ldap = LDAPClient()

@@ -183,7 +183,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
     if admin_lines:
         admin_chunks = _chunk_lines(admin_lines, max_items=12, max_chars=950)
         for i, chunk in enumerate(admin_chunks):
-            title = f"👑 Projektleitung & Administration ({len(admins_sorted)})" if len(admin_chunks) == 1 else f"👑 Projektleitung & Administration (Teil {i + 1})"
+            title = f"👑 Projektleitung & Administration ({len(admins_sorted)})" if i == 0 else "\u200b"
             fields.append({
                 "name": title,
                 "value": "\n".join(chunk),
@@ -194,7 +194,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
     if mod_lines:
         mod_chunks = _chunk_lines(mod_lines, max_items=12, max_chars=950)
         for i, chunk in enumerate(mod_chunks):
-            title = f"⚔️ Moderation ({len(mods_sorted)})" if len(mod_chunks) == 1 else f"⚔️ Moderation (Teil {i + 1})"
+            title = f"⚔️ Moderation ({len(mods_sorted)})" if i == 0 else "\u200b"
             fields.append({
                 "name": title,
                 "value": "\n".join(chunk),
@@ -211,12 +211,8 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
     else:
         player_chunks = _chunk_lines(player_lines, max_items=12, max_chars=950)
         total = len(players_sorted)
-        offset = 0
-        for chunk in player_chunks:
-            start = offset + 1
-            end = offset + len(chunk)
-            offset = end
-            title = f"🎮 Angemeldete Spieler ({total})" if len(player_chunks) == 1 else f"🎮 Angemeldete Spieler ({start}–{end} von {total})"
+        for i, chunk in enumerate(player_chunks):
+            title = f"🎮 Angemeldete Spieler ({total})" if i == 0 else "\u200b"
             fields.append({
                 "name": title,
                 "value": "\n".join(chunk),

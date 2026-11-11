@@ -2,6 +2,7 @@
 Unit tests for BlueMap client IP filtering, bridge endpoints, and log rotation/sync helper.
 """
 
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -202,11 +203,28 @@ class TestBlueMapEndpointsSecurityAndRouting(unittest.TestCase):
             )
             self.assertEqual(resp.status_code, 200)
             self.mock_bridge.enqueue_to_discord.assert_called_once_with({
-                "type": "chat",
+                "type": "webchat",
                 "uuid": "uuid-123",
                 "username": "Steve",
                 "message": "hello from bluemap",
             })
+
+    def test_shutdown_signal_wakes_sse_queues(self):
+        from wd_identity.bluemap_chat import _active_sse_queues, notify_shutdown, reset_shutdown_state, get_shutdown_event
+        reset_shutdown_state()
+        test_q = asyncio.Queue()
+        _active_sse_queues.append(test_q)
+        try:
+            self.assertFalse(get_shutdown_event().is_set())
+            notify_shutdown()
+            self.assertTrue(get_shutdown_event().is_set())
+            self.assertFalse(test_q.empty())
+            item = test_q.get_nowait()
+            self.assertEqual(item, {"type": "shutdown"})
+        finally:
+            if test_q in _active_sse_queues:
+                _active_sse_queues.remove(test_q)
+            reset_shutdown_state()
 
     def test_integration_whoami_untrusted_ip_blocked(self):
         client = TestClient(self.app, client=("8.8.8.8", 12345))

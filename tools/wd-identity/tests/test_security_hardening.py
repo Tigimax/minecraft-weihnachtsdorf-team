@@ -95,6 +95,42 @@ class TestWebhookSecurityAndAuth(unittest.TestCase):
             )
 
     @patch("wd_identity.webhook.settings")
+    def test_web_setup_flow_verified_requires_auth_when_secret_configured(self, mock_settings):
+        """complete_web_setup with code='flow_verified' must reject unauthorized callers without secret."""
+        mock_settings.WEBHOOK_SECRET = "super-secret-token"
+        payload = {
+            "username": "victim",
+            "password": "NewSecretPassword123!",
+            "code": "flow_verified",
+        }
+
+        # 1. No auth header -> 401
+        res = self.client.post("/api/web-setup/complete", json=payload)
+        self.assertIn(res.status_code, (401, 403))
+
+        # 2. Invalid secret -> 401
+        res = self.client.post(
+            "/api/web-setup/complete",
+            json=payload,
+            headers={"X-Webhook-Secret": "invalid-secret"},
+        )
+        self.assertIn(res.status_code, (401, 403))
+
+        # 3. Valid secret -> proceeds to user update
+        with patch("wd_identity.webhook.LDAPClient") as mock_ldap, \
+             patch("wd_identity.webhook.AuthentikClient") as mock_ak:
+            mock_ldap.return_value.set_password.return_value = True
+            mock_ak.return_value.set_user_password.return_value = True
+            mock_ak.return_value.get_user_by_username.return_value = {"attributes": {}}
+            mock_ak.return_value.update_user_attributes.return_value = True
+            res = self.client.post(
+                "/api/web-setup/complete",
+                json=payload,
+                headers={"X-Webhook-Secret": "super-secret-token"},
+            )
+            self.assertEqual(res.status_code, 200)
+
+    @patch("wd_identity.webhook.settings")
     def test_public_status_endpoints_do_not_require_auth(self, mock_settings):
         mock_settings.WEBHOOK_SECRET = "super-secret-token"
         res = self.client.get("/health")

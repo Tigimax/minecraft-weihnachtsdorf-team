@@ -10,6 +10,7 @@ import hmac
 import logging
 import threading
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional, Set
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -38,11 +39,23 @@ from wd_identity.utils import (
 
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    logger.info("FastAPI lifespan shutdown: notifying SSE streams to exit...")
+    from wd_identity.bluemap_chat import notify_shutdown
+    notify_shutdown()
+    from wd_identity import chat_bridge
+    if chat_bridge._worker_task and not chat_bridge._worker_task.done():
+        chat_bridge._worker_task.cancel()
+
+
 app = FastAPI(
     title="Weihnachtsdorf 7 Identity Webhook",
     version="1.0.0",
     docs_url="/docs",
     redoc_url=None,
+    lifespan=lifespan,
 )
 app.include_router(bluemap_chat_router)
 
@@ -578,11 +591,15 @@ def complete_onboarding(req: OnboardingRequest):
 
 
 @app.post("/api/web-setup/complete")
-def complete_web_setup(req: WebSetupCompleteRequest):
+def complete_web_setup(
+    req: WebSetupCompleteRequest,
+    authorization: Optional[str] = Header(None),
+    x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
+):
     """
     Self-service web password setup endpoint for pre-provisioned players.
     1. Validates username and password (min 8 chars, non-empty/whitespace).
-    2. Verifies 6-digit static token unless code == 'flow_verified'.
+    2. Verifies 6-digit static token unless code == 'flow_verified' (which requires webhook secret auth).
     3. Updates OpenLDAP password.
     4. Updates Authentik password.
     5. Clears Authentik 'needs_web_setup' attribute to False.
@@ -624,12 +641,13 @@ def complete_web_setup(req: WebSetupCompleteRequest):
             status_code=400,
             content={"status": "error", "detail": "Verification code is required"},
         )
-    if raw_code != "flow_verified":
-        if not ak.verify_static_token_for_user(clean_user, raw_code):
-            return JSONResponse(
-                status_code=400,
-                content={"status": "error", "detail": "Invalid or expired verification code"},
-            )
+    if raw_code == "flow_verified":
+        verify_webhook_auth(authorization=authorization, x_webhook_secret=x_webhook_secret)
+    elif not ak.verify_static_token_for_user(clean_user, raw_code):
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "detail": "Invalid or expired verification code"},
+        )
 
     # Update OpenLDAP password
     ldap = LDAPClient()

@@ -25,6 +25,31 @@ router = APIRouter(tags=["bluemap-chat"])
 # Internal registry of active SSE subscriber queues
 _active_sse_queues: List[asyncio.Queue] = []
 PROTECTED_INTERNAL_ACCOUNTS = {"tigimax", "akadmin"}
+_shutdown_event: Optional[asyncio.Event] = None
+
+
+def get_shutdown_event() -> asyncio.Event:
+    global _shutdown_event
+    if _shutdown_event is None:
+        _shutdown_event = asyncio.Event()
+    return _shutdown_event
+
+
+def notify_shutdown() -> None:
+    """Signals all SSE streams to terminate gracefully."""
+    evt = get_shutdown_event()
+    evt.set()
+    for q in list(_active_sse_queues):
+        try:
+            q.put_nowait({"type": "shutdown"})
+        except Exception:
+            pass
+
+
+def reset_shutdown_state() -> None:
+    """Resets shutdown event for unit test isolation."""
+    global _shutdown_event
+    _shutdown_event = None
 
 
 def client_ip_allowed(request: Request, allowed_csv: str) -> bool:
@@ -198,7 +223,7 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
     try:
         from wd_identity import chat_bridge
         await chat_bridge.enqueue_to_discord({
-            "type": "chat",
+            "type": "webchat",
             "uuid": uuid or "0",
             "username": ign,
             "message": clean_msg,
@@ -219,17 +244,22 @@ async def chat_stream(map_id: str, request: Request):
     _active_sse_queues.append(queue)
 
     async def sse_generator():
+        evt = get_shutdown_event()
         # Handshake: notify frontend that chat is enabled and read-write
         init_data = json.dumps({"type": "settings", "readOnly": False})
         yield f"data: {init_data}\n\n"
         try:
-            while True:
+            while not evt.is_set():
                 if await request.is_disconnected():
                     break
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    event = await asyncio.wait_for(queue.get(), timeout=2.0)
+                    if evt.is_set() or event.get("type") == "shutdown":
+                        break
                     yield f"data: {json.dumps(event)}\n\n"
                 except asyncio.TimeoutError:
+                    if evt.is_set():
+                        break
                     yield ": ping\n\n"
         finally:
             if queue in _active_sse_queues:

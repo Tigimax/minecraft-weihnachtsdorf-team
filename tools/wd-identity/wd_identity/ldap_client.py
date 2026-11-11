@@ -58,7 +58,9 @@ class LDAPClient:
     def _get_connection(self) -> Connection:
         if getattr(settings, "LDAP_TLS_VERIFY", True):
             ca_file = getattr(settings, "LDAP_CA_CERT_FILE", "")
-            tls_kwargs = {"validate": ssl.CERT_REQUIRED, "valid_names": ["ldap-01.net"]}
+            host_part = self.server_uri.split("://")[-1].split(":")[0].strip()
+            valid_names = list({n for n in ["ldap-01.net", host_part] if n})
+            tls_kwargs = {"validate": ssl.CERT_REQUIRED, "valid_names": valid_names}
             if ca_file and ca_file.strip():
                 tls_kwargs["ca_certs_file"] = ca_file.strip()
             tls = Tls(**tls_kwargs)

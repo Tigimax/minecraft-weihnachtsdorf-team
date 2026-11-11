@@ -36,10 +36,19 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
             .build();
-    private static final URI CHAT_ENDPOINT = URI.create("http://192.168.1.150:8000/api/bluemap/chat/ingame");
+    private URI chatEndpoint = URI.create("http://192.168.1.150:8000/api/bluemap/chat/ingame");
 
     @Override
     public void onEnable() {
+        saveDefaultConfig();
+        String endpointStr = getConfig().getString("endpoint", "http://192.168.1.150:8000/api/bluemap/chat/ingame");
+        try {
+            chatEndpoint = URI.create(endpointStr);
+        } catch (Exception e) {
+            getLogger().warning("Invalid endpoint in config.yml, using default: " + e.getMessage());
+            chatEndpoint = URI.create("http://192.168.1.150:8000/api/bluemap/chat/ingame");
+        }
+
         try {
             Path webDir = Path.of("web");
             Files.createDirectories(webDir);
@@ -74,7 +83,7 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        if (isVanished(event.getPlayer())) {
+        if (event.getJoinMessage() == null || isVanished(event.getPlayer())) {
             return;
         }
         postEvent("join", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), "");
@@ -82,7 +91,7 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
-        if (isVanished(event.getPlayer())) {
+        if (event.getQuitMessage() == null || isVanished(event.getPlayer())) {
             return;
         }
         postEvent("quit", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), "");
@@ -90,21 +99,22 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onDeath(PlayerDeathEvent event) {
-        if (isVanished(event.getEntity())) {
+        if (isVanished(event.getEntity()) || event.getDeathMessage() == null || event.getDeathMessage().isBlank()) {
             return;
         }
-        String deathMsg = event.getDeathMessage() != null ? event.getDeathMessage() : "";
-        postEvent("death", event.getEntity().getUniqueId().toString(), event.getEntity().getName(), deathMsg);
+        postEvent("death", event.getEntity().getUniqueId().toString(), event.getEntity().getName(), event.getDeathMessage());
     }
 
     private boolean isVanished(Player player) {
         if (player == null) {
             return false;
         }
-        if (player.hasMetadata("vanished")) {
-            for (MetadataValue mv : player.getMetadata("vanished")) {
-                if (mv.asBoolean()) {
-                    return true;
+        for (String metaKey : new String[]{"vanished", "vanish"}) {
+            if (player.hasMetadata(metaKey)) {
+                for (MetadataValue mv : player.getMetadata(metaKey)) {
+                    if (mv.asBoolean()) {
+                        return true;
+                    }
                 }
             }
         }
@@ -118,7 +128,7 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
                     escape(type), escape(uuid), escape(username), escape(message)
             );
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(CHAT_ENDPOINT)
+                    .uri(chatEndpoint)
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(3))
                     .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
@@ -131,7 +141,23 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
 
     private static String escape(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", "");
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '"': sb.append("\\\""); break;
+                case '\n':
+                case '\r':
+                case '\t': sb.append(' '); break;
+                default:
+                    if (c >= 32) {
+                        sb.append(c);
+                    }
+                    break;
+            }
+        }
+        return sb.toString();
     }
 
     private void exportPlayers() {

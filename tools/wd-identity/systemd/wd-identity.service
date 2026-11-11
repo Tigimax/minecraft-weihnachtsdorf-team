@@ -8,10 +8,11 @@ User=tigimax
 Group=tigimax
 WorkingDirectory=/opt/wd-identity
 EnvironmentFile=-/etc/default/wd-identity
-ExecStart=/opt/wd-identity/venv/bin/uvicorn wd_identity.webhook:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/wd-identity/venv/bin/uvicorn wd_identity.webhook:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 3
 Restart=always
 RestartSec=5s
-TimeoutStopSec=5s
+TimeoutStopSec=10s
+KillMode=mixed
 
 # Hardening
 NoNewPrivileges=true

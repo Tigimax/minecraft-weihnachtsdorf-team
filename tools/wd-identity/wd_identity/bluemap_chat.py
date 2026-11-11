@@ -120,6 +120,8 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
     if not ign:
         ign = auth_user
 
+    logger.info(f"[WebChat] Message from {ign} ({auth_user}): {clean_msg}")
+
     # 1. Broadcast to in-game Minecraft players with formatted prefix & gold username
     mc = MinecraftSyncClient()
     tellraw_payload = json.dumps([

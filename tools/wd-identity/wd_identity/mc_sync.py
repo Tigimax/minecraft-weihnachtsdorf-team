@@ -174,6 +174,14 @@ class MinecraftSyncClient:
         ]
         return self.execute_commands(cmds)
 
+    def setup_admin_permissions(self) -> bool:
+        """Configures LuckPerms group 'admin' with required admin prefix and permissions."""
+        cmds = [
+            'lp group admin meta setprefix 100 "&c[Admin] &r"',
+            "lp group admin permission set * true",
+        ]
+        return self.execute_commands(cmds)
+
     def grant_mod_build_access(
         self, target: str, duration_hours: float, initiator: str = "Admin"
     ) -> Dict[str, Any]:
@@ -464,6 +472,7 @@ class MinecraftSyncClient:
         if clean_role != "admin":
             logger.warning(f"Unknown role {clean_role}, defaulting to admin")
 
+        self.setup_admin_permissions()
         cmds = self._build_set_role_commands(ign, "admin", mc_uuid)
         if not cmds:
             return False

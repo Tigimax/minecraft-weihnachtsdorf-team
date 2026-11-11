@@ -47,6 +47,18 @@ def _get_queue() -> asyncio.Queue:
 # Player cache: discord_id -> ((ign, uuid) or None, expire_timestamp)
 _player_cache: Dict[str, Tuple[Optional[Tuple[str, str]], float]] = {}
 
+# Minecraft player lookup cache: ign.lower() -> (info_dict, expire_timestamp)
+_minecraft_player_cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
+
+# Discord avatar cache: discord_id -> (avatar_url, expire_timestamp)
+_avatar_cache: Dict[str, Tuple[str, float]] = {}
+
+ROLE_COLORS = {
+    "admin": "red",
+    "mod": "blue",
+    "player": "white",
+}
+
 # Rate limits: user_id -> deque of timestamps
 _user_rate_limits: Dict[str, deque] = {}
 
@@ -128,6 +140,169 @@ async def _get_channel_webhook_url(client: httpx.AsyncClient, channel_id: str) -
     return None
 
 
+def resolve_player_by_minecraft(ign: str, uuid: str = "") -> Dict[str, Any]:
+    """
+    Resolves Minecraft player IGN/UUID to discord_id and role ('admin', 'mod', 'player') via LDAP.
+    Results are cached with a 60-second TTL.
+    Returns dict: {"discord_id": str, "role": str, "ign": str, "uuid": str}
+    """
+    key = (ign or "").strip().lower()
+    now = time.time()
+    if key and key in _minecraft_player_cache:
+        val, exp = _minecraft_player_cache[key]
+        if now < exp:
+            return val
+
+    res = _lookup_player_by_minecraft(ign, uuid)
+    if key:
+        _minecraft_player_cache[key] = (res, now + 60.0)
+    return res
+
+
+def _lookup_player_by_minecraft(ign: str, uuid: str = "") -> Dict[str, Any]:
+    default_res = {"discord_id": "", "role": "player", "ign": ign, "uuid": uuid}
+    if not ign or not str(ign).strip():
+        return default_res
+
+    clean_ign = ign.strip()
+    try:
+        ldap = LDAPClient()
+        user = None
+
+        # 1. Search by minecraft IGN
+        try:
+            user = ldap.search_by_minecraft(clean_ign)
+        except Exception as e:
+            logger.debug(f"search_by_minecraft failed for {clean_ign}: {e}")
+
+        # 2. Fallbacks if user not found (e.g. tigimax vs tigimax_player or by uid)
+        lower_ign = clean_ign.lower()
+        if not user:
+            user = ldap.get_user(f"{lower_ign}_player")
+        if not user:
+            user = ldap.get_user(lower_ign)
+
+        if not user:
+            return default_res
+
+        discord_id = str(user.get("discordId") or "").strip()
+        user_uuid = str(user.get("minecraftUuid") or uuid or "")
+        user_dn = (user.get("dn") or "").strip().lower()
+        user_uid = (user.get("uid") or "").strip().lower()
+
+        # Determine role: admin, mod, or player
+        admin_group = getattr(settings, "LDAP_ADMIN_GROUP", "cn=wd_admins,ou=Groups,dc=ldap-01,dc=net")
+        mod_group = getattr(settings, "LDAP_MOD_GROUP", "cn=wd_mods,ou=Groups,dc=ldap-01,dc=net")
+        player_group = getattr(settings, "LDAP_PLAYER_GROUP", "cn=wd_players,ou=Groups,dc=ldap-01,dc=net")
+
+        role = "player"
+        for group_dn, group_role in [
+            (admin_group, "admin"),
+            (mod_group, "mod"),
+            (player_group, "player"),
+        ]:
+            if not group_dn:
+                continue
+            try:
+                members = ldap.get_group_members(group_dn)
+            except Exception as e:
+                logger.warning(f"Failed to get members for {group_dn}: {e}")
+                continue
+            found = False
+            for m in members:
+                clean_m = str(m).strip().lower()
+                if clean_m and (clean_m == user_dn or clean_m == user_uid):
+                    role = group_role
+                    found = True
+                    break
+            if found:
+                break
+
+        return {
+            "discord_id": discord_id,
+            "role": role,
+            "ign": user.get("minecraftName") or ign,
+            "uuid": user_uuid,
+        }
+    except Exception as e:
+        logger.warning(f"Error resolving player by minecraft for '{ign}': {e}")
+        return default_res
+
+
+async def get_discord_avatar_url(client: httpx.AsyncClient, discord_id: str) -> str:
+    """
+    Fetches the Discord avatar URL for a user (Guild member avatar, User avatar, or default embed avatar).
+    Cached with a 60s TTL.
+    """
+    if not discord_id or not str(discord_id).strip():
+        return "https://cdn.discordapp.com/embed/avatars/0.png"
+
+    did = str(discord_id).strip()
+    now = time.time()
+    if did in _avatar_cache:
+        val, exp = _avatar_cache[did]
+        if now < exp:
+            return val
+
+    # Calculate default embed avatar
+    try:
+        did_int = int(did)
+        default_avatar = f"https://cdn.discordapp.com/embed/avatars/{(did_int >> 22) % 6}.png"
+    except (ValueError, TypeError):
+        default_avatar = "https://cdn.discordapp.com/embed/avatars/0.png"
+
+    token = getattr(settings, "DISCORD_BOT_TOKEN", "")
+    guild_id = getattr(settings, "DISCORD_GUILD_ID", "")
+
+    if not token:
+        _avatar_cache[did] = (default_avatar, now + 60.0)
+        return default_avatar
+
+    headers = {"Authorization": f"Bot {token}"}
+
+    try:
+        # Try guild member avatar first
+        if guild_id:
+            res = await client.get(
+                f"https://discord.com/api/v10/guilds/{guild_id}/members/{did}",
+                headers=headers,
+            )
+            if res.status_code == 200:
+                member_data = res.json()
+                guild_av = member_data.get("avatar")
+                user_av = member_data.get("user", {}).get("avatar")
+                if guild_av:
+                    url = f"https://cdn.discordapp.com/guilds/{guild_id}/users/{did}/avatars/{guild_av}.png?size=128"
+                    _avatar_cache[did] = (url, now + 60.0)
+                    return url
+                elif user_av:
+                    url = f"https://cdn.discordapp.com/avatars/{did}/{user_av}.png?size=128"
+                    _avatar_cache[did] = (url, now + 60.0)
+                    return url
+                else:
+                    _avatar_cache[did] = (default_avatar, now + 60.0)
+                    return default_avatar
+
+        # Fallback to direct user endpoint
+        u_res = await client.get(
+            f"https://discord.com/api/v10/users/{did}",
+            headers=headers,
+        )
+        if u_res.status_code == 200:
+            user_data = u_res.json()
+            user_av = user_data.get("avatar")
+            if user_av:
+                url = f"https://cdn.discordapp.com/avatars/{did}/{user_av}.png?size=128"
+                _avatar_cache[did] = (url, now + 60.0)
+                return url
+
+    except Exception as e:
+        logger.warning(f"Failed to resolve Discord avatar for {did}: {e}")
+
+    _avatar_cache[did] = (default_avatar, now + 60.0)
+    return default_avatar
+
+
 async def _send_event_to_webhook(client: httpx.AsyncClient, event: dict) -> None:
     """Dispatches a single formatted game event to Discord via channel webhook."""
     try:
@@ -140,13 +315,18 @@ async def _send_event_to_webhook(client: httpx.AsyncClient, event: dict) -> None
         ev_type = (event.get("type") or "chat").lower()
         ign = event.get("username") or "Spieler"
         raw_uuid = str(event.get("uuid") or "")
-        clean_uuid = raw_uuid.replace("-", "") if raw_uuid and raw_uuid != "0" else "steve"
-        avatar_url = f"https://mc-heads.net/avatar/{clean_uuid}/64"
+
+        # Resolve player discord_id and avatar
+        player_info = await asyncio.to_thread(resolve_player_by_minecraft, ign, raw_uuid)
+        discord_id = player_info.get("discord_id", "")
+        if discord_id:
+            avatar_url = await get_discord_avatar_url(client, discord_id)
+        else:
+            avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+
         raw_msg = str(event.get("message") or "")
 
-        if ev_type == "webchat":
-            content = f"🌐 {escape_markdown(raw_msg)}"[:1900]
-        elif ev_type == "chat":
+        if ev_type in ("webchat", "chat"):
             content = escape_markdown(raw_msg)[:1900]
         elif ev_type == "join":
             content = f"➕ **{escape_markdown(ign)}** hat den Server betreten"
@@ -262,6 +442,15 @@ def clean_discord_text(message: Any) -> str:
 
 def build_tellraw(ign: str, text: str, role: str = "") -> str:
     """Builds the Minecraft tellraw command for broadcasting a Discord chat message."""
+    if not role:
+        try:
+            player_info = resolve_player_by_minecraft(ign)
+            role = player_info.get("role", "player")
+        except Exception:
+            role = "player"
+
+    name_color = ROLE_COLORS.get((role or "").lower(), "white")
+
     payload = json.dumps([
         {
             "text": "[D] ",
@@ -269,7 +458,7 @@ def build_tellraw(ign: str, text: str, role: str = "") -> str:
             "bold": True,
             "hoverEvent": {"action": "show_text", "contents": "Discord"}
         },
-        {"text": f"<{ign}> ", "color": "gold"},
+        {"text": f"<{ign}> ", "color": name_color},
         {"text": text, "color": "white"}
     ], ensure_ascii=False)
     return f"execute in minecraft:overworld run tellraw @a {payload}"
@@ -357,6 +546,27 @@ def rate_ok(user_id: Any) -> bool:
     return False
 
 
+ANSI_ESCAPES = [
+    re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]"),
+    re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"),
+    re.compile(r"\x1b[=>]"),
+    re.compile(r"\x1b?\[(?:K|\?[0-9;]+[hl]=?|[0-9;]{1,10}m)"),
+    re.compile(r"[\x00-\x08\x0b-\x1f\x7f]"),
+]
+JLINE_START = re.compile(r"^(?:>+\.{2,}\s*)+")
+JLINE_END = re.compile(r"(?:>+\.{2,}\s*)+$")
+
+
+def clean_console_line(line: str) -> str:
+    """Removes \r, ANSI/VT100/JLine escape sequences, control characters, and JLine prompt artifacts."""
+    cleaned = line.replace("\r", "")
+    for pat in ANSI_ESCAPES:
+        cleaned = pat.sub("", cleaned)
+    cleaned = JLINE_START.sub("", cleaned)
+    cleaned = JLINE_END.sub("", cleaned)
+    return cleaned.rstrip()
+
+
 def _is_bot_echo(line: str) -> bool:
     """Checks if a log line is an automated query or echo from the bot itself."""
     if "There are " in line and "players online" in line:
@@ -369,12 +579,22 @@ def _is_bot_echo(line: str) -> bool:
             return True
         if "tellraw @a" in line_lower:
             return True
+    if "no player was found" in line_lower:
+        return True
     return False
 
 
 def console_filter(lines: List[str]) -> List[str]:
-    """Filters out bot-generated console lines (playerlist queries, TPS checks, Weihnachtsdorf tellraw echoes)."""
-    return [line for line in lines if not _is_bot_echo(line)]
+    """Filters out bot-generated console lines, ANSI escape sequences, and empty lines."""
+    filtered: List[str] = []
+    for line in lines:
+        cleaned = clean_console_line(line)
+        if not cleaned.strip():
+            continue
+        if _is_bot_echo(cleaned):
+            continue
+        filtered.append(cleaned)
+    return filtered
 
 
 def chunk_code_blocks(lines: List[str], limit: int = 1900) -> List[str]:

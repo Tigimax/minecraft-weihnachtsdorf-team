@@ -192,6 +192,48 @@ void async function() {
         root.classList.remove("no-messages");
     }
 
+    function addChatMessage(prefix, username, role, text) {
+        chatMessages.querySelectorAll(".empty-message").forEach(el => el.remove());
+        const messageEl = document.createElement("div");
+        messageEl.className = "chat-line";
+
+        if (prefix) {
+            const prefixSpan = document.createElement("span");
+            const cleanPrefix = prefix.replace(/[\[\]]/g, "").trim().toLowerCase();
+            prefixSpan.className = "chat-prefix prefix-" + cleanPrefix;
+            prefixSpan.innerText = prefix + nbps;
+            messageEl.appendChild(prefixSpan);
+        }
+
+        const userSpan = document.createElement("span");
+        const cleanRole = (role || "player").toLowerCase();
+        userSpan.className = "chat-user role-" + cleanRole;
+        userSpan.innerText = "<" + username + ">" + nbps;
+        messageEl.appendChild(userSpan);
+
+        const textSpan = document.createElement("span");
+        textSpan.className = "chat-text";
+        textSpan.innerText = text;
+        messageEl.appendChild(textSpan);
+
+        chatMessages.insertBefore(messageEl, chatMessages.firstChild);
+        const pc = messageEl.cloneNode(true);
+        messagesPopup.insertBefore(pc, messagesPopup.firstChild);
+        setTimeout(() => {
+            pc.classList.add("fade-out");
+            setTimeout(() => {
+                messagesPopup.removeChild(pc);
+                if (messagesPopup.children.length === 0 && !chatExpanded) {
+                    root.classList.add("no-messages");
+                }
+            }, 500);
+        }, 10_000);
+        if (chatMessages.children.length > mmc) {
+            chatMessages.removeChild(chatMessages.lastChild);
+        }
+        root.classList.remove("no-messages");
+    }
+
     const wcp = "[Web]";
 
     let currentMapId = null;
@@ -220,11 +262,12 @@ void async function() {
                     break;
                 }
                 case "chat": {
-                    addMessage(data.username + ":" + nbps + data.message);
+                    const prefix = data.source === "discord" ? "[D]" : "";
+                    addChatMessage(prefix, data.username, data.role, data.message);
                     break;
                 }
                 case "webchat": {
-                    addMessage(wcp + nbps + data.username + ":" + nbps + data.message);
+                    addChatMessage(wcp, data.username, data.role, data.message);
                     break;
                 }
                 case "join": {

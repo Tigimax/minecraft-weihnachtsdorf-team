@@ -5,6 +5,7 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Cancellable;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -12,6 +13,8 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.server.RemoteServerCommandEvent;
+import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.metadata.MetadataValue;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -26,6 +29,8 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class BlueMapLiveBridge extends JavaPlugin implements Listener {
 
@@ -198,6 +203,92 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
             lastPayload = payload;
             writeAsync(payload);
         }
+    }
+
+    private static final Pattern TEXT_PATTERN = Pattern.compile("\"text\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onServerCommand(ServerCommandEvent event) {
+        processTellrawEvent(event.getCommand(), event);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onRemoteServerCommand(RemoteServerCommandEvent event) {
+        processTellrawEvent(event.getCommand(), event);
+    }
+
+    private void processTellrawEvent(String rawCmd, Cancellable event) {
+        if (rawCmd == null) {
+            return;
+        }
+        String cmd = rawCmd.trim();
+        if (cmd.startsWith("/")) {
+            cmd = cmd.substring(1).trim();
+        }
+        int idx = cmd.indexOf("tellraw @a ");
+        if (idx == -1) {
+            return;
+        }
+        String jsonPart = cmd.substring(idx + "tellraw @a ".length()).trim();
+        if (jsonPart.contains("[D] ") || jsonPart.contains("[Web] ") || jsonPart.contains("[Weihnachtsdorf]")) {
+            String plainText = extractPlainText(jsonPart);
+            if (!plainText.isEmpty()) {
+                Bukkit.getConsoleSender().sendMessage(plainText);
+            }
+            if (Bukkit.getOnlinePlayers().isEmpty()) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    private String extractPlainText(String json) {
+        StringBuilder sb = new StringBuilder();
+        Matcher m = TEXT_PATTERN.matcher(json);
+        while (m.find()) {
+            sb.append(unescapeJson(m.group(1)));
+        }
+        return sb.toString();
+    }
+
+    private static String unescapeJson(String s) {
+        if (s == null || s.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\\' && i + 1 < s.length()) {
+                char next = s.charAt(i + 1);
+                switch (next) {
+                    case '"': sb.append('"'); i++; break;
+                    case '\\': sb.append('\\'); i++; break;
+                    case '/': sb.append('/'); i++; break;
+                    case 'b': sb.append('\b'); i++; break;
+                    case 'f': sb.append('\f'); i++; break;
+                    case 'n': sb.append('\n'); i++; break;
+                    case 'r': sb.append('\r'); i++; break;
+                    case 't': sb.append('\t'); i++; break;
+                    case 'u':
+                        if (i + 5 < s.length()) {
+                            try {
+                                int code = Integer.parseInt(s.substring(i + 2, i + 6), 16);
+                                sb.append((char) code);
+                                i += 5;
+                            } catch (NumberFormatException ignored) {
+                                sb.append(c);
+                            }
+                        } else {
+                            sb.append(c);
+                        }
+                        break;
+                    default:
+                        sb.append(next);
+                        i++;
+                        break;
+                }
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     private void writeAsync(String payload) {

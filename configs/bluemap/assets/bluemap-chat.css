@@ -145,3 +145,27 @@
     opacity: 0;
     transition: opacity 0.5s ease-in-out;
 }
+
+.chat-prefix.prefix-web {
+    color: #55ffff;
+    font-weight: bold;
+}
+.chat-prefix.prefix-d,
+.chat-prefix.prefix-discord {
+    color: #5555ff;
+    font-weight: bold;
+}
+.chat-user.role-admin {
+    color: #ff5555;
+    font-weight: bold;
+}
+.chat-user.role-mod {
+    color: #5555ff;
+    font-weight: bold;
+}
+.chat-user.role-player {
+    color: #ffffff;
+}
+.chat-text {
+    color: #ffffff;
+}

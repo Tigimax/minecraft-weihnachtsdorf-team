@@ -198,13 +198,24 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
 
     logger.info(f"[WebChat] Message from {ign} ({auth_user}): {clean_msg}")
 
-    # 1. Broadcast to in-game Minecraft players with formatted prefix & gold username
+    # Determine rank role and color
+    role = "player"
+    name_color = "white"
+    try:
+        from wd_identity import chat_bridge
+        p_info = chat_bridge.resolve_player_by_minecraft(ign, uuid)
+        role = p_info.get("role", "player")
+        name_color = chat_bridge.ROLE_COLORS.get(role.lower(), "white")
+    except Exception:
+        name_color = "white"
+
+    # 1. Broadcast to in-game Minecraft players with formatted prefix & role-colored username
     mc = MinecraftSyncClient()
     tellraw_payload = json.dumps([
         {"text": "[Web] ", "color": "aqua", "bold": True},
-        {"text": f"<{ign}> ", "color": "gold"},
+        {"text": f"<{ign}> ", "color": name_color},
         {"text": clean_msg, "color": "white"}
-    ])
+    ], ensure_ascii=False)
     try:
         await asyncio.to_thread(mc.execute_commands, [f"execute in minecraft:overworld run tellraw @a {tellraw_payload}"])
     except Exception as e:
@@ -216,6 +227,7 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
         "uuid": uuid or "0",
         "username": ign,
         "message": clean_msg,
+        "role": role,
     }
     await broadcast_bluemap_event(event_payload)
 
@@ -282,6 +294,7 @@ class IngameChatEvent(BaseModel):
     username: Optional[str] = ""
     message: Optional[str] = ""
     source: Optional[str] = ""
+    role: Optional[str] = ""
 
 
 @router.post("/api/bluemap/chat/ingame")
@@ -296,6 +309,14 @@ async def ingame_chat_event(event: IngameChatEvent, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     payload = event.model_dump() if hasattr(event, "model_dump") else event.dict()
+    if not payload.get("role"):
+        try:
+            from wd_identity import chat_bridge
+            p_info = chat_bridge.resolve_player_by_minecraft(payload.get("username", ""), payload.get("uuid", ""))
+            payload["role"] = p_info.get("role", "player")
+        except Exception:
+            payload["role"] = "player"
+
     await broadcast_bluemap_event(payload)
 
     if event.source != "discord":

@@ -21,10 +21,14 @@ from wd_identity.mc_sync import new_log_lines
 @pytest.fixture(autouse=True)
 def reset_chat_bridge_state():
     chat_bridge._player_cache.clear()
+    chat_bridge._minecraft_player_cache.clear()
+    chat_bridge._avatar_cache.clear()
     chat_bridge._user_rate_limits.clear()
     chat_bridge._webhook_cache.clear()
     yield
     chat_bridge._player_cache.clear()
+    chat_bridge._minecraft_player_cache.clear()
+    chat_bridge._avatar_cache.clear()
     chat_bridge._user_rate_limits.clear()
     chat_bridge._webhook_cache.clear()
 def test_clean_discord_text_mentions_and_emojis():
@@ -84,31 +88,40 @@ def test_clean_discord_text_with_attachments_and_stickers():
 def test_build_tellraw_valid_json_escaping():
     ign = 'Tigi"max'
     text = 'He said "Hello" \\ and \u2764 with special \n newline'
-    cmd = chat_bridge.build_tellraw(ign, text)
 
+    # 1. Admin role -> red
+    cmd_admin = chat_bridge.build_tellraw(ign, text, role="admin")
     prefix = "execute in minecraft:overworld run tellraw @a "
-    assert cmd.startswith(prefix)
+    assert cmd_admin.startswith(prefix)
+    data_admin = json.loads(cmd_admin[len(prefix):])
 
-    json_str = cmd[len(prefix):]
-    data = json.loads(json_str)
-
-    assert isinstance(data, list)
-    assert len(data) == 3
+    assert isinstance(data_admin, list)
+    assert len(data_admin) == 3
 
     # Element 1: Prefix [D]
-    assert data[0]["text"] == "[D] "
-    assert data[0]["color"] == "blue"
-    assert data[0]["bold"] is True
-    assert data[0]["hoverEvent"]["action"] == "show_text"
-    assert data[0]["hoverEvent"]["contents"] == "Discord"
+    assert data_admin[0]["text"] == "[D] "
+    assert data_admin[0]["color"] == "blue"
+    assert data_admin[0]["bold"] is True
+    assert data_admin[0]["hoverEvent"]["action"] == "show_text"
+    assert data_admin[0]["hoverEvent"]["contents"] == "Discord"
 
-    # Element 2: Ingame name
-    assert data[1]["text"] == f"<{ign}> "
-    assert data[1]["color"] == "gold"
+    # Element 2: Ingame name (red for admin)
+    assert data_admin[1]["text"] == f"<{ign}> "
+    assert data_admin[1]["color"] == "red"
 
     # Element 3: Message text with Unicode & quotes preserved
-    assert data[2]["text"] == text
-    assert data[2]["color"] == "white"
+    assert data_admin[2]["text"] == text
+    assert data_admin[2]["color"] == "white"
+
+    # 2. Mod role -> blue
+    cmd_mod = chat_bridge.build_tellraw(ign, text, role="mod")
+    data_mod = json.loads(cmd_mod[len(prefix):])
+    assert data_mod[1]["color"] == "blue"
+
+    # 3. Default / player role -> white
+    cmd_player = chat_bridge.build_tellraw(ign, text, role="player")
+    data_player = json.loads(cmd_player[len(prefix):])
+    assert data_player[1]["color"] == "white"
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +195,27 @@ def test_rate_ok():
 
 
 # ---------------------------------------------------------------------------
-# console_filter tests
+# clean_console_line & console_filter tests
 # ---------------------------------------------------------------------------
+def test_clean_console_line():
+    # Exact user examples
+    line1 = "[K[14:05:25 INFO]: [37m[[1m[37m[96mL[36mP[0m[37m][0m [36m[97m- [36mWeight: [97mNone[0m"
+    assert chat_bridge.clean_console_line(line1) == "[14:05:25 INFO]: [LP] - Weight: None"
+
+    line2 = ">....[?1h=[?2004h>...."
+    assert chat_bridge.clean_console_line(line2) == ""
+
+    line3 = "System chat: [91mNo player was found[0m"
+    assert chat_bridge.clean_console_line(line3) == "System chat: No player was found"
+
+    # Additional ANSI / VT100 / JLine tests
+    line_esc = "\x1b[32mGreen\x1b[0m and \x1b[1;31mBold Red\x1b[0m\r\n"
+    assert chat_bridge.clean_console_line(line_esc) == "Green and Bold Red"
+
+    line_prompt = ">>>.... [12:00:00 INFO]: Hello world >....  "
+    assert chat_bridge.clean_console_line(line_prompt) == "[12:00:00 INFO]: Hello world"
+
+
 def test_console_filter():
     lines = [
         "[12:00:00 INFO]: [Server thread/INFO]: Player Steve joined the game",
@@ -193,6 +225,9 @@ def test_console_filter():
         "[12:00:04 INFO]: [Rcon: execute in minecraft:overworld run tellraw @a [{\"text\":\"[D] \"}]]",
         "[12:00:05 INFO]: [Server thread/INFO]: \u001b[32mColored ANSI text\u001b[0m",
         "[12:00:06 INFO]: [Rcon: Issued server command: gamemode survival Steve]",
+        "[K[14:05:25 INFO]: [37m[[1m[37m[96mL[36mP[0m[37m][0m [36m[97m- [36mWeight: [97mNone[0m",
+        ">....[?1h=[?2004h>....",
+        "System chat: [91mNo player was found[0m",
     ]
 
     filtered = chat_bridge.console_filter(lines)
@@ -202,11 +237,29 @@ def test_console_filter():
     assert not any("TPS from last" in l for l in filtered)
     assert not any("tellraw" in l.lower() and "[weihnachtsdorf]" in l.lower() for l in filtered)
     assert not any("tellraw" in l.lower() and "[d]" in l.lower() for l in filtered)
+    assert not any("no player was found" in l.lower() for l in filtered)
+    assert not any(">...." in l for l in filtered)
 
-    # Legitimate lines, ANSI, and admin Rcon commands must remain
+    # Legitimate lines, cleaned ANSI, and admin Rcon commands must remain
     assert any("Player Steve joined" in l for l in filtered)
-    assert any("\u001b[32mColored ANSI text\u001b[0m" in l for l in filtered)
+    assert any("Colored ANSI text" in l for l in filtered)
+    assert not any("\u001b" in l for l in filtered)
     assert any("gamemode survival Steve" in l for l in filtered)
+    assert any("[14:05:25 INFO]: [LP] - Weight: None" == l for l in filtered)
+
+
+def test_console_filter_user_examples():
+    lines = [
+        "[K[14:05:25 INFO]: [37m[[1m[37m[96mL[36mP[0m[37m][0m [36m[97m- [36mWeight: [97mNone[0m",
+        ">....[?1h=[?2004h>....",
+        "System chat: [91mNo player was found[0m",
+        "[14:05:26 INFO]: Normal message",
+    ]
+    filtered = chat_bridge.console_filter(lines)
+    assert filtered == [
+        "[14:05:25 INFO]: [LP] - Weight: None",
+        "[14:05:26 INFO]: Normal message",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -480,9 +533,11 @@ def test_webhook_event_formatting_and_429_retry():
         mock_client.post.side_effect = [mock_resp_429, mock_resp_200]
 
         with patch("wd_identity.chat_bridge._get_channel_webhook_url", return_value="https://discord.com/api/webhooks/123/token"), \
-             patch("wd_identity.chat_bridge.active_chat_channel_id", return_value="1570031673809043476"):
+             patch("wd_identity.chat_bridge.active_chat_channel_id", return_value="1570031673809043476"), \
+             patch("wd_identity.chat_bridge.resolve_player_by_minecraft", return_value={"discord_id": "123456789", "role": "admin", "ign": "WebUser", "uuid": ""}), \
+             patch("wd_identity.chat_bridge.get_discord_avatar_url", return_value="https://cdn.discordapp.com/avatars/123456789/avatar123.png?size=128"):
 
-            # 1. Webchat event -> must have 🌐 prefix
+            # 1. Webchat event -> must NOT have 🌐 prefix and must have discord avatar
             event = {
                 "type": "webchat",
                 "username": "WebUser",
@@ -494,8 +549,8 @@ def test_webhook_event_formatting_and_429_retry():
             # Two calls because of 429 retry
             assert mock_client.post.call_count == 2
             posted_json = mock_client.post.call_args_list[0][1]["json"]
-            assert posted_json["content"] == "🌐 Hello from web"
-            assert "00000000111122223333444455556666" in posted_json["avatar_url"]
+            assert posted_json["content"] == "Hello from web"
+            assert posted_json["avatar_url"] == "https://cdn.discordapp.com/avatars/123456789/avatar123.png?size=128"
 
             # 2. Join event
             mock_client.post.reset_mock()
@@ -505,7 +560,7 @@ def test_webhook_event_formatting_and_429_retry():
             await chat_bridge._send_event_to_webhook(mock_client, join_ev)
             posted_join = mock_client.post.call_args[1]["json"]
             assert posted_join["content"] == "➕ **Steve** hat den Server betreten"
-            assert "steve" in posted_join["avatar_url"]
+            assert "discordapp.com" in posted_join["avatar_url"]
 
             # 3. Quit event
             mock_client.post.reset_mock()
@@ -513,7 +568,7 @@ def test_webhook_event_formatting_and_429_retry():
             await chat_bridge._send_event_to_webhook(mock_client, quit_ev)
             posted_quit = mock_client.post.call_args[1]["json"]
             assert posted_quit["content"] == "➖ **Alex** hat den Server verlassen"
-            assert "steve" in posted_quit["avatar_url"]
+            assert "discordapp.com" in posted_quit["avatar_url"]
 
             # 4. Death event
             mock_client.post.reset_mock()
@@ -521,6 +576,125 @@ def test_webhook_event_formatting_and_429_retry():
             await chat_bridge._send_event_to_webhook(mock_client, death_ev)
             posted_death = mock_client.post.call_args[1]["json"]
             assert posted_death["content"] == "💀 Alex fell from a high place"
+
+    asyncio.run(_run())
+
+
+def test_resolve_player_by_minecraft_admin_mod_player():
+    with patch("wd_identity.chat_bridge.LDAPClient") as mock_ldap_cls:
+        mock_ldap = mock_ldap_cls.return_value
+
+        # Case 1: Admin
+        mock_ldap.search_by_minecraft.return_value = {
+            "uid": "admin_user",
+            "dn": "uid=admin_user,ou=User,dc=ldap-01,dc=net",
+            "minecraftName": "AdminSteve",
+            "minecraftUuid": "uuid-admin",
+            "discordId": "111111111",
+        }
+        mock_ldap.get_group_members.side_effect = lambda g: (
+            ["uid=admin_user,ou=User,dc=ldap-01,dc=net"] if "wd_admins" in g else []
+        )
+
+        res_admin = chat_bridge.resolve_player_by_minecraft("AdminSteve")
+        assert res_admin["role"] == "admin"
+        assert res_admin["discord_id"] == "111111111"
+
+        # Case 2: Mod
+        chat_bridge._minecraft_player_cache.clear()
+        mock_ldap.search_by_minecraft.return_value = {
+            "uid": "mod_user",
+            "dn": "uid=mod_user,ou=User,dc=ldap-01,dc=net",
+            "minecraftName": "ModSteve",
+            "minecraftUuid": "uuid-mod",
+            "discordId": "222222222",
+        }
+        mock_ldap.get_group_members.side_effect = lambda g: (
+            ["uid=mod_user,ou=User,dc=ldap-01,dc=net"] if "wd_mods" in g else []
+        )
+
+        res_mod = chat_bridge.resolve_player_by_minecraft("ModSteve")
+        assert res_mod["role"] == "mod"
+        assert res_mod["discord_id"] == "222222222"
+
+        # Case 3: Player
+        chat_bridge._minecraft_player_cache.clear()
+        mock_ldap.search_by_minecraft.return_value = {
+            "uid": "player_user",
+            "dn": "uid=player_user,ou=User,dc=ldap-01,dc=net",
+            "minecraftName": "PlayerSteve",
+            "minecraftUuid": "uuid-player",
+            "discordId": "333333333",
+        }
+        mock_ldap.get_group_members.side_effect = lambda g: (
+            ["uid=player_user,ou=User,dc=ldap-01,dc=net"] if "wd_players" in g else []
+        )
+
+        res_player = chat_bridge.resolve_player_by_minecraft("PlayerSteve")
+        assert res_player["role"] == "player"
+        assert res_player["discord_id"] == "333333333"
+
+        # Case 4: Cache hit
+        mock_ldap.search_by_minecraft.reset_mock()
+        res_cached = chat_bridge.resolve_player_by_minecraft("PlayerSteve")
+        assert res_cached["role"] == "player"
+        mock_ldap.search_by_minecraft.assert_not_called()
+
+        # Case 5: Unlinked / unknown
+        chat_bridge._minecraft_player_cache.clear()
+        mock_ldap.search_by_minecraft.return_value = None
+        mock_ldap.get_user.return_value = None
+        res_unknown = chat_bridge.resolve_player_by_minecraft("UnknownGuy")
+        assert res_unknown["role"] == "player"
+        assert res_unknown["discord_id"] == ""
+
+
+def test_get_discord_avatar_url():
+    async def _run():
+        mock_client = AsyncMock()
+
+        with patch("wd_identity.chat_bridge.settings.DISCORD_BOT_TOKEN", "mock_bot_token"), \
+             patch("wd_identity.chat_bridge.settings.DISCORD_GUILD_ID", "909437200125538364"):
+
+            # 1. Guild avatar
+            mock_resp_guild = MagicMock()
+            mock_resp_guild.status_code = 200
+            mock_resp_guild.json.return_value = {
+                "avatar": "guild_hash_123",
+                "user": {"avatar": "user_hash_456"},
+            }
+            mock_client.get.return_value = mock_resp_guild
+
+            url_guild = await chat_bridge.get_discord_avatar_url(mock_client, "123456789")
+            assert "guilds/" in url_guild
+            assert "guild_hash_123.png?size=128" in url_guild
+
+            # 2. User avatar (when no guild avatar)
+            chat_bridge._avatar_cache.clear()
+            mock_resp_user = MagicMock()
+            mock_resp_user.status_code = 200
+            mock_resp_user.json.return_value = {
+                "avatar": None,
+                "user": {"avatar": "user_hash_789"},
+            }
+            mock_client.get.return_value = mock_resp_user
+
+            url_user = await chat_bridge.get_discord_avatar_url(mock_client, "987654321")
+            assert "avatars/987654321/user_hash_789.png?size=128" in url_user
+
+            # 3. Default embed avatar (no custom avatar)
+            chat_bridge._avatar_cache.clear()
+            mock_resp_default = MagicMock()
+            mock_resp_default.status_code = 200
+            mock_resp_default.json.return_value = {"avatar": None, "user": {"avatar": None}}
+            mock_client.get.return_value = mock_resp_default
+
+            url_default = await chat_bridge.get_discord_avatar_url(mock_client, "111222333444")
+            assert "embed/avatars/" in url_default
+
+            # 4. Fallback for unlinked / empty discord_id
+            url_empty = await chat_bridge.get_discord_avatar_url(mock_client, "")
+            assert url_empty == "https://cdn.discordapp.com/embed/avatars/0.png"
 
     asyncio.run(_run())
 

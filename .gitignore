@@ -11,6 +11,7 @@ world/
 world_nether/
 world_the_end/
 *.jar
+!tools/bluemap-bridge/BlueMapLiveBridge.jar
 *.tar.gz
 *.zip
 !datapacks/*.zip

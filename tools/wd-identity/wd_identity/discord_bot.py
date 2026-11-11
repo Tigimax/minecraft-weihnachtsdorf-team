@@ -4407,7 +4407,15 @@ async def bridge_on_message(message: discord.Message):
             if not text:
                 return
 
-            tellraw_cmd = chat_bridge.build_tellraw(ign, text)
+            # Determine role from Discord privileges or LDAP
+            role = "player"
+            if is_admin_user(message.author):
+                role = "admin"
+            else:
+                p_info = chat_bridge.resolve_player_by_minecraft(ign, uuid)
+                role = p_info.get("role", "player")
+
+            tellraw_cmd = chat_bridge.build_tellraw(ign, text, role=role)
             mc = MinecraftSyncClient()
             try:
                 await asyncio.to_thread(mc.execute_commands, [tellraw_cmd])
@@ -4422,6 +4430,7 @@ async def bridge_on_message(message: discord.Message):
                 "uuid": uuid,
                 "username": ign,
                 "message": text,
+                "role": role,
                 "source": "discord",
             }
 

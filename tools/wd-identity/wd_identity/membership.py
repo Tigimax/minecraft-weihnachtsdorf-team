@@ -495,7 +495,8 @@ def set_user_role(
             from wd_identity.discord_bot import get_mod_welcome_message
             from wd_identity.utils import send_dm
             dm_target = discord_id or discord_name or username
-            mod_text = get_mod_welcome_message(username, ign=ign or "")
+            display_name = discord_name or username
+            mod_text = get_mod_welcome_message(display_name, ign=ign or "")
             send_dm(dm_target, mod_text)
         except Exception as e:
             logger.warning(f"Failed to send mod onboarding message to {username}: {e}")

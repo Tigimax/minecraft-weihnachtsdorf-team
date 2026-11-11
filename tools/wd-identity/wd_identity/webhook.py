@@ -27,6 +27,7 @@ from wd_identity.mojang_client import get_player_profile
 from wd_identity.planka_sync import PlankaSyncClient
 from wd_identity.utils import (
     check_is_discord_admin,
+    resolve_discord_user,
     sanitize_email,
     sanitize_username,
     validate_minecraft_ign,
@@ -387,16 +388,29 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
         f"Minecraft server whitelist & LuckPerms role set for {canonical_ign} ({clean_role}): {'OK' if mc_ok else 'FAILED'}"
     )
 
-    # 5. Dispatch Welcome DM via Discord
+    # 5. Dispatch Welcome DM via Discord (address user with Discord name, not LDAP username)
+    display_user = discord_tag
+    if not display_user or display_user == clean_user or display_user.isdigit():
+        try:
+            _, resolved_name = resolve_discord_user(discord_id or discord_tag)
+            if resolved_name and not resolved_name.isdigit():
+                display_user = resolved_name
+            elif existing and existing.get("discordName"):
+                display_user = existing.get("discordName")
+            else:
+                display_user = clean_user
+        except Exception:
+            display_user = clean_user
+
     if clean_role == "player":
         welcome_text = get_player_welcome_message(
-            username=clean_user,
+            username=display_user,
             ign=canonical_ign,
             is_launched=mc.is_project_launched(),
         )
     else:
         welcome_text = get_welcome_message(
-            username=clean_user,
+            username=display_user,
             role=clean_role,
             ign=canonical_ign,
         )

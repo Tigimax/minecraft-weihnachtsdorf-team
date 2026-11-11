@@ -207,13 +207,14 @@ class MinecraftSyncClient:
 
         # Send DM notification to mod
         discord_handle = user.get("discordId") or user.get("discordName")
+        display_handle = user.get("discordName") or uid
         if discord_handle:
             try:
                 from wd_identity.utils import send_dm
                 exp_local = expires_at.strftime("%H:%M UTC")
                 msg = (
                     f"🔨 **Temporäre Baurechte aktiviert!**\n\n"
-                    f"Hallo {uid}, dir wurden soeben von **{initiator}** für **{duration_hours:g} Stunde(n)** "
+                    f"Hallo {display_handle}, dir wurden soeben von **{initiator}** für **{duration_hours:g} Stunde(n)** "
                     f"Baurechte auf dem Server freigeschaltet (gültig bis {exp_local}).\n"
                     f"Du kannst den Server ab sofort betreten und WorldEdit für Vorbereitungen nutzen.\n"
                     f"Nach Ablauf des Zeitfensters wird dein Zugang automatisch wieder in den Wartungsmodus versetzt."

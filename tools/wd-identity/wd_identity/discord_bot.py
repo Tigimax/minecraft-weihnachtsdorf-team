@@ -2671,10 +2671,11 @@ async def cmd_password_reset(interaction: discord.Interaction):
 
     dm_sent = False
     try:
+        display_name = interaction.user.display_name or interaction.user.name or user.get("discordName") or user["uid"]
         dm_channel = await interaction.user.create_dm()
         await dm_channel.send(
             f"🔐 **Passwort-Zurücksetzung für Weihnachtsdorf 7**\n\n"
-            f"Hallo {user['uid']},\nhier ist dein persönlicher, einmaliger Wiederherstellungs-Link:\n"
+            f"Hallo {display_name},\nhier ist dein persönlicher, einmaliger Wiederherstellungs-Link:\n"
             f"{recovery_link}\n\n*Dieser Link ist zeitlich begrenzt und verfällt nach einmaliger Nutzung.*"
         )
         dm_sent = True

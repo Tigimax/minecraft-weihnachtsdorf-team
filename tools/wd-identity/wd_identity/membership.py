@@ -243,6 +243,8 @@ def restore_user_privileges(
         target_str = user["uid"]
     else:
         target_str = str(target).strip()
+        if target_str.startswith("@"):
+            target_str = target_str[1:].strip()
         if target_str.isdigit():
             user = ldap.search_by_discord(target_str)
         if not user:
@@ -251,9 +253,20 @@ def restore_user_privileges(
                 or ldap.search_by_discord(target_str)
                 or ldap.search_by_minecraft(target_str)
             )
+        if not user:
+            try:
+                from wd_identity.utils import resolve_discord_user
+                d_id, _ = resolve_discord_user(target_str)
+                if d_id:
+                    user = ldap.search_by_discord(d_id)
+            except Exception:
+                pass
 
     if not user:
-        raise ValueError(f"Benutzer '{target_str}' konnte in LDAP nicht gefunden werden.")
+        raise ValueError(
+            f"Benutzer '{target_str}' hat noch keinen Account in LDAP. "
+            f"Nutze '/einladen nutzer:@{target_str} rolle:{clean_role}', um ihn neu einzuladen."
+        )
 
     # If resolved to a protected system account without Minecraft IGN (e.g. 'tigimax'),
     # but a corresponding player account (e.g. 'tigimax_player') exists, target the player account.
@@ -358,6 +371,8 @@ def set_user_role(
         target_str = user["uid"]
     else:
         target_str = str(target).strip()
+        if target_str.startswith("@"):
+            target_str = target_str[1:].strip()
         if target_str.isdigit():
             user = ldap.search_by_discord(target_str)
         if not user:
@@ -366,9 +381,20 @@ def set_user_role(
                 or ldap.search_by_discord(target_str)
                 or ldap.search_by_minecraft(target_str)
             )
+        if not user:
+            try:
+                from wd_identity.utils import resolve_discord_user
+                d_id, _ = resolve_discord_user(target_str)
+                if d_id:
+                    user = ldap.search_by_discord(d_id)
+            except Exception:
+                pass
 
     if not user:
-        raise ValueError(f"Benutzer '{target_str}' konnte in LDAP nicht gefunden werden.")
+        raise ValueError(
+            f"Benutzer '{target_str}' hat noch keinen Account in LDAP. "
+            f"Nutze '/einladen nutzer:@{target_str} rolle:{clean_role}', um ihn neu einzuladen."
+        )
 
     # If resolved to a protected system account without Minecraft IGN (e.g. 'tigimax'),
     # but a corresponding player account (e.g. 'tigimax_player') exists, target the player account.

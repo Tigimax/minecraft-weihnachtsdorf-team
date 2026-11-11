@@ -112,16 +112,10 @@ def _format_entry(u: Dict[str, Any], role: str, is_live: bool, member_map: Dict[
     else:
         line = f"• {icon} **{uid}** • {tag} *(Account in Einrichtung)*"
 
-    if role == "player":
-        if not is_live:
-            line += " *(Pre-Registered)*"
-        else:
-            line += " *(Freigeschaltet)*"
-
     return line
 
 
-def _chunk_lines(lines: List[str], max_items: int = 12, max_chars: int = 950) -> List[List[str]]:
+def _chunk_lines(lines: List[str], max_items: int = 25, max_chars: int = 1000) -> List[List[str]]:
     chunks: List[List[str]] = []
     current: List[str] = []
     current_len = 0
@@ -181,7 +175,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
 
     # 1. Staff / Admins
     if admin_lines:
-        admin_chunks = _chunk_lines(admin_lines, max_items=12, max_chars=950)
+        admin_chunks = _chunk_lines(admin_lines, max_items=25, max_chars=1000)
         for i, chunk in enumerate(admin_chunks):
             title = f"👑 Projektleitung & Administration ({len(admins_sorted)})" if i == 0 else "\u200b"
             fields.append({
@@ -192,7 +186,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
 
     # 2. Moderation (if any)
     if mod_lines:
-        mod_chunks = _chunk_lines(mod_lines, max_items=12, max_chars=950)
+        mod_chunks = _chunk_lines(mod_lines, max_items=25, max_chars=1000)
         for i, chunk in enumerate(mod_chunks):
             title = f"⚔️ Moderation ({len(mods_sorted)})" if i == 0 else "\u200b"
             fields.append({
@@ -209,7 +203,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
             "inline": False,
         })
     else:
-        player_chunks = _chunk_lines(player_lines, max_items=12, max_chars=950)
+        player_chunks = _chunk_lines(player_lines, max_items=25, max_chars=1000)
         total = len(players_sorted)
         for i, chunk in enumerate(player_chunks):
             title = f"🎮 Angemeldete Spieler ({total})" if i == 0 else "\u200b"

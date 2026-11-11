@@ -80,15 +80,15 @@ class TestUtils(unittest.TestCase):
     def test_playerlist_chunk_lines_respects_discord_limit(self):
         from wd_identity.playerlist import _chunk_lines
 
-        long_line = "• ⛄ **VeryLongPlayerName123** • <@123456789012345678> (`@verylongplayername123`) *(Pre-Registered)*"
+        long_line = "• ⛄ **VeryLongPlayerName123** • <@123456789012345678>"
         lines = [long_line for _ in range(50)]
-        chunks = _chunk_lines(lines, max_items=12, max_chars=950)
+        chunks = _chunk_lines(lines, max_items=25, max_chars=1000)
 
-        self.assertTrue(len(chunks) >= 4)
+        self.assertTrue(len(chunks) >= 2)
         for i, chunk in enumerate(chunks):
             chunk_text = "\n".join(chunk)
             self.assertLessEqual(len(chunk_text), 1024, f"Chunk {i} exceeded Discord limit: {len(chunk_text)}")
-            self.assertLessEqual(len(chunk), 12)
+            self.assertLessEqual(len(chunk), 25)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.mojang_client import get_player_profile
 from wd_identity.planka_sync import PlankaSyncClient
+from wd_identity.bluemap_chat import router as bluemap_chat_router
 from wd_identity.utils import (
     check_is_discord_admin,
     resolve_discord_user,
@@ -41,6 +42,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url=None,
 )
+app.include_router(bluemap_chat_router)
 
 
 class OnboardingRequest(BaseModel):

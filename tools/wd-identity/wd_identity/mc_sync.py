@@ -719,6 +719,16 @@ class MinecraftSyncClient:
             cmds.append(f'title @a subtitle {{"text":"{clean_sub}","color":"yellow"}}')
         return self.execute_commands(cmds)
 
+    def restart_server(self) -> bool:
+        """Restarts the Minecraft server via Wings API power action."""
+        try:
+            url = f"{self.api_url}/api/servers/{self.server_uuid}/power"
+            r = requests.post(url, headers=self._headers, json={"action": "restart"}, timeout=10)
+            return r.status_code in (200, 202, 204)
+        except Exception as e:
+            logger.error(f"Failed to restart Minecraft server via Wings API: {e}")
+            return False
+
 
 def main():
     logging.basicConfig(

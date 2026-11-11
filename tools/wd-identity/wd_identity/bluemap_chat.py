@@ -1,0 +1,198 @@
+"""
+BlueMap Web Chat and Authentication Integration Router for Weihnachtsdorf 7.
+Enables real-time bi-directional chat between BlueMap web users and the Minecraft server,
+enforcing authentic Minecraft usernames derived securely from Authentik SSO sessions.
+"""
+
+import asyncio
+import json
+import logging
+from typing import Any, Dict, List, Optional, Tuple
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse, StreamingResponse
+from pydantic import BaseModel
+
+from wd_identity.config import settings
+from wd_identity.ldap_client import LDAPClient
+from wd_identity.mc_sync import MinecraftSyncClient
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["bluemap-chat"])
+
+# Internal registry of active SSE subscriber queues
+_active_sse_queues: List[asyncio.Queue] = []
+PROTECTED_INTERNAL_ACCOUNTS = {"tigimax", "akadmin"}
+
+
+def resolve_minecraft_player_from_authentik(authentik_user: str) -> Tuple[str, str]:
+    """
+    Resolves Authentik username (e.g. 'tigimax_player', 'tubuu') to verified
+    Minecraft Ingame Name (e.g. 'Tigimax', 'GoodTimesWithTub') and Mojang UUID.
+    Guarantees web chat messages strictly display the user's authentic Minecraft account.
+    """
+    if not authentik_user:
+        return ("", "")
+
+    clean_user = authentik_user.strip().lower()
+    ldap = LDAPClient()
+    user = None
+
+    if clean_user in PROTECTED_INTERNAL_ACCOUNTS:
+        user = ldap.get_user(f"{clean_user}_player")
+    if not user:
+        user = ldap.get_user(clean_user)
+    if not user:
+        user = ldap.search_by_discord(clean_user)
+
+    if not user:
+        return (authentik_user, "")
+
+    ign = user.get("minecraftName") or user.get("uid") or authentik_user
+    uuid = user.get("minecraftUuid") or ""
+    return (ign, uuid)
+
+
+async def broadcast_bluemap_event(event_dict: Dict[str, Any]) -> None:
+    """Dispatches a chat, join, quit, or death event to all connected BlueMap web clients."""
+    dead_queues = []
+    for q in _active_sse_queues:
+        try:
+            q.put_nowait(event_dict)
+        except asyncio.QueueFull:
+            dead_queues.append(q)
+    for dq in dead_queues:
+        if dq in _active_sse_queues:
+            _active_sse_queues.remove(dq)
+
+
+@router.get("/addons/integration/whoami")
+async def whoami(request: Request):
+    """
+    BlueMap Integration endpoint.
+    Returns the verified Minecraft username and UUID for the currently authenticated session.
+    """
+    auth_user = request.headers.get("x-authentik-username", "")
+    if not auth_user:
+        return {}
+
+    ign, uuid = resolve_minecraft_player_from_authentik(auth_user)
+    if not ign:
+        return {}
+
+    return {"uuid": uuid, "username": ign}
+
+
+@router.get("/addons/integration/playerhead/{map_id}")
+async def playerhead(map_id: str, request: Request):
+    """Redirects to the 32x32 playerhead avatar for the logged-in BlueMap user."""
+    auth_user = request.headers.get("x-authentik-username", "")
+    _, uuid = resolve_minecraft_player_from_authentik(auth_user)
+    clean_uuid = uuid.replace("-", "") if uuid else "steve"
+    return RedirectResponse(
+        url=f"https://mc-heads.net/avatar/{clean_uuid}/32",
+        status_code=302,
+    )
+
+
+class ChatSendMessageRequest(BaseModel):
+    message: str
+
+
+@router.post("/addons/chat/{map_id}/send")
+async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: Request):
+    """
+    Receives web chat messages from BlueMap, broadcasts to Minecraft via RCON,
+    and echoes to all active BlueMap SSE listeners with verified Minecraft identity.
+    """
+    auth_user = request.headers.get("x-authentik-username", "")
+    if not auth_user:
+        raise HTTPException(status_code=401, detail="Nicht eingeloggt. Bitte über Authentik anmelden.")
+
+    clean_msg = payload.message.strip()
+    if not clean_msg:
+        raise HTTPException(status_code=400, detail="Nachricht darf nicht leer sein.")
+    if len(clean_msg) > 256:
+        clean_msg = clean_msg[:256]
+
+    ign, uuid = resolve_minecraft_player_from_authentik(auth_user)
+    if not ign:
+        ign = auth_user
+
+    # 1. Broadcast to in-game Minecraft players with formatted prefix & gold username
+    mc = MinecraftSyncClient()
+    tellraw_payload = json.dumps([
+        {"text": "[Web] ", "color": "aqua", "bold": True},
+        {"text": f"<{ign}> ", "color": "gold"},
+        {"text": clean_msg, "color": "white"}
+    ])
+    try:
+        await asyncio.to_thread(mc.execute_commands, [f"tellraw @a {tellraw_payload}"])
+    except Exception as e:
+        logger.warning(f"Failed to broadcast webchat to Minecraft: {e}")
+
+    # 2. Broadcast to all active BlueMap SSE sessions
+    event_payload = {
+        "type": "webchat",
+        "uuid": uuid or "0",
+        "username": ign,
+        "message": clean_msg,
+    }
+    await broadcast_bluemap_event(event_payload)
+    return {"ok": True}
+
+
+@router.get("/addons/chat/{map_id}/stream")
+async def chat_stream(map_id: str, request: Request):
+    """
+    Server-Sent Events (SSE) stream for BlueMap web chat.
+    Pushes live in-game chat, web chat, join, leave, and death messages.
+    """
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _active_sse_queues.append(queue)
+
+    async def sse_generator():
+        # Handshake: notify frontend that chat is enabled and read-write
+        init_data = json.dumps({"type": "settings", "readOnly": False})
+        yield f"data: {init_data}\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            if queue in _active_sse_queues:
+                _active_sse_queues.remove(queue)
+
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+class IngameChatEvent(BaseModel):
+    type: str = "chat"
+    uuid: Optional[str] = "0"
+    username: Optional[str] = ""
+    message: Optional[str] = ""
+
+
+@router.post("/api/bluemap/chat/ingame")
+async def ingame_chat_event(event: IngameChatEvent):
+    """
+    Internal bridge receiver called by Minecraft server (BlueMapLiveBridge)
+    to forward in-game chat, join, leave, and death events to BlueMap web chat.
+    """
+    payload = event.dict()
+    await broadcast_bluemap_event(payload)
+    return {"ok": True}

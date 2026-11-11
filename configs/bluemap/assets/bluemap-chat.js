@@ -13,7 +13,7 @@ function getAuthStatus() {
         timeout = setTimeout(() => {
             clearInterval(acquireInterval);
             err()
-        }, 2000);
+        }, 5000);
     });
 }
 
@@ -70,8 +70,8 @@ void async function() {
         if (authPath !== "{{"+"auth-path"+"}}") {
             chatInput.placeholder = "Log in to send messages";
             chatInputWrapper.onclick = () => {
-                console.log("[Chat/info] Log in to send messages");
-                window.location.href = `${authPath}login?redirect=${encodeURIComponent(window.location.pathname)}`;
+                console.log("[Chat/info] Reloading to refresh Authentik session");
+                window.location.reload();
             }
         }
         else {
@@ -144,7 +144,7 @@ void async function() {
     chatInput.addEventListener("keydown", (e) => {
         e.stopPropagation();
         if (e.key === "Enter") {
-            fetch("./addons/chat/" + currentMapId + "/send", {
+            fetch("/addons/chat/" + currentMapId + "/send", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -201,7 +201,7 @@ void async function() {
         if (eventSource) { eventSource.close(); eventSource = null; }
         if (!mapId) return;
         currentMapId = mapId;
-        eventSource = new EventSource("./addons/chat/" + mapId + "/stream");
+        eventSource = new EventSource("/addons/chat/" + mapId + "/stream");
         eventSource.onerror = () => {
             setupChatLoggedOut();
             if (chatIsOpen) toggleChat();

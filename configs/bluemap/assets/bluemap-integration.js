@@ -3,7 +3,7 @@ void async function() {
 
     let authData = { loggedIn: false };
     try {
-        const res = await fetch("./addons/integration/whoami");
+        const res = await fetch("/addons/integration/whoami");
         if (res.ok) {
             const data = await res.json();
             if (data.username && data.uuid) {
@@ -21,7 +21,7 @@ void async function() {
         userTemplate.innerHTML = `
         <div id="bluemap-user-badge" style="display: flex; flex-direction: row; align-items: center; padding: .4em .8em; font-family: 'minecraft', sans-serif; font-size: 15px; color: #fff;">
             <img
-                src="./addons/integration/playerhead/${window.bluemap?.mapViewer?.data?.map?.id || 'overworld'}"
+                src="/addons/integration/playerhead/${window.bluemap?.mapViewer?.data?.map?.id || 'overworld'}"
                 style="width: 24px; height: 24px; margin-right: 8px; border-radius: 3px;"
                 alt="${authData.username}" />
             <span>${authData.username}</span>

@@ -55,7 +55,7 @@
 | **Reserve/Puffer** | **~0.5 GB** |
 
 > [!IMPORTANT]
-> VM 200 (Atlas-Gaming, 9 GB) **muss aus** während Minecraft läuft. Heap 11 GB statt 12 GB gibt dem Off-Heap bei 80 Spielern (Netty-Buffers, DirectByteBuffers) genug Luft.
+> Alle weiteren Host-Workloads (z. B. temporäre Sekundär-VMs) **müssen gestoppt sein**, während Minecraft läuft. Heap 11 GB statt 12 GB gibt dem Off-Heap bei 80 Spielern (Netty-Buffers, DirectByteBuffers) genug Luft.
 
 ---
 
@@ -83,7 +83,7 @@ qm set 120 --startup order=1,up=30
 ```
 
 > [!WARNING]
-> VM 102 (Crafty) und VM 200 (Atlas) vorher stoppen.
+> VM 102 (Crafty) und alle weiteren Host-VMs vorher stoppen.
 
 ### Ubuntu 24.04 Basis + Docker + Wings
 

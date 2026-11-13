@@ -17,22 +17,35 @@ void async function() {
     window.bluemapAuth = authData;
 
     if (authData.loggedIn) {
-        const userTemplate = document.createElement("template");
-        userTemplate.innerHTML = `
-        <div id="bluemap-user-badge" style="display: flex; flex-direction: row; align-items: center; padding: .4em .8em; font-family: 'minecraft', sans-serif; font-size: 15px; color: #fff;">
-            <img
-                src="/addons/integration/playerhead/${window.bluemap?.mapViewer?.data?.map?.id || 'overworld'}"
-                style="width: 24px; height: 24px; margin-right: 8px; border-radius: 3px;"
-                alt="${authData.username}" />
-            <span>${authData.username}</span>
-        </div>
-        `.trim();
-        const userElement = userTemplate.content.firstChild;
+        const userBadge = document.createElement("div");
+        userBadge.id = "bluemap-user-badge";
+        userBadge.style.display = "flex";
+        userBadge.style.flexDirection = "row";
+        userBadge.style.alignItems = "center";
+        userBadge.style.padding = ".4em .8em";
+        userBadge.style.fontFamily = "'minecraft', sans-serif";
+        userBadge.style.fontSize = "15px";
+        userBadge.style.color = "#fff";
+
+        const headImg = document.createElement("img");
+        const mapId = window.bluemap?.mapViewer?.data?.map?.id || "overworld";
+        headImg.src = "/addons/integration/playerhead/" + encodeURIComponent(mapId);
+        headImg.style.width = "24px";
+        headImg.style.height = "24px";
+        headImg.style.marginRight = "8px";
+        headImg.style.borderRadius = "3px";
+        headImg.alt = authData.username || "";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = authData.username || "";
+
+        userBadge.appendChild(headImg);
+        userBadge.appendChild(nameSpan);
 
         const checkSideMenu = setInterval(() => {
             const buttonList = document.querySelector(".side-menu .content")?.children?.item(0);
             if (buttonList && !document.querySelector("#bluemap-user-badge")) {
-                buttonList.insertBefore(userElement, buttonList.firstChild);
+                buttonList.insertBefore(userBadge, buttonList.firstChild);
                 clearInterval(checkSideMenu);
             }
         }, 100);

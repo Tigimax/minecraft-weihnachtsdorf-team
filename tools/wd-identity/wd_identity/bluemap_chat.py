@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -143,7 +143,7 @@ async def whoami(request: Request):
     if not auth_user:
         return {}
 
-    ign, uuid = resolve_minecraft_player_from_authentik(auth_user)
+    ign, uuid = await asyncio.to_thread(resolve_minecraft_player_from_authentik, auth_user)
     if not ign:
         return {}
 
@@ -159,7 +159,7 @@ async def playerhead(map_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     auth_user = request.headers.get("x-authentik-username", "")
-    _, uuid = resolve_minecraft_player_from_authentik(auth_user)
+    _, uuid = await asyncio.to_thread(resolve_minecraft_player_from_authentik, auth_user)
     clean_uuid = uuid.replace("-", "") if uuid else "steve"
     return RedirectResponse(
         url=f"https://mc-heads.net/avatar/{clean_uuid}/32",
@@ -186,13 +186,17 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
     if not auth_user:
         raise HTTPException(status_code=401, detail="Nicht eingeloggt. Bitte über Authentik anmelden.")
 
-    clean_msg = payload.message.strip()
+    from wd_identity import chat_bridge
+    if not chat_bridge.rate_ok(auth_user):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Zu viele Nachrichten")
+
+    clean_msg = payload.message.replace("§", "").replace("\r", " ").replace("\n", " ").strip()
     if not clean_msg:
         raise HTTPException(status_code=400, detail="Nachricht darf nicht leer sein.")
     if len(clean_msg) > 256:
         clean_msg = clean_msg[:256]
 
-    ign, uuid = resolve_minecraft_player_from_authentik(auth_user)
+    ign, uuid = await asyncio.to_thread(resolve_minecraft_player_from_authentik, auth_user)
     if not ign:
         ign = auth_user
 
@@ -202,8 +206,7 @@ async def send_web_chat(map_id: str, payload: ChatSendMessageRequest, request: R
     role = "player"
     name_color = "white"
     try:
-        from wd_identity import chat_bridge
-        p_info = chat_bridge.resolve_player_by_minecraft(ign, uuid)
+        p_info = await asyncio.to_thread(chat_bridge.resolve_player_by_minecraft, ign, uuid)
         role = p_info.get("role", "player")
         name_color = chat_bridge.ROLE_COLORS.get(role.lower(), "white")
     except Exception:
@@ -252,6 +255,11 @@ async def chat_stream(map_id: str, request: Request):
     Server-Sent Events (SSE) stream for BlueMap web chat.
     Pushes live in-game chat, web chat, join, leave, and death messages.
     """
+    if not client_ip_allowed(request, settings.PROXY_TRUSTED_IPS):
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning(f"Forbidden access to chat stream from {client_ip}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
     queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     _active_sse_queues.append(queue)
 
@@ -312,7 +320,7 @@ async def ingame_chat_event(event: IngameChatEvent, request: Request):
     if not payload.get("role"):
         try:
             from wd_identity import chat_bridge
-            p_info = chat_bridge.resolve_player_by_minecraft(payload.get("username", ""), payload.get("uuid", ""))
+            p_info = await asyncio.to_thread(chat_bridge.resolve_player_by_minecraft, payload.get("username", ""), payload.get("uuid", ""))
             payload["role"] = p_info.get("role", "player")
         except Exception:
             payload["role"] = "player"

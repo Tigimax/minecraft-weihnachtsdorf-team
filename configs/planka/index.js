@@ -15,9 +15,15 @@ module.exports = {
   async fn() {
     const req = this.req;
     const res = this.res;
-    const rawAuthUsername = req.headers['x-authentik-username'];
-    const rawAuthEmail = req.headers['x-authentik-email'];
-    const rawAuthName = req.headers['x-authentik-name'];
+    const rawAuthUsername = Array.isArray(req.headers['x-authentik-username'])
+      ? req.headers['x-authentik-username'][0]
+      : req.headers['x-authentik-username'];
+    const rawAuthEmail = Array.isArray(req.headers['x-authentik-email'])
+      ? req.headers['x-authentik-email'][0]
+      : req.headers['x-authentik-email'];
+    const rawAuthName = Array.isArray(req.headers['x-authentik-name'])
+      ? req.headers['x-authentik-name'][0]
+      : req.headers['x-authentik-name'];
 
     let ssoToken = null;
 
@@ -25,6 +31,25 @@ module.exports = {
       const authUsername = rawAuthUsername.trim().toLowerCase();
       const authEmail = rawAuthEmail ? rawAuthEmail.trim().toLowerCase() : null;
       const authName = rawAuthName ? rawAuthName.trim() : authUsername;
+      const rawAuthGroups = req.headers['x-authentik-groups'] || '';
+
+      const rawGroupsArr = Array.isArray(rawAuthGroups)
+        ? rawAuthGroups
+        : String(rawAuthGroups).split(',');
+      const groupsList = rawGroupsArr
+        .flatMap((g) => String(g).split(','))
+        .map((g) => g.trim().toLowerCase());
+      const isAdmin =
+        groupsList.includes('wd_admins') ||
+        groupsList.includes('weihnachtsdorf_admins') ||
+        groupsList.includes('authentik admins') ||
+        authUsername === 'tigimax';
+
+      const adminRole = (User.Roles && User.Roles.ADMIN) ? User.Roles.ADMIN : 'admin';
+      const defaultRole = (User.Roles && (User.Roles.PROJECT_OWNER || User.Roles.BOARD_USER || User.Roles.USER))
+        ? (User.Roles.PROJECT_OWNER || User.Roles.BOARD_USER || User.Roles.USER)
+        : 'projectOwner';
+      const userRole = isAdmin ? adminRole : defaultRole;
 
       try {
         let user = await User.qm.getOneActiveByEmailOrUsername(authUsername);
@@ -40,7 +65,7 @@ module.exports = {
             username: authUsername,
             email: authEmail || `${authUsername}@tigimax.mooo.com`,
             name: authName,
-            role: User.Roles.ADMIN,
+            role: userRole,
             termsSignature: termsSignature,
             termsAcceptedAt: new Date(),
             subscribeToOwnCards: false,
@@ -56,6 +81,12 @@ module.exports = {
         }
 
         if (user && !user.isDeactivated) {
+          // Sync role if admin privileges changed in Authentik
+          if (user.role !== userRole) {
+            await User.updateOne({ id: user.id }).set({ role: userRole });
+            user.role = userRole;
+          }
+
           // Ensure terms signature is present to avoid terms modal gate
           if (!user.termsSignature) {
             await User.updateOne({ id: user.id }).set({
@@ -94,6 +125,7 @@ module.exports = {
             ssoToken = newAccessToken;
 
             // Set browser cookies
+            // Note: Planka's frontend SPA reads document.cookie directly, so accessToken cannot be httpOnly: true.
             const isSecure = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
             const expires = new Date(tokenPayload.exp * 1000);
             res.cookie('accessToken', newAccessToken, {
@@ -101,6 +133,7 @@ module.exports = {
               path: '/',
               secure: isSecure,
               sameSite: 'lax',
+              httpOnly: false,
             });
             res.cookie('accessTokenVersion', '1', {
               expires,

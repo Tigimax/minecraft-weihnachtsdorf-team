@@ -1326,7 +1326,7 @@ async def handle_admin_accept(interaction: discord.Interaction, app_id: int):
 
     # 1. Resolve Minecraft IGN & UUID from Mojang
     try:
-        canonical_ign, mc_uuid = get_player_profile(raw_ign)
+        canonical_ign, mc_uuid = await asyncio.to_thread(get_player_profile, raw_ign)
     except Exception as e:
         logger.warning(f"Failed to lookup Mojang profile for '{raw_ign}', using fallback: {e}")
         canonical_ign = raw_ign
@@ -1561,7 +1561,7 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
             return
 
         try:
-            canonical_ign, mc_uuid = get_player_profile(raw_ign)
+            canonical_ign, mc_uuid = await asyncio.to_thread(get_player_profile, raw_ign)
         except Exception as e:
             logger.warning(f"Failed to lookup Mojang profile for appeal '{raw_ign}', using fallback: {e}")
             canonical_ign = raw_ign
@@ -2368,7 +2368,7 @@ async def player_autocomplete(
     choices: List[app_commands.Choice[str]] = []
     seen_values = set()
 
-    users = _get_autocomplete_users()
+    users = await asyncio.to_thread(_get_autocomplete_users)
     matched_discord_ids = set()
     matched_discord_names = set()
 
@@ -3068,8 +3068,7 @@ async def cmd_status(
     clean_uuid = (mc_uuid or "").replace("-", "").strip()
     if ign and (not clean_uuid or clean_uuid.startswith("7642e72f") or len(clean_uuid) != 32):
         try:
-            from wd_identity.mojang_client import get_player_profile
-            _, real_uuid = get_player_profile(ign)
+            _, real_uuid = await asyncio.to_thread(get_player_profile, ign)
             if real_uuid:
                 clean_uuid = real_uuid.replace("-", "").strip()
         except Exception:
@@ -3297,7 +3296,7 @@ async def cmd_zugang_entziehen(
     clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
 
     # Guard against targeting bots
-    if clean_target == str(bot.user.id) or clean_target == "1564751378436456468":
+    if (bot.user and clean_target == str(bot.user.id)) or clean_target == "1564751378436456468":
         await interaction.followup.send(
             "❌ Du hast versehentlich den **Bot (WHD Privileges)** ausgewählt!\n"
             "Bitte wähle deinen eigenen Benutzeraccount **@Tigimax** (oder gib deinen Minecraft-Namen `Tigimax` ein).",
@@ -3412,7 +3411,7 @@ async def cmd_rolle(
     clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
 
     # Guard against targeting bots
-    if clean_target == str(bot.user.id) or clean_target == "1564751378436456468":
+    if (bot.user and clean_target == str(bot.user.id)) or clean_target == "1564751378436456468":
         await interaction.followup.send(
             "❌ Du hast versehentlich den **Bot (WHD Privileges)** ausgewählt!\n"
             "Bitte wähle deinen eigenen Benutzeraccount **@Tigimax** (oder gib deinen Minecraft-Namen `Tigimax` ein).",
@@ -3519,7 +3518,7 @@ async def cmd_mod_baurecht(
     clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
 
     # Guard against targeting bots
-    if clean_target == str(bot.user.id) or clean_target == "1564751378436456468":
+    if (bot.user and clean_target == str(bot.user.id)) or clean_target == "1564751378436456468":
         await interaction.followup.send(
             "❌ Du hast versehentlich den **Bot (WHD Privileges)** ausgewählt!\n"
             "Bitte wähle deinen eigenen Benutzeraccount **@Tigimax** (oder gib deinen Minecraft-Namen `Tigimax` ein).",
@@ -4118,8 +4117,8 @@ async def cmd_spieler_kick(interaction: discord.Interaction, ziel: str, grund: O
     clean_target = ziel.strip().replace("<@", "").replace(">", "").replace("!", "").lstrip("@")
 
     # Guard against targeting bots
-    if clean_target == str(bot.user.id) or clean_target == "1564751378436456468":
-        await interaction.followup.send(
+    if (bot.user and clean_target == str(bot.user.id)) or clean_target == "1564751378436456468":
+        await interaction.response.send_message(
             "❌ Du hast versehentlich den **Bot (WHD Privileges)** ausgewählt!\n"
             "Bitte wähle deinen eigenen Benutzeraccount **@Tigimax** (oder gib deinen Minecraft-Namen `Tigimax` ein).",
             ephemeral=True,
@@ -4129,26 +4128,37 @@ async def cmd_spieler_kick(interaction: discord.Interaction, ziel: str, grund: O
     if clean_target.isdigit():
         try:
             m = interaction.guild.get_member(int(clean_target)) if interaction.guild else None
+            if not m and bot:
+                m = bot.get_user(int(clean_target))
             if m and m.bot:
-                await interaction.followup.send(
+                await interaction.response.send_message(
                     f"❌ **@{m.name}** ist ein Discord-Bot und kein Spieler-Account!",
                     ephemeral=True,
                 )
                 return
         except Exception:
             pass
-    clean_reason = (grund or "Vom Administrator gekickt").strip()
+    raw_reason = (grund or "Vom Administrator gekickt").strip().replace('"', '').replace('\r', '').replace('\n', '')
+    clean_reason = raw_reason if raw_reason else "Vom Administrator gekickt"
 
-    ldap = LDAPClient()
-    user = None
-    if clean_target.isdigit():
-        user = ldap.search_by_discord(clean_target)
-    if not user:
-        user = ldap.get_user(clean_target) or ldap.search_by_discord(clean_target) or ldap.search_by_minecraft(clean_target)
+    def _resolve_ldap_user():
+        try:
+            ldap = LDAPClient()
+            u = None
+            if clean_target.isdigit():
+                u = ldap.search_by_discord_id(clean_target) or ldap.search_by_discord(clean_target)
+            if not u:
+                u = ldap.get_user(clean_target) or ldap.search_by_discord(clean_target) or ldap.search_by_minecraft(clean_target)
+            return u
+        except Exception as e:
+            logger.warning(f"LDAP lookup error during kick for '{clean_target}': {e}")
+            return None
+
+    user = await asyncio.to_thread(_resolve_ldap_user)
 
     ign = user.get("minecraftName") if user else clean_target
-    if not ign:
-        await interaction.response.send_message(f"❌ Für '{ziel}' konnte kein Minecraft Ingame-Name ermittelt werden.", ephemeral=True)
+    if not ign or not validate_minecraft_ign(ign):
+        await interaction.response.send_message(f"❌ Für '{ziel}' konnte kein gültiger Minecraft Ingame-Name ermittelt werden.", ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=False)
@@ -4331,7 +4341,7 @@ async def console_log_sync_loop():
             try:
                 channel = await bot.fetch_channel(int(console_id))
             except Exception as e:
-                logger.debug(f"Could not fetch console channel {console_id}: {e}")
+                logger.warning(f"Could not fetch console channel {console_id}: {e}")
                 return
 
         mc = MinecraftSyncClient()
@@ -4340,17 +4350,18 @@ async def console_log_sync_loop():
             return
 
         new = new_log_lines(_last_log, cur)
-        _last_log = cur
-
         if not new:
+            _last_log = cur
             return
 
         filtered = chat_bridge.console_filter(new)
         if not filtered:
+            _last_log = cur
             return
 
         chunks = chat_bridge.chunk_code_blocks(filtered, limit=1900)
         if not chunks:
+            _last_log = cur
             return
 
         if len(chunks) <= 3:
@@ -4364,8 +4375,11 @@ async def console_log_sync_loop():
             if rem <= 0:
                 rem = len(chunks) - 2
             await channel.send(f"```\n… {rem} weitere Zeilen\n```")
+
+        # Advance _last_log only after successfully sending to Discord channel
+        _last_log = cur
     except Exception as e:
-        logger.debug(f"Error in console_log_sync_loop: {e}")
+        logger.warning(f"Error in console_log_sync_loop: {e}")
 
 
 @console_log_sync_loop.before_loop
@@ -4461,14 +4475,30 @@ async def bridge_on_message(message: discord.Message):
             return
 
         cmd = message.content.strip()
-        if cmd.startswith("/"):
-            cmd = cmd[1:].strip()
+        while cmd.startswith("/") or cmd.startswith(" "):
+            cmd = cmd.lstrip("/").strip()
         if not cmd:
             return
 
-        first_word = cmd.split()[0].lower() if cmd.split() else ""
-        cmd_lower = cmd.lower()
-        if first_word in ("stop", "restart", "op", "deop", "ban-ip", "kill-all") or cmd_lower.startswith("whitelist off"):
+        cmd_norm = " ".join(cmd.lower().split())
+        tokens = cmd_norm.split()
+        first_token = tokens[0] if tokens else ""
+        first_word = first_token.split(":")[-1].lstrip("/")
+
+        forbidden_cmds = {
+            "stop", "restart", "op", "deop", "ban-ip", "kill-all", "execute", "lp", "luckperms", "pardon-ip"
+        }
+
+        is_forbidden = False
+        if first_word in forbidden_cmds or "whitelist off" in cmd_norm:
+            is_forbidden = True
+        elif "run" in tokens:
+            run_idx = tokens.index("run")
+            sub_tokens = [t.split(":")[-1].lstrip("/") for t in tokens[run_idx + 1:]]
+            if any(t in forbidden_cmds for t in sub_tokens) or "whitelist off" in " ".join(tokens[run_idx:]):
+                is_forbidden = True
+
+        if is_forbidden:
             try:
                 await message.reply("❌ Dieser Befehl ist in der Chat-Konsole gesperrt. Bitte nutze das Panel oder `/mc-befehl`.")
             except Exception as e:
@@ -4582,31 +4612,13 @@ async def on_member_remove(member: discord.Member):
     logger.info(f"Member left guild {member.guild.name}: {member.name} (ID: {member.id}, Display: {member.display_name})")
 
     try:
-        # Search by ID first
+        # Search strictly by immutable Discord ID
         res = await asyncio.to_thread(
             revoke_user_privileges,
             target=str(member.id),
             reason="Discord-Server verlassen",
             initiator="Discord Gateway (Member Remove)",
         )
-
-        # Fallback to member name
-        if not res.get("found"):
-            res = await asyncio.to_thread(
-                revoke_user_privileges,
-                target=member.name,
-                reason="Discord-Server verlassen",
-                initiator="Discord Gateway (Member Remove)",
-            )
-
-        # Fallback to display name if different
-        if not res.get("found") and member.display_name != member.name:
-            res = await asyncio.to_thread(
-                revoke_user_privileges,
-                target=member.display_name,
-                reason="Discord-Server verlassen",
-                initiator="Discord Gateway (Member Remove)",
-            )
 
         if not res.get("found"):
             logger.info(f"Member {member.name} ({member.id}) had no registered project account.")

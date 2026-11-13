@@ -19,18 +19,18 @@
 
 ```
 +-----------------------------------------------------------------------------------------+
-|                                    pnode02 (192.168.1.200)                              |
+|                                    pnode02 (<PROXMOX_NODE2_IP>)                         |
 |                       Intel Core i5-9400F (6C @ 3.9 GHz Turbo) | 16 GB DDR4             |
 |                                                                                         |
 |  +-------------------------------------------------+  +------------------------------+  |
-|  | VM 102: usrv03.net (192.168.1.147)              |  | VM 200: Atlas-Gaming (.139)  |  |
-|  | OS: Ubuntu 22.04.4 LTS (Kernel 5.15)            |  | OS: Windows 11 Pro (AtlasOS) |  |
-|  | Role: Crafty Controller 4 & Minecraft Servers   |  | Role: Steam/Sunshine Remote  |  |
-|  | CPU: 2 vCPUs (pinned to host cores 0-1)         |  | CPU: 5 vCPUs (cores 1-5)     |  |
-|  | RAM: 2 GB (Capped for host headroom)            |  | RAM: 9 GB Dedicated          |  |
-|  | Storage: 195 GB Root LV + 98 GB Backup Disk     |  | GPU: GTX 1060 Passthrough    |  |
-|  | Startup: Order 1, up=30                         |  | Startup: Order 2, up=60      |  |
-|  +-------------------------------------------------+  +------------------------------+  |
+|  | VM 102: usrv03.net (192.168.1.147)              |  | Secondary Host Workload      |  |
+|  | OS: Ubuntu 22.04.4 LTS (Kernel 5.15)            |  | Role: Non-project VM         |  |
+|  | Role: Crafty Controller 4 & Minecraft Servers   |  | CPU: Shared vCPUs            |  |
+|  | CPU: 2 vCPUs (pinned to host cores 0-1)         |  | RAM: 9 GB Dedicated          |  |
+|  | RAM: 2 GB (Capped for host headroom)            |  | Startup: Order 2             |  |
+|  | Storage: 195 GB Root LV + 98 GB Backup Disk     |  +------------------------------+  |
+|  | Startup: Order 1, up=30                         |                                    |
+|  +-------------------------------------------------+                                    |
 |                       Host Headroom: 3.4 GB guaranteed DDR4                             |
 +-----------------------------------------------------------------------------------------+
 ```
@@ -125,7 +125,7 @@ Historical Minecraft seasons are preserved across the storage cluster:
 * **`usrv03` (`192.168.1.147`):**
   * `/home/tigimax/7c905844-4aca-4f0c-a392-de788be951d0`: Contains `Weihnachtsdorf_4.tar.gz` (5.3 GB) and previous server configuration.
   * `/home/tigimax/minecraft_projects`: Fabric 1.20.1 BetterMC server pack and mods.
-* **`usrv02` (`192.168.1.137` / 4TB IronWolf HDD under `/home/tigimax/HDD`):**
+* **Secondary Storage Host (Internal Storage):**
   * `Minecraft_Weihnachtdorf`
   * `Minecraft_Weihnachtsdorf_2`
   * `Minecraft_Weihnachtsdorf_3` & `Minecraft_Weihnachtsdorf_3_Rollback_30.10.2022`
@@ -144,7 +144,7 @@ Historical Minecraft seasons are preserved across the storage cluster:
    * Proxmox `vzdump` snapshots VM 102 weekly on Sundays at **02:00 AM** to `/mnt/backup-staging/dump/` (local SSD staging, `keep-last=1`).
    * Synced by `homelab-cloud-sync.sh` to encrypted Google Drive (`gdrive-crypt:vzdump`, `keep-last=3`).
 3. **Historical Worlds (Restic):**
-   * Nightly Restic deduplication snapshots `/mnt/usrv02-hdd` on `pnode01` to SSD staging and Google Drive (`gdrive-crypt:restic`).
+   * Nightly Restic deduplication snapshots internal archives to SSD staging and Google Drive (`gdrive-crypt:restic`).
    * Dynmap/BlueMap tile caches (`**/dynmap/**/tiles`, `**/web/tiles`) are explicitly excluded to conserve storage.
 
 ---
@@ -153,10 +153,10 @@ Historical Minecraft seasons are preserved across the storage cluster:
 
 > [!WARNING]
 > **RAM Allocation vs. Java Heap Space:**
-> On 2026-10-25, VM 102 was capped to **2 GB RAM** on `pnode02` to give 9 GB to the Windows 11 Gaming VM (`Atlas-Gaming`) while leaving 3.4 GB safe host headroom.
+> On 2026-10-25, VM 102 was capped to **2 GB RAM** on `pnode02` to give 9 GB to another host workload while leaving 3.4 GB safe host headroom.
 > Because Weihnachtsdorf 5's execution command specifies `-Xms10000M -Xmx10000M` (10 GB), starting the server while VM 102 is at 2 GB RAM will immediately throw an out-of-memory error:
 > `Could not reserve enough space for 10000M object heap`.
-> **Solution:** If running Minecraft, either temporarily allocate more RAM in Proxmox (`qm set 102 -memory 10240`), adjust the Crafty execution command heap to match available memory, or coordinate RAM allocation with VM 200.
+> **Solution:** If running Minecraft, either temporarily allocate more RAM in Proxmox (`qm set 102 -memory 10240`), adjust the Crafty execution command heap to match available memory, or coordinate RAM allocation with other host workloads.
 
 > [!NOTE]
 > **FreeDNS 6-Month Inactivity Expiration:**

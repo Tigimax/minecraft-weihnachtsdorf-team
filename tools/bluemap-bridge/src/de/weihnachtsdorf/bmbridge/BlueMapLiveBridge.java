@@ -29,6 +29,9 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,6 +40,7 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
     private Path outFile;
     private Path tmpFile;
     private String lastPayload = "";
+    private final Set<UUID> vanishedPlayers = ConcurrentHashMap.newKeySet();
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
@@ -64,6 +68,13 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
             return;
         }
 
+        // Cache currently vanished players (e.g. if enabled via reload)
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (isVanished(p)) {
+                vanishedPlayers.add(p.getUniqueId());
+            }
+        }
+
         // Export player positions every 2 seconds (40 ticks)
         Bukkit.getScheduler().runTaskTimer(this, this::exportPlayers, 40L, 40L);
 
@@ -75,12 +86,18 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
-        writeAsync("{\"players\":[]}");
+        if (outFile != null) {
+            try {
+                Files.writeString(outFile, "{\"players\":[]}", StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+            }
+        }
+        vanishedPlayers.clear();
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
-        if (isVanished(event.getPlayer())) {
+        if (vanishedPlayers.contains(event.getPlayer().getUniqueId())) {
             return;
         }
         postEvent("chat", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), event.getMessage());
@@ -88,26 +105,35 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        if (event.getJoinMessage() == null || isVanished(event.getPlayer())) {
+        Player player = event.getPlayer();
+        if (isVanished(player)) {
+            vanishedPlayers.add(player.getUniqueId());
+        } else {
+            vanishedPlayers.remove(player.getUniqueId());
+        }
+        if (event.getJoinMessage() == null || vanishedPlayers.contains(player.getUniqueId())) {
             return;
         }
-        postEvent("join", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), "");
+        postEvent("join", player.getUniqueId().toString(), player.getName(), "");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
-        if (event.getQuitMessage() == null || isVanished(event.getPlayer())) {
+        Player player = event.getPlayer();
+        boolean wasVanished = vanishedPlayers.remove(player.getUniqueId()) || isVanished(player);
+        if (event.getQuitMessage() == null || wasVanished) {
             return;
         }
-        postEvent("quit", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), "");
+        postEvent("quit", player.getUniqueId().toString(), player.getName(), "");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onDeath(PlayerDeathEvent event) {
-        if (isVanished(event.getEntity()) || event.getDeathMessage() == null || event.getDeathMessage().isBlank()) {
+        Player player = event.getEntity();
+        if (vanishedPlayers.contains(player.getUniqueId()) || isVanished(player) || event.getDeathMessage() == null || event.getDeathMessage().isBlank()) {
             return;
         }
-        postEvent("death", event.getEntity().getUniqueId().toString(), event.getEntity().getName(), event.getDeathMessage());
+        postEvent("death", player.getUniqueId().toString(), player.getName(), event.getDeathMessage());
     }
 
     private boolean isVanished(Player player) {
@@ -170,8 +196,18 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
         sb.append("{\"players\":[");
         boolean first = true;
         Collection<? extends Player> onlinePlayers = Bukkit.getOnlinePlayers();
+        Set<UUID> onlineUuids = ConcurrentHashMap.newKeySet();
         for (Player p : onlinePlayers) {
-            if (p.getGameMode() == GameMode.SPECTATOR || p.isInvisible() || isVanished(p)) {
+            UUID uid = p.getUniqueId();
+            onlineUuids.add(uid);
+            boolean vanished = isVanished(p);
+            if (vanished) {
+                vanishedPlayers.add(uid);
+            } else {
+                vanishedPlayers.remove(uid);
+            }
+
+            if (p.getGameMode() == GameMode.SPECTATOR || p.isInvisible() || vanished) {
                 continue;
             }
             Location loc = p.getLocation();
@@ -197,6 +233,7 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
                     loc.getYaw()
             ));
         }
+        vanishedPlayers.retainAll(onlineUuids);
         sb.append("]}");
         String payload = sb.toString();
         if (!payload.equals(lastPayload)) {
@@ -291,13 +328,21 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
         return sb.toString();
     }
 
-    private void writeAsync(String payload) {
-        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
-            try {
+    private void writeSync(String payload) {
+        try {
+            if (outFile != null && tmpFile != null) {
                 Files.writeString(tmpFile, payload, StandardCharsets.UTF_8);
-                Files.move(tmpFile, outFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (Exception ignored) {
+                try {
+                    Files.move(tmpFile, outFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmpFile, outFile, StandardCopyOption.REPLACE_EXISTING);
+                }
             }
-        });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void writeAsync(String payload) {
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> writeSync(payload));
     }
 }

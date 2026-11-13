@@ -7,11 +7,18 @@ Includes state tracking for idempotency and automatic revocation of removed staf
 from datetime import datetime, timezone, timedelta
 import json
 import logging
+import os
 from pathlib import Path
+import re
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 import requests
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 from wd_identity.config import settings
 from wd_identity.ldap_client import LDAPClient
@@ -61,6 +68,57 @@ def new_log_lines(prev: List[str], cur: List[str]) -> List[str]:
     return list(cur)
 
 
+def _atomic_write_json(file_path: Path, data: Any, use_lock: bool = True) -> bool:
+    """
+    Writes JSON data to file_path atomically using a temporary file in the same directory,
+    fsync, and atomic rename (os.replace). Uses flock if available to prevent concurrent write collisions.
+    """
+    tmp_path = None
+    lock_fd = None
+    try:
+        parent_dir = file_path.parent
+        parent_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = parent_dir / f".{file_path.name}.tmp.{os.getpid()}_{time.time_ns()}"
+        lock_path = parent_dir / f".{file_path.name}.lock"
+
+        if use_lock and fcntl:
+            try:
+                lock_fd = open(lock_path, "w")
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+            except Exception as le:
+                logger.debug(f"Could not acquire flock on {lock_path}: {le}")
+                lock_fd = None
+
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, file_path)
+            return True
+        finally:
+            if lock_fd:
+                try:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                    lock_fd.close()
+                except Exception:
+                    pass
+                try:
+                    if lock_path.exists():
+                        lock_path.unlink()
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"Could not save JSON atomically to {file_path}: {e}")
+        return False
+    finally:
+        if tmp_path and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+
+
 class MinecraftSyncClient:
     def __init__(self):
         self.api_url = settings.WINGS_API_URL
@@ -100,11 +158,7 @@ class MinecraftSyncClient:
         return {}
 
     def _save_mod_grants(self, grants: Dict[str, Any]) -> None:
-        try:
-            with open(self.mod_grants_file, "w", encoding="utf-8") as f:
-                json.dump(grants, f, indent=2)
-        except Exception as e:
-            logger.warning(f"Could not save mod grants file {self.mod_grants_file}: {e}")
+        _atomic_write_json(self.mod_grants_file, grants, use_lock=True)
 
     def get_active_mod_grants(self) -> Dict[str, Any]:
         """Returns all currently active (unexpired) temporary mod build grants."""
@@ -207,6 +261,8 @@ class MinecraftSyncClient:
         ign = user.get("minecraftName")
         if not ign:
             raise ValueError(f"Moderator '{uid}' hat keinen Minecraft Ingame-Namen verknüpft.")
+        if not validate_minecraft_ign(ign):
+            raise ValueError(f"Ungültiger Minecraft Ingame-Name '{ign}' für Moderator '{uid}'.")
 
         mc_uuid = user.get("minecraftUuid")
         now = datetime.now(timezone.utc)
@@ -226,7 +282,7 @@ class MinecraftSyncClient:
 
         # Ensure permissions and whitelist
         self.setup_mod_permissions()
-        target_lp = mc_uuid if mc_uuid else ign
+        target_lp = mc_uuid if (mc_uuid and re.match(r"^[0-9a-fA-F-]{36}$", str(mc_uuid))) else ign
         self.execute_commands([
             f"whitelist add {ign}",
             f"lp user {target_lp} parent set mod",
@@ -286,10 +342,14 @@ class MinecraftSyncClient:
         self._save_mod_grants(grants)
 
         if not self.is_project_launched() and ign:
-            self.execute_commands([
-                f"whitelist remove {ign}",
-                f'kick {ign} "Temporäre Baurechte beendet (Pre-Launch)"',
-            ])
+            if validate_minecraft_ign(ign):
+                clean_kick_msg = "Temporäre Baurechte beendet (Pre-Launch)".replace("\r", " ").replace("\n", " ").replace('"', '')
+                self.execute_commands([
+                    f"whitelist remove {ign}",
+                    f'kick {ign} "{clean_kick_msg}"',
+                ])
+            else:
+                logger.warning(f"Skipping in-game commands for invalid Minecraft IGN: {ign}")
 
         try:
             from wd_identity.audit_logger import log_admin_event, COLOR_WARNING
@@ -340,13 +400,9 @@ class MinecraftSyncClient:
 
     def set_project_launched(self, launched: bool) -> bool:
         """Sets the project launched state flag."""
-        try:
-            with open(self.project_state_file, "w", encoding="utf-8") as f:
-                json.dump({"launched": bool(launched)}, f, indent=2)
-            return True
-        except Exception as e:
-            logger.error(f"Could not write project state to {self.project_state_file}: {e}")
-            return False
+        return _atomic_write_json(
+            self.project_state_file, {"launched": bool(launched)}, use_lock=True
+        )
 
     def _resolve_state_file(self) -> Path:
         for p in STATE_PATHS:
@@ -370,11 +426,7 @@ class MinecraftSyncClient:
         return {}
 
     def _save_state(self, state: Dict[str, Any]) -> None:
-        try:
-            with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=2)
-        except Exception as e:
-            logger.warning(f"Could not save state to {self.state_file}: {e}")
+        _atomic_write_json(self.state_file, state, use_lock=True)
 
     @property
     def _headers(self) -> Dict[str, str]:
@@ -760,17 +812,30 @@ class MinecraftSyncClient:
         except Exception:
             return (0, 120, [])
 
-    def broadcast_ingame(self, message: str, title: Optional[str] = None, subtitle: Optional[str] = None) -> bool:
+    def broadcast_ingame(
+        self,
+        message: Optional[str] = None,
+        title: Optional[str] = None,
+        subtitle: Optional[str] = None,
+    ) -> bool:
         """Sends chat notification and optional title to all online players."""
         cmds = []
-        clean_msg = message.replace('"', '\\"')
-        cmds.append(f'execute in minecraft:overworld run tellraw @a {{"text":"[Weihnachtsdorf] {clean_msg}","color":"gold"}}')
+        clean_msg = (message or "").replace("\r", " ").replace("\n", " ").strip()
+        if clean_msg:
+            msg_payload = json.dumps({"text": f"[Weihnachtsdorf] {clean_msg}", "color": "gold"})
+            cmds.append(f"execute in minecraft:overworld run tellraw @a {msg_payload}")
         if title:
-            clean_title = title.replace('"', '\\"')
-            cmds.append(f'title @a title {{"text":"{clean_title}","color":"red","bold":true}}')
+            clean_title = title.replace("\r", " ").replace("\n", " ").strip()
+            if clean_title:
+                title_payload = json.dumps({"text": clean_title, "color": "red", "bold": True})
+                cmds.append(f"title @a title {title_payload}")
         if subtitle:
-            clean_sub = subtitle.replace('"', '\\"')
-            cmds.append(f'title @a subtitle {{"text":"{clean_sub}","color":"yellow"}}')
+            clean_sub = subtitle.replace("\r", " ").replace("\n", " ").strip()
+            if clean_sub:
+                sub_payload = json.dumps({"text": clean_sub, "color": "yellow"})
+                cmds.append(f"title @a subtitle {sub_payload}")
+        if not cmds:
+            return True
         return self.execute_commands(cmds)
 
     def restart_server(self) -> bool:

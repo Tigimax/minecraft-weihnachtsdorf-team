@@ -13,14 +13,6 @@
         state: directory
         mode: '0755'
 
-    - name: Create timestamped backup of custom.list
-      ansible.builtin.copy:
-        src: "{{ custom_list_dest }}"
-        dest: "{{ custom_list_dest }}.bak_{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
-        remote_src: true
-        mode: '0644'
-      ignore_errors: true
-
     - name: Deploy custom.list DNS records
       ansible.builtin.copy:
         src: "{{ custom_list_src }}"
@@ -28,6 +20,7 @@
         owner: root
         group: root
         mode: '0644'
+        backup: true
       notify: Reload Pi-hole DNS
 
     - name: Flush handlers to reload DNS immediately

@@ -65,15 +65,19 @@ def verify_webhook_auth(
     x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
 ):
     """
-    Enforces webhook secret authentication when WEBHOOK_SECRET is configured.
+    Enforces webhook secret authentication.
+    Rejects requests with HTTP 500 if WEBHOOK_SECRET is unconfigured.
     Accepts secret via X-Webhook-Secret header or Authorization: Bearer <secret>.
     """
     expected_secret = (getattr(settings, "WEBHOOK_SECRET", "") or "").strip()
     if not expected_secret:
-        logger.warning(
-            "SECURITY WARNING: WEBHOOK_SECRET is not configured! Webhook endpoints are accessible without authentication."
+        logger.error(
+            "SECURITY ERROR: WEBHOOK_SECRET is not configured! Webhook access denied."
         )
-        return
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Webhook authentication secret is not configured.",
+        )
 
     token = None
     if x_webhook_secret:
@@ -623,12 +627,12 @@ def complete_web_setup(
         clean_user = "tigimax_player"
 
     raw_pw = req.password or ""
-    if not raw_pw or not raw_pw.strip():
+    if not raw_pw or not raw_pw.strip() or len(raw_pw.strip()) < 8:
         return JSONResponse(
             status_code=400,
             content={
                 "status": "error",
-                "detail": "Password cannot be empty or whitespace",
+                "detail": "Password cannot be empty or whitespace and must be at least 8 characters long",
             },
         )
 

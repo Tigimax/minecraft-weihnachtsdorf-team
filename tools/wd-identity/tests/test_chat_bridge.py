@@ -367,6 +367,7 @@ def test_bridge_on_message_chat_registered_player():
 
         with patch("wd_identity.chat_bridge.active_chat_channel_id", return_value="1570031673809043476"), \
              patch("wd_identity.chat_bridge.resolve_active_player", return_value=("Tigimax", "uuid-1234")), \
+             patch("wd_identity.chat_bridge.resolve_player_by_minecraft", return_value={"role": "player", "discord_id": "12345"}), \
              patch("wd_identity.chat_bridge.rate_ok", return_value=True), \
              patch("wd_identity.discord_bot.MinecraftSyncClient") as mock_mc_cls, \
              patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_http_post:
@@ -710,7 +711,8 @@ def test_webhook_deleted_or_invalid_status_clears_cache():
         chan_id = "1570031673809043476"
         chat_bridge._webhook_cache[chan_id] = "https://discord.com/api/webhooks/old/token"
 
-        with patch("wd_identity.chat_bridge.active_chat_channel_id", return_value=chan_id):
+        with patch("wd_identity.chat_bridge.active_chat_channel_id", return_value=chan_id), \
+             patch("wd_identity.chat_bridge.resolve_player_by_minecraft", return_value={"role": "player", "discord_id": ""}):
             event = {"type": "chat", "username": "Steve", "message": "hello"}
             await chat_bridge._send_event_to_webhook(mock_client, event)
 
@@ -727,7 +729,8 @@ def test_webhook_join_quit_escapes_markdown_in_username():
         mock_client.post.return_value = mock_resp_200
 
         with patch("wd_identity.chat_bridge._get_channel_webhook_url", return_value="https://discord.com/api/webhooks/123/token"), \
-             patch("wd_identity.chat_bridge.active_chat_channel_id", return_value="1570031673809043476"):
+             patch("wd_identity.chat_bridge.active_chat_channel_id", return_value="1570031673809043476"), \
+             patch("wd_identity.chat_bridge.resolve_player_by_minecraft", return_value={"role": "player", "discord_id": ""}):
 
             # Join with markdown characters in name
             join_ev = {"type": "join", "username": "_Underline*Star~Tilde_", "uuid": ""}

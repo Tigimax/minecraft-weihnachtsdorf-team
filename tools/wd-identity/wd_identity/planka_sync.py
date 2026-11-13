@@ -62,8 +62,17 @@ class PlankaSyncClient:
         """
         clean_user = sanitize_username(username)
         clean_email = sanitize_email(clean_user, raw_email=email)
-        raw_name = (name or clean_user.capitalize()).strip().replace("$", "")
-        clean_role = role.strip().lower() if role else "admin"
+        raw_name = (
+            ((name and name.strip()) or clean_user.capitalize())
+            .replace("$", "")
+            .strip()
+            or clean_user.capitalize()
+        )
+        clean_role = (
+            "admin"
+            if (role and role.strip().replace("$", "").lower() == "admin")
+            else "user"
+        )
 
         esc_user = escape_sql_literal(clean_user)
         esc_email = escape_sql_literal(clean_email)

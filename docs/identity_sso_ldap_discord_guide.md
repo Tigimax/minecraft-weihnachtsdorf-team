@@ -77,9 +77,9 @@ Für das Event **Minecraft SMP Weihnachtsdorf 7** wurde ein zentrales, hochsiche
 | **`ulxc01`** | `192.168.1.173` | Ubuntu 22.04 LTS (LXC) | **Pi-hole DNS** (Port 53), Split-DNS für `*.tigimax.mooo.com` & `.net` Zone (Ansible-gesteuert) |
 | **`mc-node1`** (VM 119) | `192.168.1.148` | Ubuntu 24.04 LTS | **Velocity Proxy 3.5.1** (:25565), **BlueMap CLI Server** (:8123), Pterodactyl Panel v1.15.2, Wings Node 1, MariaDB 10.11, Redis |
 | **`mc-main`** (VM 120) | `192.168.1.149` | Ubuntu 24.04 LTS | **Purpur 26.3 Build 2654** auf Java 25 LTS (:25574), Plan Analytics (:8804), Wings Node 2 (:8080) |
-| **`pnode01`** | `192.168.1.199` | Proxmox VE 8.x | Proxmox Cluster Node 1 (LDAP-Realm `ldap`, Host für VM 119 `mc-node1`) |
-| **`pnode02`** | `192.168.1.200` | Proxmox VE 8.x | Proxmox Cluster Node 2 (Host für VM 120 `mc-main`, i5-9400F 6 Kerne dediziert) |
-| **`pnode03`** | `192.168.1.201` | Proxmox VE 8.x | Proxmox Cluster Node 3 (Quorum & Failover) |
+| **`pnode01`** | `<PROXMOX_NODE1_IP>` | Proxmox VE 8.x | Proxmox Cluster Node 1 (LDAP-Realm `ldap`, Host für VM 119 `mc-node1`) |
+| **`pnode02`** | `<PROXMOX_NODE2_IP>` | Proxmox VE 8.x | Proxmox Cluster Node 2 (Host für VM 120 `mc-main`, i5-9400F 6 Kerne dediziert) |
+| **`pnode03`** | `<PROXMOX_NODE3_IP>` | Proxmox VE 8.x | Proxmox Cluster Node 3 (Quorum & Failover) |
 
 ---
 

@@ -101,6 +101,108 @@ class TestPurgeAccount(unittest.TestCase):
         mock_mc.whitelist_remove.assert_called_once_with("TestIGN")
         mock_mc.revoke_player_privileges.assert_called_once_with("TestIGN", mc_uuid="uuid-1234")
 
+    @patch("wd_identity.membership.sync_playerlist_rest")
+    @patch("wd_identity.membership.log_admin_event")
+    @patch("wd_identity.membership.MinecraftSyncClient")
+    @patch("wd_identity.membership.PlankaSyncClient")
+    @patch("wd_identity.membership.AuthentikClient")
+    @patch("wd_identity.membership.LDAPClient")
+    def test_purge_order_satellites_before_ldap(
+        self,
+        mock_ldap_cls,
+        mock_ak_cls,
+        mock_planka_cls,
+        mock_mc_cls,
+        mock_log,
+        mock_playerlist,
+    ):
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ak = mock_ak_cls.return_value
+        mock_planka = mock_planka_cls.return_value
+        mock_mc = mock_mc_cls.return_value
+
+        order = []
+        mock_ldap.get_user.return_value = {
+            "uid": "order_player",
+            "minecraftName": "OrderSteve",
+            "minecraftUuid": "uuid-9999",
+            "mail": "order@tigimax.mooo.com",
+        }
+        mock_mc.whitelist_remove.side_effect = lambda *a, **kw: order.append("minecraft")
+        mock_planka.delete_user.side_effect = lambda *a, **kw: order.append("planka")
+        mock_ak.delete_user.side_effect = lambda *a, **kw: order.append("authentik")
+        mock_ldap.delete_user.side_effect = lambda *a, **kw: order.append("ldap")
+
+        purge_user_completely("order_player")
+
+        self.assertIn("minecraft", order)
+        self.assertIn("planka", order)
+        self.assertIn("authentik", order)
+        self.assertIn("ldap", order)
+        # All satellites must run before LDAP entry deletion
+        self.assertLess(order.index("minecraft"), order.index("ldap"))
+        self.assertLess(order.index("planka"), order.index("ldap"))
+        self.assertLess(order.index("authentik"), order.index("ldap"))
+
+    @patch("wd_identity.membership.sync_playerlist_rest")
+    @patch("wd_identity.membership.log_admin_event")
+    @patch("wd_identity.membership.MinecraftSyncClient")
+    @patch("wd_identity.membership.PlankaSyncClient")
+    @patch("wd_identity.membership.AuthentikClient")
+    @patch("wd_identity.membership.LDAPClient")
+    def test_purge_user_resolves_ign_from_application_and_sanitizes_reason(
+        self,
+        mock_ldap_cls,
+        mock_ak_cls,
+        mock_planka_cls,
+        mock_mc_cls,
+        mock_log,
+        mock_playerlist,
+    ):
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ak = mock_ak_cls.return_value
+        mock_planka = mock_planka_cls.return_value
+        mock_mc = mock_mc_cls.return_value
+
+        # User is NOT in LDAP
+        mock_ldap.get_user.return_value = None
+        mock_ldap.search_by_discord.return_value = None
+        mock_ldap.search_by_minecraft.return_value = None
+
+        # User has an application in SQLite
+        app_id = applications.create_application(
+            discord_id="999111222",
+            discord_username="ApplicantSteve#5678",
+            app_type="initial",
+            message="Let me in",
+            minecraft_ign="AppSteveIGN",
+        )
+
+        res = purge_user_completely(
+            target="999111222",
+            reason='User said "Bye"\r\nquit',
+            initiator="AdminTest",
+        )
+
+        self.assertTrue(res["success"])
+        self.assertEqual(res["minecraft_name"], "AppSteveIGN")
+        self.assertEqual(res["discord_id"], "999111222")
+
+        # Minecraft kick command must have sanitized reason without quotes or newlines
+        mock_mc.execute_commands.assert_called_once()
+        cmd_list = mock_mc.execute_commands.call_args[0][0]
+        kick_cmd = cmd_list[0]
+        self.assertIn('kick AppSteveIGN "Account gelöscht: User said Bye  quit"', kick_cmd)
+        self.assertIn("pardon AppSteveIGN", cmd_list[1])
+
+        # Authentik should have cleaned up user and invitations
+        mock_ak.delete_invitations.assert_called_once_with("applicantsteve5678")
+
+        # DB records must be purged
+        status = applications.get_user_status("999111222")
+        self.assertFalse(status["has_pending"])
+        self.assertIsNone(status["pending_app"])
+
     @patch("wd_identity.playerlist.sync_playerlist_rest")
     @patch("wd_identity.webhook.get_player_profile")
     @patch("wd_identity.webhook.MinecraftSyncClient")

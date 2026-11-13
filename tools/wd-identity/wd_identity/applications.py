@@ -27,15 +27,30 @@ def get_db_path() -> Path:
     return data_dir / "applications.db"
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(get_db_path()))
+_initialized_dbs: set[str] = set()
+
+
+def reset_db_cache() -> None:
+    """Clears the set of initialized databases (useful for unit tests)."""
+    _initialized_dbs.clear()
+
+
+def get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
+    target = db_path or get_db_path()
+    conn = sqlite3.connect(str(target), timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=30000;")
     return conn
 
 
-def init_db():
+def init_db(force: bool = False, db_path: Optional[Path] = None):
     """Initializes tables for applications and bans."""
-    conn = get_connection()
+    target_path = db_path or get_db_path()
+    path_key = str(target_path)
+    if not force and path_key in _initialized_dbs and target_path.exists():
+        return
+    conn = get_connection(target_path)
     with conn:
         conn.execute(
             """
@@ -87,6 +102,7 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_discord ON bans (discord_id);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_ign ON bans (minecraft_ign);")
     conn.close()
+    _initialized_dbs.add(path_key)
 
 
 def create_application(
@@ -172,11 +188,11 @@ def get_user_status(discord_id: str) -> Dict[str, Any]:
     ).fetchone()
     latest_app = dict(latest_row) if latest_row else None
 
-    # 4. Check active cooldown across all applications
+    # 4. Check active cooldown across rejected applications
     cooldown_row = conn.execute(
         """
         SELECT cooldown_until FROM applications
-        WHERE discord_id = ? AND cooldown_until IS NOT NULL
+        WHERE discord_id = ? AND status = 'rejected' AND cooldown_until IS NOT NULL
         ORDER BY cooldown_until DESC LIMIT 1
         """,
         (discord_str,),
@@ -252,13 +268,19 @@ def accept_application(app_id: int, reviewer_id: str, reviewer_name: str) -> Opt
             """,
             (str(reviewer_id), reviewer_name, app_id),
         )
-        row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
-        if row:
-            # Lift active bans for this discord_id
+        temp_row = conn.execute("SELECT discord_id FROM applications WHERE id = ?", (app_id,)).fetchone()
+        if temp_row:
+            d_id = temp_row["discord_id"]
+            # Lift active bans and clear cooldowns for this discord_id
+            conn.execute(
+                "UPDATE applications SET cooldown_until = NULL WHERE discord_id = ?",
+                (d_id,),
+            )
             conn.execute(
                 "UPDATE bans SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?",
-                (row["discord_id"],),
+                (d_id,),
             )
+        row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -355,9 +377,10 @@ def purge_user_history(discord_id: Optional[str] = None, minecraft_ign: Optional
             c1 = conn.execute("DELETE FROM applications WHERE discord_id = ?", (str(discord_id),)).rowcount
             c2 = conn.execute("DELETE FROM bans WHERE discord_id = ?", (str(discord_id),)).rowcount
             count += c1 + c2
-        if minecraft_ign:
-            c3 = conn.execute("DELETE FROM bans WHERE LOWER(minecraft_ign) = LOWER(?)", (minecraft_ign.strip(),)).rowcount
-            c4 = conn.execute("DELETE FROM applications WHERE LOWER(minecraft_ign) = LOWER(?)", (minecraft_ign.strip(),)).rowcount
+        clean_ign = minecraft_ign.strip() if minecraft_ign else None
+        if clean_ign:
+            c3 = conn.execute("DELETE FROM bans WHERE LOWER(minecraft_ign) = LOWER(?)", (clean_ign,)).rowcount
+            c4 = conn.execute("DELETE FROM applications WHERE LOWER(minecraft_ign) = LOWER(?)", (clean_ign,)).rowcount
             count += c3 + c4
     conn.close()
     return count
@@ -385,3 +408,7 @@ def list_applications(
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# Backward-compatible alias
+delete_user_applications = purge_user_history

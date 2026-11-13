@@ -160,7 +160,25 @@ class TestBlueMapEndpointsSecurityAndRouting(unittest.TestCase):
         self.mock_bridge = MagicMock()
         self.mock_bridge.enqueue_to_discord = self.mock_enqueue
 
+        self.patcher_role = patch(
+            "wd_identity.chat_bridge.resolve_player_by_minecraft",
+            return_value={"role": "player", "discord_id": ""},
+        )
+        self.patcher_role.start()
+
+        self.patcher_auth = patch(
+            "wd_identity.bluemap_chat.resolve_minecraft_player_from_authentik",
+            return_value=("Steve", "uuid-123"),
+        )
+        self.patcher_auth.start()
+
+        self.patcher_rate = patch("wd_identity.chat_bridge.rate_ok", return_value=True)
+        self.patcher_rate.start()
+
     def tearDown(self):
+        self.patcher_rate.stop()
+        self.patcher_auth.stop()
+        self.patcher_role.stop()
         self.patcher.stop()
 
     def test_ingame_endpoint_ip_blocked(self):
@@ -235,6 +253,40 @@ class TestBlueMapEndpointsSecurityAndRouting(unittest.TestCase):
         client = TestClient(self.app, client=("8.8.8.8", 12345))
         resp = client.get("/addons/integration/playerhead/world")
         self.assertEqual(resp.status_code, 403)
+
+    def test_chat_stream_untrusted_ip_blocked(self):
+        client = TestClient(self.app, client=("8.8.8.8", 12345))
+        resp = client.get("/addons/chat/world/stream")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_webchat_send_rate_limit_429(self):
+        self.patcher_rate.stop()
+        try:
+            with patch("wd_identity.chat_bridge.rate_ok", return_value=False):
+                client = TestClient(self.app, client=("192.168.1.174", 12345))
+                resp = client.post(
+                    "/addons/chat/world/send",
+                    json={"message": "hello spammed"},
+                    headers={"x-authentik-username": "steve"},
+                )
+                self.assertEqual(resp.status_code, 429)
+                self.assertIn("Zu viele Nachrichten", resp.json()["detail"])
+        finally:
+            self.patcher_rate.start()
+
+    def test_webchat_send_message_sanitization(self):
+        self.mock_bridge.enqueue_to_discord.reset_mock()
+        client = TestClient(self.app, client=("192.168.1.174", 12345))
+        with patch("wd_identity.bluemap_chat.MinecraftSyncClient"):
+            resp = client.post(
+                "/addons/chat/world/send",
+                json={"message": "§Color\r\nNewline§Text"},
+                headers={"x-authentik-username": "steve"},
+            )
+            self.assertEqual(resp.status_code, 200)
+            self.mock_bridge.enqueue_to_discord.assert_called_once()
+            call_dict = self.mock_bridge.enqueue_to_discord.call_args[0][0]
+            self.assertEqual(call_dict["message"], "Color  NewlineText")
 
 
 if __name__ == "__main__":

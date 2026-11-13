@@ -143,6 +143,94 @@ class TestApplications(unittest.TestCase):
         status_after = applications.get_user_status("777666555")
         self.assertFalse(status_after["is_banned"])
 
+    def test_connection_wal_and_busy_timeout(self):
+        conn = applications.get_connection()
+        journal_mode = conn.execute("PRAGMA journal_mode;").fetchone()[0]
+        busy_timeout = conn.execute("PRAGMA busy_timeout;").fetchone()[0]
+        conn.close()
+        self.assertEqual(journal_mode.lower(), "wal")
+        self.assertEqual(busy_timeout, 30000)
+
+    def test_init_db_caching(self):
+        path_str = str(applications.get_db_path())
+        self.assertIn(path_str, applications._initialized_dbs)
+
+    def test_accept_application_clears_cooldown(self):
+        # 1. User gets rejected with a cooldown
+        app_id1 = applications.create_application(
+            discord_id="888999000",
+            discord_username="cooldown_user",
+            app_type="initial",
+            message="Initial app",
+        )
+        applications.reject_application(
+            app_id=app_id1,
+            reviewer_id="admin1",
+            reviewer_name="Admin",
+            reason="Try later",
+            cooldown_days=14,
+        )
+        status_rej = applications.get_user_status("888999000")
+        self.assertTrue(status_rej["in_cooldown"])
+
+        # 2. Later admin creates/reviews an appeal or application and accepts it
+        app_id2 = applications.create_application(
+            discord_id="888999000",
+            discord_username="cooldown_user",
+            app_type="unban",
+            message="Please unban",
+        )
+        accepted_app = applications.accept_application(
+            app_id=app_id2,
+            reviewer_id="admin1",
+            reviewer_name="Admin",
+        )
+        self.assertIsNotNone(accepted_app)
+        self.assertIsNone(accepted_app["cooldown_until"])
+
+        # 3. Cooldown must be cleared completely
+        status_acc = applications.get_user_status("888999000")
+        self.assertFalse(status_acc["in_cooldown"])
+        self.assertIsNone(status_acc["cooldown_until"])
+
+    def test_purge_user_history_whitespace_ign_safe(self):
+        # Create an app without ign (None)
+        applications.create_application(
+            discord_id="555444333",
+            discord_username="no_ign_user",
+            app_type="initial",
+            message="hello",
+            minecraft_ign=None,
+        )
+        # Purging with empty or whitespace IGN should not delete anything
+        deleted = applications.purge_user_history(minecraft_ign="   ")
+        self.assertEqual(deleted, 0)
+        status = applications.get_user_status("555444333")
+        self.assertTrue(status["has_pending"])
+
+    def test_init_db_custom_path(self):
+        custom_path = Path(self.temp_dir.name) / "custom_test.db"
+        applications.init_db(db_path=custom_path)
+        self.assertTrue(custom_path.exists())
+        self.assertIn(str(custom_path), applications._initialized_dbs)
+
+    def test_get_user_status_ignores_cooldown_on_non_rejected(self):
+        # Insert a pending application with cooldown_until manually to simulate an odd DB state
+        conn = applications.get_connection()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO applications (discord_id, discord_username, app_type, message, status, cooldown_until)
+                VALUES ('123999888', 'pending_user', 'initial', 'hi', 'pending', '2099-12-31 23:59:59')
+                """
+            )
+        conn.close()
+
+        status = applications.get_user_status("123999888")
+        # Since status is 'pending' (not 'rejected'), cooldown_until should NOT trigger in_cooldown
+        self.assertFalse(status["in_cooldown"])
+        self.assertTrue(status["has_pending"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -612,6 +612,8 @@ def purge_user_completely(
             if not username:
                 clean_d = "".join(c for c in discord_name.lower() if c.isalnum() or c in ("-", "_"))
                 username = "tigimax_player" if clean_d in ("tigimax", "akadmin") else clean_d
+            if not ign:
+                ign = app.get("minecraft_ign")
 
     clean_username = sanitize_username(username) if username else ""
 
@@ -624,15 +626,31 @@ def purge_user_completely(
             "username": clean_username,
         }
 
-    # 1. OpenLDAP: Delete user entry (removes from groups automatically)
-    ldap_deleted = False
+    # 1. Minecraft: Whitelist remove, revoke LuckPerms privileges, kick if online, unban, sync
+    mc_ok = False
+    if ign:
+        try:
+            mc.whitelist_remove(ign)
+            mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
+            clean_kick_reason = reason.replace('"', '').replace('\r', ' ').replace('\n', ' ').strip()
+            mc.execute_commands([
+                f'kick {ign} "Account gelöscht: {clean_kick_reason}"',
+                f"pardon {ign}",
+            ])
+            mc.sync_all(force=True)
+            mc_ok = True
+        except Exception as e:
+            logger.error(f"Error purging Minecraft privileges for '{ign}': {e}")
+
+    # 2. Planka: Delete user account and sessions
+    planka_deleted = False
     if clean_username:
         try:
-            ldap_deleted = ldap.delete_user(clean_username)
+            planka_deleted = planka.delete_user(clean_username, email=email)
         except Exception as e:
-            logger.error(f"Error deleting LDAP user '{clean_username}': {e}")
+            logger.error(f"Error deleting Planka user '{clean_username}': {e}")
 
-    # 2. Authentik: Delete user account and pending invitations
+    # 3. Authentik: Delete user account and pending invitations
     ak_deleted = False
     if clean_username:
         try:
@@ -641,30 +659,18 @@ def purge_user_completely(
         except Exception as e:
             logger.error(f"Error deleting Authentik user '{clean_username}': {e}")
 
-    # 3. Planka: Delete user account and sessions
-    planka_deleted = False
+    # 4. OpenLDAP: Delete user entry (removes from groups automatically)
+    ldap_deleted = False
     if clean_username:
         try:
-            planka_deleted = planka.delete_user(clean_username, email=email)
+            ldap_deleted = ldap.delete_user(clean_username)
         except Exception as e:
-            logger.error(f"Error deleting Planka user '{clean_username}': {e}")
-
-    # 4. Minecraft: Whitelist remove, revoke LuckPerms privileges, unban if banned, sync
-    mc_ok = False
-    if ign:
-        try:
-            mc.whitelist_remove(ign)
-            mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
-            mc.execute_commands([f"pardon {ign}"])
-            mc.sync_all(force=True)
-            mc_ok = True
-        except Exception as e:
-            logger.error(f"Error purging Minecraft privileges for '{ign}': {e}")
+            logger.error(f"Error deleting LDAP user '{clean_username}': {e}")
 
     # 5. SQLite: Purge all application history, bans, cooldowns
     db_purged_count = 0
     try:
-        db_purged_count = applications.purge_user_history(discord_id=discord_id, minecraft_ign=ign)
+        db_purged_count = applications.delete_user_applications(discord_id=discord_id, minecraft_ign=ign)
     except Exception as e:
         logger.error(f"Error purging application history in DB: {e}")
 

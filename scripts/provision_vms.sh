@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Provisioning script for Minecraft SMP Weihnachtsdorf VMs on Proxmox VE
-# - VM 119 (pterodactyl-node1) on pnode01 (192.168.1.199)
-# - VM 120 (mc-main) on pnode02 (192.168.1.200)
+# - VM 119 (pterodactyl-node1) on pnode01 (<PROXMOX_NODE1_IP>)
+# - VM 120 (mc-main) on pnode02 (<PROXMOX_NODE2_IP>)
 
 set -euo pipefail
 
-PNODE01_IP="192.168.1.199"
-PNODE02_IP="192.168.1.200"
+PNODE01_IP="${PNODE01_IP:-<PROXMOX_NODE1_IP>}"
+PNODE02_IP="${PNODE02_IP:-<PROXMOX_NODE2_IP>}"
 IMAGE_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 IMAGE_NAME="noble-server-cloudimg-amd64.img"
 SSH_PUB_KEY="${HOME}/.ssh/id_ed25519.pub"

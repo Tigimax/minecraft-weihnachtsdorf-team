@@ -11,6 +11,7 @@ Tests cover:
 8. Discord Bot Admin check strict role ID verification (rejecting arbitrary role names).
 """
 
+import asyncio
 import ssl
 import subprocess
 import unittest
@@ -22,8 +23,17 @@ from fastapi.testclient import TestClient
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity.config import settings
 from wd_identity.discord_bot import (
+    bot,
+    bridge_on_message,
+    cmd_spieler_kick,
+    cmd_status,
+    console_log_sync_loop,
+    handle_admin_accept,
+    handle_admin_appeal_accept,
     handle_auth_code_request,
     is_admin_user,
+    on_member_remove,
+    player_autocomplete,
 )
 from wd_identity.ldap_client import LDAPClient
 from wd_identity.planka_sync import PlankaSyncClient
@@ -576,13 +586,14 @@ class TestAdvancedHardeningEdgeCases(unittest.IsolatedAsyncioTestCase):
 
     @patch("wd_identity.webhook.MinecraftSyncClient")
     @patch("wd_identity.webhook.settings")
-    def test_webhook_logs_warning_when_secret_unset(self, mock_settings, mock_mc):
-        """When WEBHOOK_SECRET is empty string, a security warning is logged upon receiving requests."""
+    def test_webhook_rejects_when_secret_unset(self, mock_settings, mock_mc):
+        """When WEBHOOK_SECRET is empty string, requests are rejected with HTTP 500 (fail-closed)."""
         mock_settings.WEBHOOK_SECRET = ""
-        with self.assertLogs("wd_identity.webhook", level="WARNING") as cm:
+        with self.assertLogs("wd_identity.webhook", level="ERROR") as cm:
             client = TestClient(app)
             res = client.post("/api/sync", json={})
-            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.status_code, 500)
+            self.assertEqual(res.json().get("detail"), "Webhook authentication secret is not configured.")
             self.assertTrue(any("WEBHOOK_SECRET is not configured" in record for record in cm.output))
 
     @patch("wd_identity.discord_bot.send_dm_rest")
@@ -628,6 +639,550 @@ class TestAdvancedHardeningEdgeCases(unittest.IsolatedAsyncioTestCase):
 
         mock_ldap.search_by_discord_id.assert_called_once_with("888777666")
         mock_ldap.search_by_discord.assert_not_called()
+
+
+class TestSecurityAuditMustFixHardening(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+
+    @patch("wd_identity.webhook.settings")
+    def test_must_fix_3_webhook_empty_secret_fails_closed_500(self, mock_settings):
+        """Must-Fix #3: When WEBHOOK_SECRET is empty string, webhook auth fails closed with HTTP 500."""
+        mock_settings.WEBHOOK_SECRET = ""
+        endpoints = [
+            ("POST", "/api/onboarding/complete", {"username": "test", "minecraft_name": "TestIGN"}),
+            ("POST", "/api/mfa/auto-dispatch", {"username": "test"}),
+            ("POST", "/api/sync", {}),
+            ("POST", "/api/webhook/authentik", {"action": "test"}),
+            ("POST", "/api/web-setup/complete", {"username": "test", "password": "ValidPassword123!", "code": "flow_verified"}),
+        ]
+        for method, url, payload in endpoints:
+            res = self.client.request(method, url, json=payload)
+            self.assertEqual(
+                res.status_code,
+                500,
+                f"Endpoint {url} must return HTTP 500 when WEBHOOK_SECRET is unset",
+            )
+            self.assertEqual(
+                res.json().get("detail"),
+                "Webhook authentication secret is not configured.",
+            )
+
+    @patch("wd_identity.webhook.settings")
+    def test_must_fix_3_complete_web_setup_enforces_min_8_char_password(self, mock_settings):
+        """Must-Fix #3: complete_web_setup enforces password length >= 8."""
+        mock_settings.WEBHOOK_SECRET = "test-secret"
+        short_passwords = ["", "   ", "short", "1234567", "  12345 "]
+        for pw in short_passwords:
+            res = self.client.post(
+                "/api/web-setup/complete",
+                json={"username": "player1", "password": pw, "code": "flow_verified"},
+                headers={"X-Webhook-Secret": "test-secret"},
+            )
+            self.assertEqual(res.status_code, 400, f"Password '{pw}' should be rejected with HTTP 400")
+            self.assertIn("at least 8 characters", res.json().get("detail", ""))
+
+    @patch("wd_identity.discord_bot.log_admin_event")
+    @patch("wd_identity.discord_bot.revoke_user_privileges")
+    async def test_must_fix_4_on_member_remove_strictly_uses_snowflake_id(self, mock_revoke, mock_log_admin):
+        """Must-Fix #4: on_member_remove only revokes privileges by immutable snowflake ID."""
+        mock_revoke.return_value = {"found": False}
+
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.id = 987654321012345678
+        member.name = "AttackerImpersonator"
+        member.display_name = "AdminNick"
+        member.guild.id = int(settings.DISCORD_GUILD_ID) if settings.DISCORD_GUILD_ID else 909437200125538364
+        member.guild.name = "TestGuild"
+
+        await on_member_remove(member)
+
+        # Must be called once with snowflake ID string
+        mock_revoke.assert_called_once_with(
+            target="987654321012345678",
+            reason="Discord-Server verlassen",
+            initiator="Discord Gateway (Member Remove)",
+        )
+        # Verify no calls with member.name or member.display_name
+        for call in mock_revoke.call_args_list:
+            self.assertNotIn("AttackerImpersonator", call.kwargs.values())
+            self.assertNotIn("AdminNick", call.kwargs.values())
+
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.log_admin_event")
+    async def test_must_fix_6_console_command_blacklist_bypass_blocked(self, mock_log_admin, mock_mc_cls):
+        """Must-Fix #6: Console channel command blacklist normalizes and blocks bypassed syntax."""
+        mock_mc = mock_mc_cls.return_value
+        mock_mc.execute_commands.return_value = True
+
+        blocked_commands = [
+            "/stop",
+            "//stop",
+            "///stop",
+            "minecraft:stop",
+            "   //minecraft:stop   ",
+            "restart",
+            "//restart",
+            "op Hacker",
+            "//op Hacker",
+            "deop Admin",
+            "ban-ip 1.2.3.4",
+            "kill-all",
+            "whitelist off",
+            "//whitelist off",
+            "/whitelist   off",
+            "/execute as @a run op Hacker",
+            "execute run deop Admin",
+            "/execute as @a run lp user Steve permission set admin",
+            "/luckperms user Steve permission set admin",
+            "lp user Steve permission set admin",
+            "/pardon-ip 1.2.3.4",
+            "minecraft:execute as @a run minecraft:stop",
+            "/execute run whitelist off",
+            "/ /stop",
+            "// /stop",
+            "/// / // / stop",
+            "minecraft:/stop",
+            "///minecraft://stop",
+            "/ /op Hacker",
+            "custom_cmd run /op Hacker",
+            "custom_cmd run //stop",
+            "custom_cmd run minecraft:/op",
+            "custom_cmd run /minecraft:op",
+            "custom_cmd run //whitelist off",
+            "alias run whitelist   off",
+            "execute run //op Hacker",
+            ":stop",
+            "::stop",
+        ]
+
+        console_channel_id = 999111222
+        with patch.object(settings, "DISCORD_CHANNEL_CONSOLE_ID", str(console_channel_id)):
+            for blocked_cmd in blocked_commands:
+                mock_mc.execute_commands.reset_mock()
+                msg = MagicMock(spec=discord.Message)
+                msg.author = MagicMock(spec=discord.Member)
+                msg.author.bot = False
+                msg.author.guild_permissions.administrator = True
+                msg.webhook_id = None
+                msg.guild.id = int(settings.DISCORD_GUILD_ID) if settings.DISCORD_GUILD_ID else 909437200125538364
+                msg.channel.id = console_channel_id
+                msg.content = blocked_cmd
+                msg.reply = AsyncMock()
+
+                await bridge_on_message(msg)
+
+                msg.reply.assert_called_once()
+                self.assertIn("gesperrt", msg.reply.call_args[0][0])
+                mock_mc.execute_commands.assert_not_called()
+
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.log_admin_event")
+    async def test_must_fix_6_console_command_allowed_commands_executed(self, mock_log_admin, mock_mc_cls):
+        """Must-Fix #6: Safe console channel commands are stripped and executed."""
+        mock_mc = mock_mc_cls.return_value
+        mock_mc.execute_commands.return_value = True
+
+        console_channel_id = 999111222
+        allowed_commands = [
+            ("/whitelist list", "whitelist list"),
+            ("say Server restart in 10 minutes", "say Server restart in 10 minutes"),
+            ("/tps", "tps"),
+            ("/ /whitelist list", "whitelist list"),
+            ("// /tps", "tps"),
+            ("  ///say hello world  ", "say hello world"),
+        ]
+
+        with patch.object(settings, "DISCORD_CHANNEL_CONSOLE_ID", str(console_channel_id)):
+            for input_cmd, expected_cmd in allowed_commands:
+                mock_mc.execute_commands.reset_mock()
+                msg = MagicMock(spec=discord.Message)
+                msg.author = MagicMock(spec=discord.Member)
+                msg.author.bot = False
+                msg.author.guild_permissions.administrator = True
+                msg.webhook_id = None
+                msg.guild.id = int(settings.DISCORD_GUILD_ID) if settings.DISCORD_GUILD_ID else 909437200125538364
+                msg.channel.id = console_channel_id
+                msg.content = input_cmd
+                msg.reply = AsyncMock()
+
+                await bridge_on_message(msg)
+
+                msg.reply.assert_not_called()
+                mock_mc.execute_commands.assert_called_once_with([expected_cmd])
+
+    @patch("wd_identity.discord_bot.is_admin_user", return_value=True)
+    async def test_must_fix_11_cmd_spieler_kick_bot_target_uses_response_send_message(self, mock_admin):
+        """Must-Fix #11: cmd_spieler_kick targeting a bot uses interaction.response.send_message before defer."""
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.response.send_message = AsyncMock()
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+
+        # 1. Target bot.user.id via PropertyMock
+        with patch.object(type(bot), "user", new_callable=unittest.mock.PropertyMock, return_value=MagicMock(id=1122334455)):
+            await cmd_spieler_kick.callback(interaction, ziel="1122334455")
+            interaction.response.send_message.assert_called_once()
+            self.assertTrue(interaction.response.send_message.call_args[1].get("ephemeral"))
+            interaction.followup.send.assert_not_called()
+            interaction.response.defer.assert_not_called()
+
+        # Also target hardcoded bot ID
+        interaction.response.send_message.reset_mock()
+        await cmd_spieler_kick.callback(interaction, ziel="1564751378436456468")
+        interaction.response.send_message.assert_called_once()
+        self.assertTrue(interaction.response.send_message.call_args[1].get("ephemeral"))
+        interaction.followup.send.assert_not_called()
+        interaction.response.defer.assert_not_called()
+
+        # 2. Target another Discord bot member
+        interaction.response.send_message.reset_mock()
+        interaction.followup.send.reset_mock()
+        interaction.response.defer.reset_mock()
+
+        bot_member = MagicMock(spec=discord.Member)
+        bot_member.bot = True
+        bot_member.name = "TestBot"
+        interaction.guild.get_member.return_value = bot_member
+
+        await cmd_spieler_kick.callback(interaction, ziel="999888777")
+        interaction.response.send_message.assert_called_once()
+        self.assertTrue(interaction.response.send_message.call_args[1].get("ephemeral"))
+        self.assertIn("ist ein Discord-Bot", interaction.response.send_message.call_args[0][0])
+        interaction.followup.send.assert_not_called()
+        interaction.response.defer.assert_not_called()
+
+        # 3. Target bot member not cached in guild but found via bot.get_user
+        interaction.response.send_message.reset_mock()
+        interaction.followup.send.reset_mock()
+        interaction.response.defer.reset_mock()
+        interaction.guild.get_member.return_value = None
+
+        uncached_bot = MagicMock(spec=discord.User)
+        uncached_bot.bot = True
+        uncached_bot.name = "UncachedBot"
+
+        with patch.object(bot, "get_user", return_value=uncached_bot):
+            await cmd_spieler_kick.callback(interaction, ziel="555444333")
+            interaction.response.send_message.assert_called_once()
+            self.assertTrue(interaction.response.send_message.call_args[1].get("ephemeral"))
+            self.assertIn("ist ein Discord-Bot", interaction.response.send_message.call_args[0][0])
+            interaction.followup.send.assert_not_called()
+            interaction.response.defer.assert_not_called()
+
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.LDAPClient")
+    @patch("wd_identity.discord_bot.is_admin_user", return_value=True)
+    async def test_must_fix_6_cmd_spieler_kick_invalid_ign_rejected(self, mock_admin, mock_ldap_cls, mock_mc_cls):
+        """Must-Fix #6: cmd_spieler_kick validates IGN with validate_minecraft_ign before defer."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ldap.search_by_discord.return_value = None
+        mock_ldap.get_user.return_value = None
+        mock_ldap.search_by_minecraft.return_value = None
+
+        mock_mc = mock_mc_cls.return_value
+        mock_mc.execute_commands.return_value = True
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.guild = None
+        interaction.response.send_message = AsyncMock()
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+
+        # Injected IGN containing semicolon/newlines
+        await cmd_spieler_kick.callback(interaction, ziel="Invalid;stop\n")
+
+        interaction.response.send_message.assert_called_once()
+        self.assertTrue(interaction.response.send_message.call_args[1].get("ephemeral"))
+        self.assertIn("kein gültiger Minecraft Ingame-Name", interaction.response.send_message.call_args[0][0])
+        interaction.response.defer.assert_not_called()
+        mock_mc.execute_commands.assert_not_called()
+
+    @patch("wd_identity.discord_bot.log_admin_event")
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.LDAPClient")
+    @patch("wd_identity.discord_bot.is_admin_user", return_value=True)
+    async def test_must_fix_6_cmd_spieler_kick_sanitizes_reason(self, mock_admin, mock_ldap_cls, mock_mc_cls, mock_log_admin):
+        """Must-Fix #6: cmd_spieler_kick strips quotes and newlines from kick reason."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ldap.search_by_discord.return_value = None
+        mock_ldap.get_user.return_value = {"minecraftName": "Steve"}
+
+        mock_mc = mock_mc_cls.return_value
+        mock_mc.execute_commands.return_value = True
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.user.name = "AdminUser"
+        interaction.user.mention = "@AdminUser"
+        interaction.guild = None
+        interaction.response.send_message = AsyncMock()
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+
+        malicious_reason = 'Griefer" \r\n op Hacker \r\n "'
+        await cmd_spieler_kick.callback(interaction, ziel="Steve", grund=malicious_reason)
+
+        interaction.response.defer.assert_called_once()
+        mock_mc.execute_commands.assert_called_once()
+        sent_kick_cmd = mock_mc.execute_commands.call_args[0][0][0]
+        self.assertNotIn('\r', sent_kick_cmd)
+        self.assertNotIn('\n', sent_kick_cmd)
+        self.assertEqual(sent_kick_cmd, 'kick Steve "Griefer  op Hacker  "')
+
+    @patch("wd_identity.discord_bot.log_admin_event")
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.LDAPClient")
+    @patch("wd_identity.discord_bot.is_admin_user", return_value=True)
+    async def test_must_fix_13_cmd_spieler_kick_runs_ldap_in_thread(
+        self, mock_admin, mock_ldap_cls, mock_mc_cls, mock_log_admin
+    ):
+        """Must-Fix #13: cmd_spieler_kick runs LDAP lookup asynchronously in worker thread before defer."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ldap.search_by_discord.return_value = None
+        mock_ldap.get_user.return_value = {"minecraftName": "ValidPlayer"}
+
+        mock_mc = mock_mc_cls.return_value
+        mock_mc.execute_commands.return_value = True
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.user.name = "AdminUser"
+        interaction.user.mention = "@AdminUser"
+        interaction.guild = None
+        interaction.response.send_message = AsyncMock()
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+
+        real_to_thread = asyncio.to_thread
+        thread_calls = []
+
+        async def spy_to_thread(func, /, *args, **kwargs):
+            thread_calls.append(getattr(func, "__name__", str(func)))
+            return await real_to_thread(func, *args, **kwargs)
+
+        with patch("asyncio.to_thread", side_effect=spy_to_thread):
+            await cmd_spieler_kick.callback(interaction, ziel="ValidPlayer", grund="Kick test")
+
+        self.assertIn("_resolve_ldap_user", thread_calls)
+        interaction.response.defer.assert_called_once()
+        mock_mc.execute_commands.assert_called_once_with(['kick ValidPlayer "Kick test"'])
+
+    @patch("wd_identity.discord_bot.logger")
+    @patch("wd_identity.discord_bot.settings")
+    @patch("wd_identity.discord_bot.bot")
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    async def test_must_fix_13_console_log_sync_loop_preserves_log_on_send_error(
+        self, mock_mc_cls, mock_bot, mock_settings, mock_logger
+    ):
+        """Must-Fix #13: console_log_sync_loop does not advance _last_log when send fails, logs warning."""
+        import wd_identity.discord_bot as bot_mod
+        mock_settings.DISCORD_CHANNEL_CONSOLE_ID = "1234567890"
+        channel = AsyncMock()
+        channel.send.side_effect = RuntimeError("Discord API 500 Server Error")
+        mock_bot.get_channel.return_value = channel
+
+        mock_mc = mock_mc_cls.return_value
+        mock_mc.get_log_lines.return_value = ["[12:00:00 INFO]: player joined", "[12:00:01 INFO]: player moved"]
+
+        old_last_log = list(bot_mod._last_log)
+        try:
+            bot_mod._last_log = ["[12:00:00 INFO]: player joined"]
+            # Run loop iteration
+            await console_log_sync_loop.coro()
+
+            # Verify send was attempted
+            channel.send.assert_called_once()
+            # Verify _last_log was NOT advanced to cur because send failed
+            self.assertEqual(bot_mod._last_log, ["[12:00:00 INFO]: player joined"])
+            # Verify exception was logged as warning
+            mock_logger.warning.assert_called_with(
+                "Error in console_log_sync_loop: Discord API 500 Server Error"
+            )
+
+            # Now verify subsequent iteration where send succeeds
+            channel.send.reset_mock()
+            channel.send.side_effect = None
+            mock_logger.warning.reset_mock()
+
+            await console_log_sync_loop.coro()
+            channel.send.assert_called_once()
+            # Now _last_log should be advanced
+            self.assertEqual(bot_mod._last_log, ["[12:00:00 INFO]: player joined", "[12:00:01 INFO]: player moved"])
+        finally:
+            bot_mod._last_log = old_last_log
+
+    @patch("wd_identity.discord_bot._get_autocomplete_users")
+    async def test_must_fix_13_player_autocomplete_runs_in_thread(self, mock_get_users):
+        """Must-Fix #13: player_autocomplete fetches users in worker thread."""
+        mock_get_users.return_value = [
+            {"uid": "testuser", "ign": "TestIGN", "discord_name": "testdisc", "discord_id": "12345", "role": "player"}
+        ]
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = None
+
+        real_to_thread = asyncio.to_thread
+        thread_calls = []
+
+        async def spy_to_thread(func, /, *args, **kwargs):
+            thread_calls.append(func)
+            return await real_to_thread(func, *args, **kwargs)
+
+        with patch("asyncio.to_thread", side_effect=spy_to_thread):
+            choices = await player_autocomplete(interaction, "Test")
+
+        self.assertIn(mock_get_users, thread_calls)
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0].value, "TestIGN")
+
+    @patch("wd_identity.discord_bot.is_admin_user", return_value=True)
+    @patch("wd_identity.discord_bot.applications.get_application")
+    @patch("wd_identity.discord_bot.get_player_profile", return_value=("MojangSteve", "uuid-1234"))
+    @patch("wd_identity.discord_bot.LDAPClient")
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.AuthentikClient")
+    @patch("wd_identity.discord_bot.send_dm_rest", return_value=True)
+    @patch("wd_identity.discord_bot.applications.accept_application")
+    @patch("wd_identity.discord_bot.log_admin_event")
+    async def test_must_fix_13_handle_admin_accept_runs_mojang_in_thread(
+        self, mock_log, mock_upd, mock_dm, mock_auth, mock_mc, mock_ldap, mock_mojang, mock_get_app, mock_admin
+    ):
+        """Must-Fix #13: handle_admin_accept invokes get_player_profile via to_thread."""
+        mock_get_app.return_value = {
+            "id": 1,
+            "status": "pending",
+            "discord_id": "123456789",
+            "discord_username": "steve",
+            "minecraft_ign": "MojangSteve",
+        }
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock()
+        interaction.message = None
+        interaction.response.send_message = AsyncMock()
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+
+        real_to_thread = asyncio.to_thread
+        thread_calls = []
+
+        async def spy_to_thread(func, /, *args, **kwargs):
+            thread_calls.append(func)
+            return await real_to_thread(func, *args, **kwargs)
+
+        with patch("asyncio.to_thread", side_effect=spy_to_thread):
+            await handle_admin_accept(interaction, app_id=1)
+
+        self.assertIn(mock_mojang, thread_calls)
+
+    @patch("wd_identity.discord_bot.get_player_profile", return_value=("PlayerName", "00000000-0000-0000-0000-000000000001"))
+    @patch("wd_identity.discord_bot.LDAPClient")
+    async def test_must_fix_13_cmd_status_runs_mojang_in_thread(self, mock_ldap_cls, mock_mojang):
+        """Must-Fix #13: cmd_status resolves Mojang online UUID via to_thread when offline UUID detected."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ldap.get_admins_and_mods.return_value = ([], [])
+        mock_ldap.get_players.return_value = []
+        mock_ldap.get_user.return_value = {
+            "uid": "testplayer",
+            "minecraftName": "TestPlayer",
+            "minecraftUuid": "7642e72f-0000-0000-0000-000000000000",
+            "discordName": "testplayer",
+            "discordId": "12345",
+        }
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.guild = None
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+
+        real_to_thread = asyncio.to_thread
+        thread_calls = []
+
+        async def spy_to_thread(func, /, *args, **kwargs):
+            thread_calls.append(func)
+            return await real_to_thread(func, *args, **kwargs)
+
+        with patch("asyncio.to_thread", side_effect=spy_to_thread):
+            await cmd_status.callback(interaction, spieler="testplayer")
+
+        self.assertIn(mock_mojang, thread_calls)
+        interaction.followup.send.assert_called_once()
+
+    @patch("wd_identity.discord_bot.log_admin_event")
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.LDAPClient")
+    @patch("wd_identity.discord_bot.is_admin_user", return_value=True)
+    async def test_must_fix_13_cmd_spieler_kick_survives_ldap_exception(
+        self, mock_admin, mock_ldap_cls, mock_mc_cls, mock_log_admin
+    ):
+        """Must-Fix #13: cmd_spieler_kick gracefully handles LDAP connection failure when target is valid IGN."""
+        mock_ldap_cls.side_effect = RuntimeError("OpenLDAP connection timed out")
+
+        mock_mc = mock_mc_cls.return_value
+        mock_mc.execute_commands.return_value = True
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.user.name = "AdminUser"
+        interaction.user.mention = "@AdminUser"
+        interaction.guild = None
+        interaction.response.send_message = AsyncMock()
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+
+        await cmd_spieler_kick.callback(interaction, ziel="DirectPlayer", grund="Server maintenance")
+
+        interaction.response.defer.assert_called_once()
+        mock_mc.execute_commands.assert_called_once_with(['kick DirectPlayer "Server maintenance"'])
+        interaction.followup.send.assert_called_once()
+
+    @patch("wd_identity.discord_bot.is_admin_user", return_value=True)
+    @patch("wd_identity.discord_bot.applications.get_application")
+    @patch("wd_identity.discord_bot.get_player_profile", return_value=("MojangSteve", "uuid-1234"))
+    @patch("wd_identity.discord_bot.LDAPClient")
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.AuthentikClient")
+    @patch("wd_identity.discord_bot.send_dm_rest", return_value=True)
+    @patch("wd_identity.discord_bot.applications.accept_application")
+    @patch("wd_identity.discord_bot.log_admin_event")
+    async def test_must_fix_13_handle_admin_appeal_accept_runs_mojang_in_thread(
+        self, mock_log, mock_accept, mock_dm, mock_auth_cls, mock_mc_cls, mock_ldap_cls, mock_mojang, mock_get_app, mock_admin
+    ):
+        """Must-Fix #13: handle_admin_appeal_accept runs get_player_profile via to_thread for unprovisioned user."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ldap.search_by_discord_id.return_value = None  # user has no account yet
+        mock_get_app.return_value = {
+            "id": 2,
+            "status": "pending",
+            "discord_id": "999111222",
+            "discord_username": "appealuser",
+            "minecraft_ign": "MojangSteve",
+        }
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock()
+        interaction.user.name = "admin"
+        interaction.user.mention = "@admin"
+        interaction.message = MagicMock()
+        interaction.message.embeds = [MagicMock()]
+        interaction.message.edit = AsyncMock()
+        interaction.response.is_done.return_value = False
+        interaction.response.send_message = AsyncMock()
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+
+        real_to_thread = asyncio.to_thread
+        thread_calls = []
+
+        async def spy_to_thread(func, /, *args, **kwargs):
+            thread_calls.append(func)
+            return await real_to_thread(func, *args, **kwargs)
+
+        with patch("asyncio.to_thread", side_effect=spy_to_thread):
+            await handle_admin_appeal_accept(interaction, app_id=2)
+
+        self.assertIn(mock_mojang, thread_calls)
 
 
 if __name__ == "__main__":

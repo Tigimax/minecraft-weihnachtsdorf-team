@@ -29,7 +29,7 @@
 
 ```mermaid
 flowchart TD
-    subgraph PNODE02["Proxmox Host: pnode02 (192.168.1.200)"]
+    subgraph PNODE02["Proxmox Host: pnode02 (<PROXMOX_NODE2_IP>)"]
         CPU["Intel Core i5-9400F @ 2.90GHz (Turbo 4.10GHz)<br/>6 physikalische Kerne / 6 Threads · 9 MB Cache"]
         RAM["DDR4 Dual-Channel RAM"]
         SSD["NVMe / Enterprise SSD Storage"]

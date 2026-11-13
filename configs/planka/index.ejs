@@ -10,13 +10,14 @@
     <link rel="apple-touch-icon" href="<%- basePath %>/logo192.png" />
     <link rel="manifest" href="<%- basePath %>/manifest.json" />
     <script>
-      window.BASE_PATH = "<%- basePath %>";
+      window.BASE_PATH = <%- JSON.stringify(basePath || "").replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029') %>;
       <% if (typeof ssoToken !== "undefined" && ssoToken) { %>
         (function() {
           try {
+            var token = <%- JSON.stringify(ssoToken).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029') %>;
             var secure = window.location.protocol === "https:" ? "; Secure" : "";
             var exp = new Date(Date.now() + 365*86400*1000).toUTCString();
-            document.cookie = "accessToken=" + "<%- ssoToken %>" + "; path=/; expires=" + exp + "; SameSite=Lax" + secure;
+            document.cookie = "accessToken=" + encodeURIComponent(token) + "; path=/; expires=" + exp + "; SameSite=Lax" + secure;
             document.cookie = "accessTokenVersion=1; path=/; expires=" + exp + "; SameSite=Lax" + secure;
           } catch (e) {
             console.error("SSO cookie setup error", e);

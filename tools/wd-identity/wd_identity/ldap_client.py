@@ -3,7 +3,10 @@ LDAP client for Weihnachtsdorf 7 identity management.
 Handles OpenLDAP user provisioning, group memberships, and wdAccount schema attributes.
 """
 
+import json
 import logging
+import os
+import re
 import secrets
 import ssl
 import string
@@ -29,15 +32,31 @@ from wd_identity.utils import sanitize_email, sanitize_username, validate_minecr
 
 logger = logging.getLogger(__name__)
 
-HOMELAB_SUPERADMINS = ["tigimax"]
-HOMELAB_SUPERADMIN_GROUPS = [
-    "cn=proxmox_admins,ou=Groups,dc=ldap-01,dc=net",
-    "cn=proxmox_users,ou=Groups,dc=ldap-01,dc=net",
-    "cn=guac_admins,ou=Groups,dc=ldap-01,dc=net",
-    "cn=guac_users,ou=Groups,dc=ldap-01,dc=net",
-    "cn=homelab_admins,ou=Groups,dc=ldap-01,dc=net",
-    "cn=tigimax_group,ou=Groups,dc=ldap-01,dc=net",
-]
+HOMELAB_SUPERADMINS = ["tigimax", "akadmin"]
+_raw_superadmin_groups = os.getenv("HOMELAB_SUPERADMIN_GROUPS", "").strip()
+HOMELAB_SUPERADMIN_GROUPS: List[str] = []
+if _raw_superadmin_groups:
+    if _raw_superadmin_groups.startswith("["):
+        try:
+            parsed = json.loads(_raw_superadmin_groups)
+            if isinstance(parsed, list):
+                HOMELAB_SUPERADMIN_GROUPS = [str(g).strip() for g in parsed if str(g).strip()]
+        except Exception:
+            HOMELAB_SUPERADMIN_GROUPS = []
+    if not HOMELAB_SUPERADMIN_GROUPS:
+        # Delimit by semicolon, pipe, or newline (comma cannot be used directly as LDAP DNs contain commas)
+        if re.search(r"\b(dc|ou)\s*=", _raw_superadmin_groups, re.IGNORECASE):
+            HOMELAB_SUPERADMIN_GROUPS = [
+                g.strip()
+                for g in re.split(r"[;\n|]", _raw_superadmin_groups)
+                if g.strip()
+            ]
+        else:
+            HOMELAB_SUPERADMIN_GROUPS = [
+                g.strip()
+                for g in re.split(r"[;,\n|]", _raw_superadmin_groups)
+                if g.strip()
+            ]
 
 
 class LDAPClient:

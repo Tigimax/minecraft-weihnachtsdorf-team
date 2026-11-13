@@ -17,9 +17,9 @@ flowchart TD
     WAN((Internet / WAN))
 
     subgraph hypervisors["Proxmox VE Hypervisor Cluster"]
-        P1["pnode01 (192.168.1.199)"]
-        P2["pnode02 (192.168.1.200)<br/>i5-9400F (6C/6T, 16 GB)"]
-        P3["pnode03 (192.168.1.201)"]
+        P1["pnode01 (<PROXMOX_NODE1_IP>)"]
+        P2["pnode02 (<PROXMOX_NODE2_IP>)<br/>i5-9400F (6C/6T, 16 GB)"]
+        P3["pnode03 (<PROXMOX_NODE3_IP>)"]
     end
 
     subgraph ingress_dns["Ingress & DNS Layer"]
@@ -51,9 +51,9 @@ flowchart TD
 
 | Host / VM-ID | IP-Adresse | Rolle / Betriebssystem | Hauptdienste & Ports |
 |---|---|---|---|
-| **`pnode01`** | `192.168.1.199` | Proxmox VE 8.x Host | Hostet VM 119 (`mc-node1`) |
-| **`pnode02`** | `192.168.1.200` | Proxmox VE 8.x Host | Hostet VM 120 (`mc-main`), dedizierte Cores 0–5 |
-| **`pnode03`** | `192.168.1.201` | Proxmox VE 8.x Host | Quorum, Backups & Failover |
+| **`pnode01`** | `<PROXMOX_NODE1_IP>` | Proxmox VE 8.x Host | Hostet VM 119 (`mc-node1`) |
+| **`pnode02`** | `<PROXMOX_NODE2_IP>` | Proxmox VE 8.x Host | Hostet VM 120 (`mc-main`), dedizierte Cores 0–5 |
+| **`pnode03`** | `<PROXMOX_NODE3_IP>` | Proxmox VE 8.x Host | Quorum, Backups & Failover |
 | **`usrv01`** | `192.168.1.174` | Ubuntu 22.04 LTS (Bare/VM) | Nginx Ingress, TLS, Authentik Forward-Auth Outpost, Planka (:3000), `minecraft-portforward.service` (DNAT) |
 | **`ulxc01`** | `192.168.1.173` | Ubuntu 22.04 LTS (LXC) | Pi-hole DNS (Port 53 TCP/UDP), Split-DNS & interne `.net` Zone |
 | **`mc-node1`** (VM 119) | `192.168.1.148` | Ubuntu 24.04 LTS (VM) | Velocity 3.5.1 (:25565), VoiceChat (:24454 UDP), BlueMap (:8123), Pterodactyl Panel (:80), Wings (:8080, :2022), MariaDB (:3306), Redis (:6379) |

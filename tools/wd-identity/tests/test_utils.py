@@ -90,6 +90,57 @@ class TestUtils(unittest.TestCase):
             self.assertLessEqual(len(chunk_text), 1024, f"Chunk {i} exceeded Discord limit: {len(chunk_text)}")
             self.assertLessEqual(len(chunk), 25)
 
+    def test_playerlist_build_discord_embed_under_6000_chars_with_120_players(self):
+        from unittest.mock import patch
+        import discord
+        from wd_identity import playerlist
+
+        admins = [
+            {
+                "uid": f"admin{i}",
+                "minecraftName": f"VeryLongAdminName{i:02d}",
+                "discordName": f"AdminDisc{i}",
+                "discordId": str(100000000000000000 + i),
+            }
+            for i in range(5)
+        ]
+        mods = [
+            {
+                "uid": f"mod{i}",
+                "minecraftName": f"VeryLongModName_{i:02d}",
+                "discordName": f"ModDisc{i}",
+                "discordId": str(200000000000000000 + i),
+            }
+            for i in range(5)
+        ]
+        players = [
+            {
+                "uid": f"player{i:03d}",
+                "minecraftName": f"PlayerLongIGN_{i:03d}",
+                "discordName": f"PlayerDisc{i:03d}",
+                "discordId": str(300000000000000000 + i),
+            }
+            for i in range(110)
+        ]
+
+        with patch("wd_identity.playerlist.LDAPClient") as mock_ldap_cls, \
+             patch("wd_identity.playerlist.MinecraftSyncClient") as mock_mc_cls:
+            mock_ldap = mock_ldap_cls.return_value
+            mock_ldap.get_admins_and_mods.return_value = (admins, mods)
+            mock_ldap.get_players.return_value = players
+            mock_mc_cls.return_value.is_project_launched.return_value = True
+
+            embed, content_hash = playerlist.build_discord_embed(member_map={})
+
+        self.assertIsInstance(embed, discord.Embed)
+        self.assertTrue(content_hash)
+        self.assertLess(len(embed), 6000)
+        self.assertLessEqual(len(embed.fields), 25)
+        for field in embed.fields:
+            self.assertLessEqual(len(field.name), 256)
+            self.assertLessEqual(len(field.value), 1024)
+        self.assertIn("120", embed.description)
+
 
 if __name__ == "__main__":
     unittest.main()

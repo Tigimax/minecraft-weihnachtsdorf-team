@@ -19,7 +19,7 @@ from wd_identity import applications
 from wd_identity.config import settings
 from wd_identity.discord_bot import send_dm
 from wd_identity.invitations import create_user_invitation
-from wd_identity.ldap_client import LDAPClient
+from wd_identity.ldap_client import HOMELAB_SUPERADMINS, LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.mojang_client import get_player_profile
 from wd_identity.planka_sync import PlankaSyncClient
@@ -110,9 +110,12 @@ def invite_cmd(discord_name: str, role: str, ign: Optional[str], username: Optio
             )
             ldap = LDAPClient()
             authentik = AuthentikClient()
-            ldap.delete_user(clean_username)
-            authentik.delete_user(clean_username)
             authentik.delete_invitations(clean_username)
+            if not res.get("existed_before"):
+                ldap.delete_user(clean_username)
+                authentik.delete_user(clean_username)
+            else:
+                click.secho(f"    [!] Bestehender Account '{clean_username}' blieb erhalten (nur Einladung entfernt).", fg="yellow")
             click.secho(f"[-] Account '{clean_username}' wurde zurückgerollt. Bitte nutze --force-manual für manuelle Link-Weitergabe.\n", fg="red")
             sys.exit(1)
 
@@ -694,6 +697,12 @@ def revoke_cmd(target: str, keep_ldap: bool):
         from wd_identity.membership import revoke_user_privileges
         click.echo(f"[*] Revoking privileges for '{clean_target}' (keeping LDAP entry)...")
         res = revoke_user_privileges(clean_target, reason="Admin Revoke (--keep-ldap)", initiator="wd-admin CLI")
+        if res.get("protected"):
+            click.secho(f"\n[-] Account '{res.get('username', clean_target)}' ist geschützt und kann nicht widerrufen werden.\n", fg="red")
+            sys.exit(1)
+        if not res.get("found", True):
+            click.secho(f"\n[-] Benutzer '{clean_target}' nicht in LDAP gefunden.\n", fg="red")
+            sys.exit(1)
         click.secho(
             f"\n[+] Alle Berechtigungen für '{clean_target}' wurden erfolgreich entzogen!\n"
             f"    • OpenLDAP: Gruppen wd_admins, wd_mods, wd_players entfernt (Account bleibt erhalten)\n"
@@ -777,6 +786,11 @@ def ban_cmd(target: str, reason: str):
     else:
         ign = clean_target
 
+    protected_check = (uid or clean_target).lower()
+    if protected_check in {s.lower() for s in HOMELAB_SUPERADMINS}:
+        click.secho(f"\n[-] Geschützter Superadmin-Account '{uid or clean_target}' kann nicht gesperrt werden.\n", fg="red")
+        sys.exit(1)
+
     mc_ok = False
     if ign:
         mc_ok = mc.ban_player(ign, reason)
@@ -786,6 +800,8 @@ def ban_cmd(target: str, reason: str):
 
     bm_ok = False
     if uid:
+        ldap_roles_ok = ldap.revoke_roles(uid)
+        click.echo(f"[*] OpenLDAP roles revoked for '{uid}': {'OK' if ldap_roles_ok else 'FAILED'}")
         bm_ok = authentik.set_user_banned(uid, True)
         click.echo(f"[*] Authentik BlueMap access blocked for '{uid}': {'OK' if bm_ok else 'FAILED'}")
 

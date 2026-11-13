@@ -43,6 +43,7 @@ from wd_identity.webhook import (
     app,
     mfa_auto_dispatch,
     process_onboarding,
+    reset_web_setup_rate_limit,
 )
 
 
@@ -127,18 +128,22 @@ class TestWebhookSecurityAndAuth(unittest.TestCase):
         self.assertIn(res.status_code, (401, 403))
 
         # 3. Valid secret -> proceeds to user update
+        reset_web_setup_rate_limit()
         with patch("wd_identity.webhook.LDAPClient") as mock_ldap, \
              patch("wd_identity.webhook.AuthentikClient") as mock_ak:
             mock_ldap.return_value.set_password.return_value = True
-            mock_ak.return_value.set_user_password.return_value = True
-            mock_ak.return_value.get_user_by_username.return_value = {"attributes": {}}
-            mock_ak.return_value.update_user_attributes.return_value = True
+            ak_instance = MagicMock(spec=AuthentikClient)
+            ak_instance.set_user_password.return_value = True
+            ak_instance.set_needs_web_setup.return_value = True
+            mock_ak.return_value = ak_instance
             res = self.client.post(
                 "/api/web-setup/complete",
                 json=payload,
                 headers={"X-Webhook-Secret": "super-secret-token"},
             )
             self.assertEqual(res.status_code, 200)
+            ak_instance.set_user_password.assert_called_once_with("victim", "NewSecretPassword123!")
+            ak_instance.set_needs_web_setup.assert_called_once_with("victim", False)
 
     @patch("wd_identity.webhook.settings")
     def test_public_status_endpoints_do_not_require_auth(self, mock_settings):
@@ -755,6 +760,17 @@ class TestSecurityAuditMustFixHardening(unittest.IsolatedAsyncioTestCase):
             "execute run //op Hacker",
             ":stop",
             "::stop",
+            "minecraft:op Hacker",
+            "/minecraft:op Hacker",
+            "reload",
+            "/reload",
+            "minecraft:reload",
+            "rl",
+            "perm",
+            "perms",
+            "permission",
+            "permissions",
+            "luckperms:perm",
         ]
 
         console_channel_id = 999111222
@@ -775,6 +791,35 @@ class TestSecurityAuditMustFixHardening(unittest.IsolatedAsyncioTestCase):
 
                 msg.reply.assert_called_once()
                 self.assertIn("gesperrt", msg.reply.call_args[0][0])
+                mock_mc.execute_commands.assert_not_called()
+
+    @patch("wd_identity.discord_bot.MinecraftSyncClient")
+    @patch("wd_identity.discord_bot.log_admin_event")
+    async def test_console_multiline_command_injection_blocked(self, mock_log_admin, mock_mc_cls):
+        """Multi-line commands containing \\n or \\r must be rejected in #ingame-konsole."""
+        mock_mc = mock_mc_cls.return_value
+        mock_mc.execute_commands.return_value = True
+
+        console_channel_id = 999111222
+        with patch.object(settings, "DISCORD_CHANNEL_CONSOLE_ID", str(console_channel_id)):
+            for injected in ("say ok\nop Hacker", "say ok\r\nstop", "whitelist list\nreload"):
+                mock_mc.execute_commands.reset_mock()
+                msg = MagicMock(spec=discord.Message)
+                msg.author = MagicMock(spec=discord.Member)
+                msg.author.bot = False
+                msg.author.guild_permissions.administrator = True
+                msg.webhook_id = None
+                msg.guild.id = int(settings.DISCORD_GUILD_ID) if settings.DISCORD_GUILD_ID else 909437200125538364
+                msg.channel.id = console_channel_id
+                msg.content = injected
+                msg.reply = AsyncMock()
+
+                await bridge_on_message(msg)
+
+                msg.reply.assert_called_once()
+                reply_text = msg.reply.call_args[0][0]
+                self.assertIn("Mehrzeilige Befehle", reply_text)
+                self.assertIn("gesperrt", reply_text)
                 mock_mc.execute_commands.assert_not_called()
 
     @patch("wd_identity.discord_bot.MinecraftSyncClient")

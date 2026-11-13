@@ -3,6 +3,18 @@
   hosts: minecraft_nodes
   become: true
   tasks:
+    - name: Ensure Docker is installed
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker service is enabled and started
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
     - name: Create pterodactyl directories
       ansible.builtin.file:
         path: "{{ item }}"
@@ -17,6 +29,7 @@
         url: "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_amd64"
         dest: /usr/local/bin/wings
         mode: '0755'
+      notify: Reload systemd and restart Wings
 
     - name: Deploy Wings systemd unit
       ansible.builtin.copy:
@@ -32,6 +45,8 @@
           [Service]
           User=root
           WorkingDirectory=/etc/pterodactyl
+          RuntimeDirectory=wings
+          RuntimeDirectoryMode=0755
           LimitNOFILE=4096
           PIDFile=/var/run/wings/daemon.pid
           ExecStart=/usr/local/bin/wings
@@ -44,10 +59,27 @@
           WantedBy=multi-user.target
       notify: Reload systemd and restart Wings
 
+    - name: Check if Wings config.yml exists
+      ansible.builtin.stat:
+        path: /etc/pterodactyl/config.yml
+      register: wings_config
+
+    - name: Ensure Wings service is enabled
+      ansible.builtin.systemd:
+        name: wings
+        daemon_reload: true
+        enabled: true
+
+    - name: Ensure Wings service is started when configured
+      ansible.builtin.systemd:
+        name: wings
+        state: started
+      when: wings_config.stat.exists
+
   handlers:
     - name: Reload systemd and restart Wings
       ansible.builtin.systemd:
         name: wings
         daemon_reload: true
-        state: restarted
+        state: "{{ 'restarted' if (wings_config.stat.exists | default(false)) else omit }}"
         enabled: true

@@ -78,7 +78,12 @@ class AuthentikClient:
         results = res.json().get("results", [])
         if not results:
             # Check case-insensitive
-            res_all = requests.get(url, headers=self._headers, timeout=10)
+            res_all = requests.get(
+                url,
+                headers=self._headers,
+                params={"search": username, "page_size": 100},
+                timeout=10,
+            )
             if res_all.ok:
                 for u in res_all.json().get("results", []):
                     if u.get("username", "").lower() == username.lower():
@@ -186,7 +191,7 @@ class AuthentikClient:
                 WHERE user_id IN (
                     SELECT uuid FROM authentik_core_user WHERE LOWER(username) = LOWER(:'uname')
                 )
-                OR session_data::text ILIKE '%' || :'uname' || '%';
+                OR POSITION(LOWER('"' || :'uname' || '"') IN LOWER(session_data::text)) > 0;
 
                 DELETE FROM authentik_providers_oauth2_accesstoken
                 WHERE user_id IN (

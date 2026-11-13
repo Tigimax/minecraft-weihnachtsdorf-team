@@ -17,11 +17,13 @@
         block: |
           # Restrict BlueMap (port 8123) container access to usrv01 only
           :DOCKER-USER - [0:0]
+          -F DOCKER-USER
           -A DOCKER-USER ! -i lo -p tcp --dport 8123 -s 192.168.1.174 -j ACCEPT
           -A DOCKER-USER ! -i lo -p tcp --dport 8123 -j DROP
           -A DOCKER-USER -j RETURN
         marker: "# {mark} ANSIBLE MANAGED DOCKER-USER BLOCK"
         insertbefore: '^COMMIT'
+      notify: Reload UFW
 
     - name: Allow SSH from Homelab LAN
       community.general.ufw:
@@ -113,6 +115,11 @@
       community.general.ufw:
         state: enabled
 
+  handlers:
+    - name: Reload UFW
+      ansible.builtin.command: ufw reload
+      changed_when: true
+
 - name: Configure UFW and Docker Firewall on Node 2 (mc-main)
   hosts: mc-main
   become: true
@@ -129,18 +136,20 @@
       ansible.builtin.blockinfile:
         path: /etc/ufw/after.rules
         block: |
-          # Restrict Minecraft Purpur (port 25574) container access strictly to Node 1 Velocity
+          # Restrict Minecraft Purpur (port 25574), Simple Voice Chat (24454/udp) strictly to Node 1 Velocity
           # and Plan Analytics (port 8804) strictly to usrv01
           :DOCKER-USER - [0:0]
+          -F DOCKER-USER
           -A DOCKER-USER ! -i lo -p tcp --dport 25574 -s 192.168.1.148 -j ACCEPT
-          -A DOCKER-USER ! -i lo -p udp --dport 25574 -s 192.168.1.148 -j ACCEPT
           -A DOCKER-USER ! -i lo -p tcp --dport 25574 -j DROP
-          -A DOCKER-USER ! -i lo -p udp --dport 25574 -j DROP
+          -A DOCKER-USER ! -i lo -p udp --dport 24454 -s 192.168.1.148 -j ACCEPT
+          -A DOCKER-USER ! -i lo -p udp --dport 24454 -j DROP
           -A DOCKER-USER ! -i lo -p tcp --dport 8804 -s 192.168.1.174 -j ACCEPT
           -A DOCKER-USER ! -i lo -p tcp --dport 8804 -j DROP
           -A DOCKER-USER -j RETURN
         marker: "# {mark} ANSIBLE MANAGED DOCKER-USER BLOCK"
         insertbefore: '^COMMIT'
+      notify: Reload UFW
 
     - name: Allow SSH from Homelab LAN
       community.general.ufw:
@@ -162,8 +171,17 @@
       community.general.ufw:
         rule: allow
         port: '25574'
+        proto: tcp
         src: '192.168.1.148'
         comment: 'Purpur 26.3 from Node 1 Velocity Proxy'
+
+    - name: Allow Simple Voice Chat (24454/udp) from Node 1 Velocity only
+      community.general.ufw:
+        rule: allow
+        port: '24454'
+        proto: udp
+        src: '192.168.1.148'
+        comment: 'Simple Voice Chat UDP from Node 1 Velocity Proxy'
 
     - name: Allow Plan Analytics port 8804 from usrv01
       community.general.ufw:
@@ -189,6 +207,14 @@
         src: '192.168.1.174'
         comment: 'Wings API from usrv01 Nginx TLS proxy'
 
+    - name: Allow Wings API port 8080 from idp-01 (wd-identity / wd-bot)
+      community.general.ufw:
+        rule: allow
+        port: '8080'
+        proto: tcp
+        src: '192.168.1.150'
+        comment: 'Wings API from idp-01 wd-identity and wd-bot'
+
     - name: Allow Wings SFTP port 2022 from LAN
       community.general.ufw:
         rule: allow
@@ -208,3 +234,8 @@
     - name: Enable UFW
       community.general.ufw:
         state: enabled
+
+  handlers:
+    - name: Reload UFW
+      ansible.builtin.command: ufw reload
+      changed_when: true

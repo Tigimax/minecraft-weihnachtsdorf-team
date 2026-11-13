@@ -288,6 +288,26 @@ class TestBlueMapEndpointsSecurityAndRouting(unittest.TestCase):
             call_dict = self.mock_bridge.enqueue_to_discord.call_args[0][0]
             self.assertEqual(call_dict["message"], "Color  NewlineText")
 
+    def test_broadcast_bluemap_event_queue_full_drops_oldest_keeps_client(self):
+        from wd_identity.bluemap_chat import _active_sse_queues, broadcast_bluemap_event
+
+        async def _run():
+            full_q = asyncio.Queue(maxsize=2)
+            full_q.put_nowait({"type": "chat", "message": "oldest"})
+            full_q.put_nowait({"type": "chat", "message": "middle"})
+            _active_sse_queues.append(full_q)
+            try:
+                await broadcast_bluemap_event({"type": "chat", "message": "newest"})
+                self.assertIn(full_q, _active_sse_queues)
+                self.assertEqual(full_q.qsize(), 2)
+                self.assertEqual(full_q.get_nowait()["message"], "middle")
+                self.assertEqual(full_q.get_nowait()["message"], "newest")
+            finally:
+                if full_q in _active_sse_queues:
+                    _active_sse_queues.remove(full_q)
+
+        asyncio.run(_run())
+
 
 if __name__ == "__main__":
     unittest.main()

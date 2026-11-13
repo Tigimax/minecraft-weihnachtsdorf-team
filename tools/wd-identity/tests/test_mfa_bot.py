@@ -9,6 +9,7 @@ import subprocess
 
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity.discord_bot import handle_auth_code_request
+from wd_identity.ldap_client import LDAPClient
 from wd_identity.webhook import (
     MFADispatchRequest,
     mfa_auto_dispatch,
@@ -239,6 +240,190 @@ class TestWebhookMFAAutoDispatch(unittest.TestCase):
         self.assertEqual(res.get("status"), "success")
         mock_send_dm.assert_called_once()
         self.assertEqual(mock_send_dm.call_args[0][0], "4455667788")
+
+    @patch("wd_identity.webhook.send_dm")
+    @patch("wd_identity.webhook.AuthentikClient")
+    @patch("wd_identity.webhook.LDAPClient")
+    def test_mfa_auto_dispatch_blocks_staff_resolved_from_ldap_role(
+        self, mock_ldap_cls, mock_ak_cls, mock_send_dm
+    ):
+        """mfa_auto_dispatch blocks staff even if Authentik has no staff attributes/TOTP."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ak = mock_ak_cls.return_value
+        mock_ak.get_user_by_username.return_value = {"pk": 12, "username": "mod_steve", "attributes": {}}
+        mock_ak.has_totp_device.return_value = False
+        mock_ldap.get_user.return_value = {
+            "uid": "mod_steve",
+            "dn": "uid=mod_steve,ou=User,dc=ldap-01,dc=net",
+            "role": "mod",
+            "discordId": "111222333",
+        }
+
+        req = MFADispatchRequest(username="mod_steve", discord_id="111222333")
+        res = mfa_auto_dispatch(req)
+
+        self.assertEqual(res.get("status"), "skipped")
+        self.assertEqual(res.get("reason"), "staff_or_totp")
+        mock_ak.generate_static_token_for_user.assert_not_called()
+        mock_send_dm.assert_not_called()
+
+    @patch("wd_identity.webhook.applications.get_user_status")
+    @patch("wd_identity.webhook.send_dm")
+    @patch("wd_identity.webhook.AuthentikClient")
+    @patch("wd_identity.webhook.LDAPClient")
+    def test_mfa_auto_dispatch_blocks_sqlite_banned_user_without_ldap_account_status(
+        self, mock_ldap_cls, mock_ak_cls, mock_send_dm, mock_get_status
+    ):
+        """mfa_auto_dispatch blocks SQLite-banned user even when raw LDAP dict has no accountStatus."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ak = mock_ak_cls.return_value
+        mock_ak.get_user_by_username.return_value = {"pk": 22, "username": "banned_steve", "attributes": {}}
+        mock_ak.has_totp_device.return_value = False
+        mock_ldap.get_user.return_value = {
+            "uid": "banned_steve",
+            "dn": "uid=banned_steve,ou=User,dc=ldap-01,dc=net",
+            "role": "player",
+            "discordId": "555666777",
+        }
+        mock_get_status.return_value = {"is_banned": True}
+
+        req = MFADispatchRequest(username="banned_steve")
+        res = mfa_auto_dispatch(req)
+
+        self.assertEqual(res.get("status"), "error")
+        self.assertIn("banned", res.get("detail", "").lower())
+        mock_get_status.assert_called_once_with("555666777")
+        mock_ak.generate_static_token_for_user.assert_not_called()
+        mock_send_dm.assert_not_called()
+
+
+class TestLDAPRoleResolutionAndBotGuards(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _make_entry(dn: str, attrs: dict):
+        entry = MagicMock()
+        entry.entry_dn = dn
+        entry.entry_attributes_as_dict = attrs
+        return entry
+
+    @patch.object(LDAPClient, "_get_connection")
+    def test_ldap_client_resolves_roles_from_groups_across_lookups(self, mock_get_conn):
+        """LDAPClient populates 'role' from group memberships even when user entries lack a 'role' attr."""
+        ldap = LDAPClient()
+        admin_dn = "uid=adm,ou=User,dc=ldap-01,dc=net"
+        mod_dn = "uid=mod1,ou=User,dc=ldap-01,dc=net"
+        player_dn = "uid=ply1,ou=User,dc=ldap-01,dc=net"
+
+        user_entries = [
+            self._make_entry(admin_dn, {"uid": ["adm"], "discordId": ["101"], "minecraftName": ["AdminIGN"]}),
+            self._make_entry(mod_dn, {"uid": ["mod1"], "discordId": ["102"], "minecraftName": ["ModIGN"]}),
+            self._make_entry(player_dn, {"uid": ["ply1"], "discordId": ["103"], "minecraftName": ["PlayerIGN"]}),
+        ]
+
+        mock_conn = MagicMock()
+
+        def fake_search(base, search_filter, attributes=None):
+            if base == ldap.admin_group_dn:
+                mock_conn.entries = [self._make_entry(ldap.admin_group_dn, {"member": [admin_dn]})]
+            elif base == ldap.mod_group_dn:
+                mock_conn.entries = [self._make_entry(ldap.mod_group_dn, {"member": [mod_dn]})]
+            elif base == ldap.player_group_dn:
+                mock_conn.entries = [self._make_entry(ldap.player_group_dn, {"member": [player_dn]})]
+            elif "uid=adm" in search_filter:
+                mock_conn.entries = [user_entries[0]]
+            elif "discordId=102" in search_filter:
+                mock_conn.entries = [user_entries[1]]
+            elif "minecraftName=PlayerIGN" in search_filter:
+                mock_conn.entries = [user_entries[2]]
+            else:
+                mock_conn.entries = user_entries
+
+        mock_conn.search.side_effect = fake_search
+        mock_get_conn.return_value = mock_conn
+
+        self.assertEqual(ldap.get_user("adm")["role"], "admin")
+        self.assertEqual(ldap.search_by_discord_id("102")["role"], "mod")
+        self.assertEqual(ldap.search_by_minecraft("PlayerIGN")["role"], "player")
+
+        all_users = {u["uid"]: u["role"] for u in ldap.list_all_users()}
+        self.assertEqual(all_users, {"adm": "admin", "mod1": "mod", "ply1": "player"})
+
+    @patch("wd_identity.discord_bot.AuthentikClient")
+    @patch("wd_identity.discord_bot.applications.get_user_status")
+    @patch("wd_identity.discord_bot.LDAPClient")
+    async def test_auth_code_blocks_staff_without_role_attr_via_group_membership(
+        self, mock_ldap_cls, mock_get_status, mock_ak_cls
+    ):
+        """handle_auth_code_request resolves staff role from LDAP groups when raw LDAP lacks 'role'."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ldap.search_by_discord_id.return_value = {
+            "uid": "stealth_mod",
+            "dn": "uid=stealth_mod,ou=User,dc=ldap-01,dc=net",
+        }
+        mock_ldap.get_group_members.side_effect = lambda g: (
+            ["uid=stealth_mod,ou=User,dc=ldap-01,dc=net"] if "wd_mods" in g else []
+        )
+        mock_get_status.return_value = {"is_banned": False}
+
+        interaction = MagicMock()
+        interaction.response.is_done.return_value = False
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+        interaction.user.id = 222333444
+
+        await handle_auth_code_request(interaction)
+
+        msg = interaction.followup.send.call_args[0][0]
+        self.assertIn("Sicherheitshinweis für Teammitglieder", msg)
+        mock_ak_cls.return_value.generate_static_token_for_user.assert_not_called()
+
+    @patch("wd_identity.discord_bot.AuthentikClient")
+    @patch("wd_identity.discord_bot.applications.get_user_status")
+    @patch("wd_identity.discord_bot.LDAPClient")
+    async def test_auth_code_blocks_sqlite_banned_user_without_account_status(
+        self, mock_ldap_cls, mock_get_status, mock_ak_cls
+    ):
+        """handle_auth_code_request blocks SQLite-banned user even when LDAP lacks 'accountStatus'."""
+        mock_ldap = mock_ldap_cls.return_value
+        mock_ldap.search_by_discord_id.return_value = {
+            "uid": "banned_player",
+            "dn": "uid=banned_player,ou=User,dc=ldap-01,dc=net",
+            "role": "player",
+        }
+        mock_get_status.return_value = {"is_banned": True}
+
+        interaction = MagicMock()
+        interaction.response.is_done.return_value = False
+        interaction.response.defer = AsyncMock()
+        interaction.followup.send = AsyncMock()
+        interaction.user.id = 333444555
+
+        await handle_auth_code_request(interaction)
+
+        msg = interaction.followup.send.call_args[0][0]
+        self.assertIn("Account gesperrt", msg)
+        mock_ak_cls.return_value.generate_static_token_for_user.assert_not_called()
+
+    async def test_slash_command_aliases_delegate_via_callback(self):
+        """Slash command aliases must delegate via .callback without raising TypeError on Command."""
+        from wd_identity import discord_bot
+
+        dummy_choice = MagicMock()
+        dummy_choice.value = "player"
+
+        calls = [
+            (discord_bot.cmd_spieler_bannen.callback, {"target": "Steve", "grund": "Test"}),
+            (discord_bot.cmd_spieler_entbannen.callback, {"target": "Steve"}),
+            (discord_bot.cmd_spieler_zuruecksetzen.callback, {"ziel": "Steve"}),
+            (discord_bot.cmd_role_alias.callback, {"target": "Steve", "role": dummy_choice}),
+            (discord_bot.cmd_mod_zugang_alias.callback, {"ziel": "ModSteve", "stunden": None, "entziehen": True}),
+        ]
+
+        with patch("wd_identity.discord_bot.is_admin_user", return_value=False):
+            for fn, kwargs in calls:
+                interaction = MagicMock()
+                interaction.response.send_message = AsyncMock()
+                await fn(interaction, **kwargs)
+                interaction.response.send_message.assert_awaited_once()
 
 
 if __name__ == "__main__":

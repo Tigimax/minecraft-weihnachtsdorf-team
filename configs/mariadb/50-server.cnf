@@ -1,0 +1,11 @@
+# MariaDB 10.11 Server Tuning for mc-node1 (192.168.1.148, 4 GB RAM Host)
+# Target: Merge [mysqld] directives into /etc/mysql/mariadb.conf.d/50-server.cnf (or deploy as 99-weihnachtsdorf.cnf drop-in)
+
+[mysqld]
+bind-address                   = 0.0.0.0
+max_connections                = 150
+innodb_buffer_pool_size        = 512M
+innodb_flush_log_at_trx_commit = 2
+innodb_flush_method            = O_DIRECT
+character-set-server           = utf8mb4
+collation-server               = utf8mb4_unicode_ci

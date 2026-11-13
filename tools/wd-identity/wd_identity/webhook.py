@@ -16,6 +16,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, st
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from wd_identity import applications
 from wd_identity.authentik_client import AuthentikClient
 from wd_identity.config import settings
 from wd_identity.discord_bot import (
@@ -41,9 +42,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from wd_identity.bluemap_chat import notify_shutdown, reset_shutdown_state
+    reset_shutdown_state()
     yield
     logger.info("FastAPI lifespan shutdown: notifying SSE streams to exit...")
-    from wd_identity.bluemap_chat import notify_shutdown
     notify_shutdown()
     from wd_identity import chat_bridge
     if chat_bridge._worker_task and not chat_bridge._worker_task.done():
@@ -53,8 +55,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Weihnachtsdorf 7 Identity Webhook",
     version="1.0.0",
-    docs_url="/docs",
+    docs_url=None,
     redoc_url=None,
+    openapi_url=None,
     lifespan=lifespan,
 )
 app.include_router(bluemap_chat_router)
@@ -216,6 +219,12 @@ def mfa_auto_dispatch(req: MFADispatchRequest):
             if role_attr in ("admin", "mod") or mfa_attr == "totp":
                 logger.info(f"MFA auto-dispatch skipped for admin/totp user '{clean_user}' (from ak attributes)")
                 return {"status": "skipped", "reason": "staff_or_totp"}
+            banned_attr = ak_attrs.get("is_banned")
+            if banned_attr is True or (
+                isinstance(banned_attr, str) and banned_attr.strip().lower() in ("true", "1", "yes")
+            ):
+                logger.warning(f"Refusing MFA auto-dispatch for Authentik-banned user '{clean_user}'")
+                return {"status": "error", "detail": "Account is banned"}
 
         if ak_user.get("is_superuser") is True:
             logger.info(f"MFA auto-dispatch skipped for superuser '{clean_user}'")
@@ -275,6 +284,18 @@ def mfa_auto_dispatch(req: MFADispatchRequest):
     else:
         logger.warning(f"Cannot auto-dispatch MFA code for '{clean_user}': No bound Discord ID found")
         return {"status": "error", "detail": "No bound Discord ID linked"}
+
+    # 6.5 Check SQLite applications DB for active ban by numeric Discord ID
+    if str(discord_id).isdigit():
+        try:
+            app_status = applications.get_user_status(str(discord_id))
+            if isinstance(app_status, dict) and app_status.get("is_banned"):
+                logger.warning(
+                    f"Refusing MFA auto-dispatch for banned user '{clean_user}' (Discord: {discord_id})"
+                )
+                return {"status": "error", "detail": "Account is banned"}
+        except Exception as e:
+            logger.warning(f"Could not check applications ban status for '{discord_id}': {e}")
 
     # 7. Atomic Cooldown Reservation & In-Flight Gate
     now = time.time()
@@ -395,7 +416,8 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
     )
 
     requested_role = (req.role or "").strip().lower()
-    existing_role = (existing.get("role") if isinstance(existing, dict) else None) or ak_attrs.get("role")
+    existing_ldap_role = existing.get("role") if isinstance(existing, dict) else None
+    existing_role = existing_ldap_role or (ak_attrs.get("role") if isinstance(ak_attrs, dict) else None)
     if existing_role:
         existing_role = str(existing_role).strip().lower()
 
@@ -433,7 +455,12 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
                 f"Weder LDAP noch Authentik-Einladung autorisieren Mod-Rechte. Rolle wird auf 'player' heruntergestuft."
             )
             clean_role = "player"
-        elif trusted_discord_id:
+        elif not trusted_discord_id:
+            logger.warning(
+                f"SICHERHEITSWARNUNG: Mod-Onboarding für '{clean_user}' verweigert! Keine vertrauenswürdige Discord-ID gebunden."
+            )
+            clean_role = "player"
+        else:
             is_mod, mod_reason = check_is_discord_mod(str(trusted_discord_id).strip())
             if not is_mod:
                 logger.warning(
@@ -444,8 +471,6 @@ def process_onboarding(req: OnboardingRequest) -> Dict[str, Any]:
             else:
                 logger.info(f"Mod-Onboarding für {clean_user} verifiziert: {mod_reason}")
                 clean_role = "mod"
-        else:
-            clean_role = "mod"
     else:
         clean_role = existing_role if existing_role in ("admin", "mod", "player") else "player"
 
@@ -594,6 +619,30 @@ def complete_onboarding(req: OnboardingRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_web_setup_failures: Dict[str, list[float]] = {}
+_web_setup_lock = threading.Lock()
+WEB_SETUP_MAX_FAILURES = 5
+WEB_SETUP_WINDOW_SECONDS = 300.0
+
+
+def reset_web_setup_rate_limit() -> None:
+    """Helper for unittests to clear web-setup brute-force guard state."""
+    with _web_setup_lock:
+        _web_setup_failures.clear()
+
+
+def _record_web_setup_failure(user_key: str) -> None:
+    now = time.time()
+    with _web_setup_lock:
+        recent = [t for t in _web_setup_failures.get(user_key, []) if now - t < WEB_SETUP_WINDOW_SECONDS]
+        recent.append(now)
+        _web_setup_failures[user_key] = recent
+        if len(_web_setup_failures) > 1000:
+            stale = [k for k, v in _web_setup_failures.items() if not v or (now - v[-1] >= WEB_SETUP_WINDOW_SECONDS)]
+            for k in stale:
+                _web_setup_failures.pop(k, None)
+
+
 @app.post("/api/web-setup/complete")
 def complete_web_setup(
     req: WebSetupCompleteRequest,
@@ -603,10 +652,11 @@ def complete_web_setup(
     """
     Self-service web password setup endpoint for pre-provisioned players.
     1. Validates username and password (min 8 chars, non-empty/whitespace).
-    2. Verifies 6-digit static token unless code == 'flow_verified' (which requires webhook secret auth).
-    3. Updates OpenLDAP password.
-    4. Updates Authentik password.
-    5. Clears Authentik 'needs_web_setup' attribute to False.
+    2. Enforces brute-force rate limit (max 5 failed attempts per username within 300s).
+    3. Verifies 6-digit static token unless code == 'flow_verified' (which requires webhook secret auth).
+    4. Updates OpenLDAP password.
+    5. Updates Authentik password.
+    6. Clears Authentik 'needs_web_setup' attribute to False.
     """
     raw_user = (req.username or "").strip()
     if not raw_user:
@@ -625,6 +675,27 @@ def complete_web_setup(
     # Protect internal admin accounts from tampering
     if clean_user.lower() in ("tigimax", "akadmin"):
         clean_user = "tigimax_player"
+
+    user_key = clean_user.lower()
+    now = time.time()
+    with _web_setup_lock:
+        recent_failures = [
+            t for t in _web_setup_failures.get(user_key, [])
+            if now - t < WEB_SETUP_WINDOW_SECONDS
+        ]
+        if recent_failures:
+            _web_setup_failures[user_key] = recent_failures
+        else:
+            _web_setup_failures.pop(user_key, None)
+        if len(recent_failures) >= WEB_SETUP_MAX_FAILURES:
+            logger.warning(f"Web-setup brute-force guard triggered for '{clean_user}'")
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "status": "error",
+                    "detail": "Too many failed verification attempts. Please try again later.",
+                },
+            )
 
     raw_pw = req.password or ""
     if not raw_pw or not raw_pw.strip() or len(raw_pw.strip()) < 8:
@@ -646,12 +717,21 @@ def complete_web_setup(
             content={"status": "error", "detail": "Verification code is required"},
         )
     if raw_code == "flow_verified":
-        verify_webhook_auth(authorization=authorization, x_webhook_secret=x_webhook_secret)
+        try:
+            verify_webhook_auth(authorization=authorization, x_webhook_secret=x_webhook_secret)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                _record_web_setup_failure(user_key)
+            raise
     elif not ak.verify_static_token_for_user(clean_user, raw_code):
+        _record_web_setup_failure(user_key)
         return JSONResponse(
             status_code=400,
             content={"status": "error", "detail": "Invalid or expired verification code"},
         )
+
+    with _web_setup_lock:
+        _web_setup_failures.pop(user_key, None)
 
     # Update OpenLDAP password
     ldap = LDAPClient()

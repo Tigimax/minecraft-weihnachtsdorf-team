@@ -224,7 +224,7 @@
      - Erkennt `tellraw @a ` mit Präfixen `[D] `, `[Web] ` oder `[Weihnachtsdorf]`.
      - Extrahiert und unescaped den Plaintext aus allen `"text":"..."`-Feldern und gibt ihn via `Bukkit.getConsoleSender().sendMessage(plainText)` sauber in die Konsole aus (`[14:32:01 INFO]: [D] <Tigimax> Hallo`).
      - Prüft `Bukkit.getOnlinePlayers().isEmpty()`: Wenn niemand online ist, wird `event.setCancelled(true)` aufgerufen. Dadurch führt Minecraft `tellraw @a` gar nicht erst aus und die Fehlermeldung `No player was found` ist vollständig eliminiert.
-  2. Plugin `BlueMapLiveBridge.jar` mit JDK 25 im Paper-Container neu gebaut, auf `mc-node2` (`192.168.1.149`) installiert und ins Repository übernommen.
+  2. Plugin `BlueMapLiveBridge.jar` mit JDK 25 im Paper-Container neu gebaut, auf `mc-main` (`192.168.1.149`) installiert und ins Repository übernommen.
 
 ---
 
@@ -233,13 +233,13 @@
 | Service | Host / IP | Status | Beschreibung |
 | :--- | :--- | :--- | :--- |
 | **Authentik IdP** | `idp-01` (`192.168.1.150:9000`) | **Aktiv** | Zentrales SSO & Identity Management (`https://auth.tigimax.mooo.com`) |
-| **OpenLDAP** | `ldap-01` (`192.168.1.164:636`) | **Aktiv** | Zentraler Verzeichnisdienst für Rollen & Identitäten |
+| **OpenLDAP** | `anode01` (`192.168.1.164:636`) | **Aktiv** | Zentraler Verzeichnisdienst für Rollen & Identitäten |
 | **Planka Kanban** | `usrv01` (`192.168.1.174:3000`) | **Aktiv** | Staff-Planung (`https://tigimax.mooo.com`) mit Forward-Auth Auto-Login |
-| **Pterodactyl Wings** | `mc-node1` (`192.168.1.149:8080`) | **Aktiv** | Minecraft Node 2 Daemon, RCON & Telemetrie-Schnittstelle |
+| **Pterodactyl Wings** | `mc-node1` (`192.168.1.148:8080`) & `mc-main` (`192.168.1.149:8080`) | **Aktiv** | Node 1 & Node 2 Daemons, RCON & Telemetrie-Schnittstelle |
 | **BlueMap** | `mc-node1` (`192.168.1.148:8123`) | **Aktiv** | Web-Weltkarte (`https://map.tigimax.mooo.com`), geschützt via `wd-bluemap-access-policy` |
 | **BlueMapLiveBridge** | `mc-main` (`192.168.1.149`) | **Aktiv** | Paper-Plugin v1.1.0: 2s Spielerpositions-Export, Chat-Events, Vanish-Filter & tellraw Interception |
 | **Chat & Console Bridge** | `idp-01` (`wd-identity` / `wd-bot`) | **Aktiv** | Bidirektionale Bridge MC ↔ Discord ↔ BlueMap, dynamisches Channel-Routing & Live-Konsole |
-| **WHD Discord Bot** | `idp-01` (`wd-bot.service`) | **Aktiv** | Discord-Bot (`WHD Privileges`) mit 26 Slash Commands, Live-Konsole & Audit Logging |
+| **WHD Discord Bot** | `idp-01` (`wd-bot.service`) | **Aktiv** | Discord-Bot (`WHD Privileges`) mit 34 Slash Commands (inkl. Aliase), Live-Konsole & Audit Logging |
 | **WD Identity API** | `idp-01` (`wd-identity.service`) | **Aktiv** | Webhook & CLI-Backend (`/opt/wd-identity`), Port 8000 |
 
 ---
@@ -261,14 +261,14 @@
 
 ---
 
-## 4. Vollständige Suite der 26 Discord Slash-Befehle & Aliase
+## 4. Vollständige Suite der 34 Discord Slash-Befehle (26 Kernbefehle & Aliase)
 
 1. `/projekt-start` – Schaltet alle registrierten Spieler auf der Minecraft-Whitelist und BlueMap frei.
 2. `/projekt-sperren` – Versetzt den Server in den Wartungs-/Pre-Launch-Modus (Spieler gesperrt, Staff aktiv).
 3. `/zugang-entziehen` – Entzieht einem Nutzer alle Zugriffsrechte restlos.
 4. `/account-loeschen` – Löscht einen Spieler-Account spurlos und vollständig aus allen Systemen (Purge).
 5. `/rolle` (Alias: `/role`) – Ändert die Rolle eines Nutzers (admin, mod, player) systemweit mit Discord-Rollenprüfung.
-6. `/mod-baurecht` – Erteilt oder entzieht Moderatoren temporäre Bau- und Serverrechte vor dem Start.
+6. `/mod-baurecht` (Alias: `/mod-zugang`) – Erteilt oder entzieht Moderatoren temporäre Bau- und Serverrechte vor dem Start.
 7. `/ban-spieler` (Alias: `/spieler-bannen`) – Bannt einen Spieler auf dem Minecraft-Server und sperrt BlueMap.
 8. `/pardon-spieler` (Alias: `/spieler-entbannen`) – Hebt Sperren auf Minecraft und BlueMap wieder auf.
 9. `/spieler-kick` – Kickt einen Spieler sofort vom Server mit Angabe eines Grundes.
@@ -288,7 +288,7 @@
 23. `/auth-code` (Kurzform: `/code`) – Fordert einen 6-stelligen Authentik-Einmalcode für Spieler an.
 24. `/anmelden` – Öffnet das interaktive Bewerbungsmodal für Spieler im Kanal `#📝anmeldung`.
 25. `/abmelden` – Ermöglicht Spielern die selbstständige Abmeldung vom Projekt.
-26. `/entbannen` – Öffnet das Einspruchsmodal für abgelehnte oder gesperrte Nutzer im Kanal `#⚖entbannung`.
+26. `/entbannung` – Öffnet das Einspruchsmodal für abgelehnte oder gesperrte Nutzer im Kanal `#⚖entbannung`.
 
 ---
 

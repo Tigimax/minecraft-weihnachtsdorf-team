@@ -4,6 +4,7 @@ Sets up the complete, professional project planning workspace in Planka for Weih
 Connects via SSH to PostgreSQL inside the planka container on usrv01 (192.168.1.174).
 """
 
+import argparse
 import sys
 import subprocess
 import json
@@ -42,6 +43,24 @@ def extract_id(out):
     raise ValueError(f"No numeric ID found in output: {out}")
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Richtet die Planka-Projektplanung für Weihnachtsdorf 7 ein."
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Löscht bestehende Listen, Labels und Test-Karten auf den Ziel-Boards vor der Neueinrichtung.",
+    )
+    args = parser.parse_args()
+
+    if not args.reset:
+        print(
+            "ABBRUCH: Dieses Skript löscht bestehende Listen und Labels (DELETE FROM list / DELETE FROM label) "
+            "und legt alle Standardkarten neu an. Bitte explizit mit --reset ausführen.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     print("=" * 70)
     print("📋 Richte Planka Projektplanung für Weihnachtsdorf 7 ein...")
     print("=" * 70)

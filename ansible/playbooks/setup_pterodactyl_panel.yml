@@ -31,7 +31,7 @@
     - name: Configure MariaDB to listen on 0.0.0.0
       ansible.builtin.lineinfile:
         path: /etc/mysql/mariadb.conf.d/50-server.cnf
-        regexp: '^bind-address'
+        regexp: '^#?bind-address'
         line: 'bind-address            = 0.0.0.0'
       notify: Restart MariaDB
 
@@ -46,6 +46,11 @@
         - php8.3-fpm
         - nginx
 
+    - name: Check if Pterodactyl Kernel.php exists
+      ansible.builtin.stat:
+        path: /var/www/pterodactyl/app/Http/Kernel.php
+      register: pterodactyl_kernel
+
     - name: Deploy Authentik SSO Middleware to Pterodactyl Panel
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../../configs/pterodactyl/AuthentikSsoMiddleware.php"
@@ -53,23 +58,41 @@
         owner: www-data
         group: www-data
         mode: '0644'
-
-    - name: Ensure AuthentikSsoMiddleware is registered in Pterodactyl Kernel.php
-      ansible.builtin.lineinfile:
-        path: /var/www/pterodactyl/app/Http/Kernel.php
-        insertafter: 'StartSession::class,'
-        line: '            AuthentikSsoMiddleware::class,'
-        state: present
+      when: pterodactyl_kernel.stat.exists
+      notify: Clear Pterodactyl config cache
 
     - name: Ensure AuthentikSsoMiddleware import exists in Kernel.php
       ansible.builtin.lineinfile:
         path: /var/www/pterodactyl/app/Http/Kernel.php
         insertafter: 'use Pterodactyl\\Http\\Middleware\\LanguageMiddleware;'
+        firstmatch: true
         line: 'use Pterodactyl\Http\Middleware\AuthentikSsoMiddleware;'
         state: present
+        backup: true
+        validate: 'php -l %s'
+      when: pterodactyl_kernel.stat.exists
+      notify: Clear Pterodactyl config cache
+
+    - name: Ensure AuthentikSsoMiddleware is registered in Pterodactyl Kernel.php
+      ansible.builtin.lineinfile:
+        path: /var/www/pterodactyl/app/Http/Kernel.php
+        insertafter: 'StartSession::class,'
+        firstmatch: true
+        line: '            AuthentikSsoMiddleware::class,'
+        state: present
+        backup: true
+        validate: 'php -l %s'
+      when: pterodactyl_kernel.stat.exists
+      notify: Clear Pterodactyl config cache
 
   handlers:
     - name: Restart MariaDB
       ansible.builtin.systemd:
         name: mariadb
         state: restarted
+
+    - name: Clear Pterodactyl config cache
+      ansible.builtin.command:
+        cmd: php artisan config:clear
+        chdir: /var/www/pterodactyl
+      changed_when: true

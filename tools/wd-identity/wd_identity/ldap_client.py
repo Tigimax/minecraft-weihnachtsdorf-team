@@ -60,6 +60,18 @@ if _raw_superadmin_groups:
 
 
 class LDAPClient:
+    USER_ATTRIBUTES = [
+        "uid",
+        "cn",
+        "sn",
+        "mail",
+        "objectClass",
+        "discordName",
+        "discordId",
+        "minecraftName",
+        "minecraftUuid",
+    ]
+
     def __init__(self):
         self.server_uri = settings.LDAP_URI
         self.bind_dn = settings.LDAP_BIND_DN
@@ -70,9 +82,6 @@ class LDAPClient:
         self.admin_group_dn = settings.LDAP_ADMIN_GROUP
         self.mod_group_dn = settings.LDAP_MOD_GROUP
         self.player_group_dn = settings.LDAP_PLAYER_GROUP
-        self.admin_group = self.admin_group_dn
-        self.mod_group = self.mod_group_dn
-        self.player_group = self.player_group_dn
 
     def _get_connection(self) -> Connection:
         if getattr(settings, "LDAP_TLS_VERIFY", True):
@@ -110,8 +119,10 @@ class LDAPClient:
         mail = d.get("mail", [])
         cn = d.get("cn", [])
         object_classes = d.get("objectClass", [])
+        raw_role = d.get("role", []) if isinstance(d, dict) else []
+        role = raw_role[0] if raw_role else None
 
-        return {
+        result = {
             "dn": entry.entry_dn,
             "uid": uid,
             "cn": cn[0] if cn else uid,
@@ -122,6 +133,72 @@ class LDAPClient:
             "minecraftUuid": mc_uuid[0] if mc_uuid else "",
             "objectClass": object_classes,
         }
+        if role:
+            result["role"] = role
+        return result
+
+    def _get_group_members_on_conn(self, conn: Connection, group_dn: str) -> List[str]:
+        """Return list of member DNs in a group using an already-open LDAP connection."""
+        conn.search(
+            group_dn,
+            "(objectClass=*)",
+            attributes=["member", "uniqueMember"],
+        )
+        if not conn.entries:
+            return []
+        entry = conn.entries[0]
+        attrs = entry.entry_attributes_as_dict
+        members = attrs.get("member", [])
+        if not members:
+            members = attrs.get("uniqueMember", [])
+        return list(members) if members else []
+
+    def _get_role_member_sets_on_conn(
+        self, conn: Connection
+    ) -> Tuple[set[str], set[str], set[str]]:
+        """Fetches normalized member DN sets for admin, mod, and player groups on one connection."""
+        admin_dns = {
+            d.strip().lower()
+            for d in self._get_group_members_on_conn(conn, self.admin_group_dn)
+            if isinstance(d, str)
+        }
+        mod_dns = {
+            d.strip().lower()
+            for d in self._get_group_members_on_conn(conn, self.mod_group_dn)
+            if isinstance(d, str)
+        }
+        player_dns = {
+            d.strip().lower()
+            for d in self._get_group_members_on_conn(conn, self.player_group_dn)
+            if isinstance(d, str)
+        }
+        return admin_dns, mod_dns, player_dns
+
+    @staticmethod
+    def _resolve_role_from_sets(
+        user_dn: Any,
+        admin_dns: set[str],
+        mod_dns: set[str],
+        player_dns: set[str],
+    ) -> Optional[str]:
+        if not isinstance(user_dn, str):
+            return None
+        dn_norm = user_dn.strip().lower()
+        if dn_norm in admin_dns:
+            return "admin"
+        if dn_norm in mod_dns:
+            return "mod"
+        if dn_norm in player_dns:
+            return "player"
+        return None
+
+    def _populate_user_role_on_conn(self, conn: Connection, user: Dict[str, Any]) -> Dict[str, Any]:
+        if not user.get("role"):
+            admin_dns, mod_dns, player_dns = self._get_role_member_sets_on_conn(conn)
+            user["role"] = self._resolve_role_from_sets(
+                user.get("dn"), admin_dns, mod_dns, player_dns
+            )
+        return user
 
     def get_user(self, username: str) -> Optional[Dict[str, Any]]:
         """Retrieve user by UID."""
@@ -135,21 +212,12 @@ class LDAPClient:
             conn.search(
                 self.user_ou,
                 user_filter,
-                attributes=[
-                    "uid",
-                    "cn",
-                    "sn",
-                    "mail",
-                    "objectClass",
-                    "discordName",
-                    "discordId",
-                    "minecraftName",
-                    "minecraftUuid",
-                ],
+                attributes=self.USER_ATTRIBUTES,
             )
             if not conn.entries:
                 return None
-            return self._format_entry(conn.entries[0])
+            data = self._format_entry(conn.entries[0])
+            return self._populate_user_role_on_conn(conn, data)
         finally:
             conn.unbind()
 
@@ -162,24 +230,21 @@ class LDAPClient:
 
         conn = self._get_connection()
         try:
+            # Resolve group membership sets first so the user filter remains the final search call on conn
+            admin_dns, mod_dns, player_dns = self._get_role_member_sets_on_conn(conn)
             user_filter = f"(&(objectClass=person)(discordId={esc_val}))"
             conn.search(
                 self.user_ou,
                 user_filter,
-                attributes=[
-                    "uid",
-                    "cn",
-                    "sn",
-                    "mail",
-                    "objectClass",
-                    "discordName",
-                    "discordId",
-                    "minecraftName",
-                    "minecraftUuid",
-                ],
+                attributes=self.USER_ATTRIBUTES,
             )
             if conn.entries:
-                return self._format_entry(conn.entries[0])
+                data = self._format_entry(conn.entries[0])
+                if not data.get("role"):
+                    data["role"] = self._resolve_role_from_sets(
+                        data.get("dn"), admin_dns, mod_dns, player_dns
+                    )
+                return data
             return None
         finally:
             conn.unbind()
@@ -201,36 +266,17 @@ class LDAPClient:
             conn.search(
                 self.user_ou,
                 user_filter,
-                attributes=[
-                    "uid",
-                    "cn",
-                    "sn",
-                    "mail",
-                    "objectClass",
-                    "discordName",
-                    "discordId",
-                    "minecraftName",
-                    "minecraftUuid",
-                ],
+                attributes=self.USER_ATTRIBUTES,
             )
             if conn.entries:
-                return self._format_entry(conn.entries[0])
+                data = self._format_entry(conn.entries[0])
+                return self._populate_user_role_on_conn(conn, data)
 
             # Try case-insensitive matching if not found
             conn.search(
                 self.user_ou,
                 "(objectClass=person)",
-                attributes=[
-                    "uid",
-                    "cn",
-                    "sn",
-                    "mail",
-                    "objectClass",
-                    "discordName",
-                    "discordId",
-                    "minecraftName",
-                    "minecraftUuid",
-                ],
+                attributes=self.USER_ATTRIBUTES,
             )
             target_lower = target.lower()
             for entry in conn.entries:
@@ -239,7 +285,7 @@ class LDAPClient:
                     data["discordName"].lower() == target_lower
                     or data["discordId"] == target
                 ):
-                    return data
+                    return self._populate_user_role_on_conn(conn, data)
             return None
         finally:
             conn.unbind()
@@ -260,66 +306,50 @@ class LDAPClient:
             conn.search(
                 self.user_ou,
                 user_filter,
-                attributes=[
-                    "uid",
-                    "cn",
-                    "sn",
-                    "mail",
-                    "objectClass",
-                    "discordName",
-                    "discordId",
-                    "minecraftName",
-                    "minecraftUuid",
-                ],
+                attributes=self.USER_ATTRIBUTES,
             )
             if conn.entries:
-                return self._format_entry(conn.entries[0])
+                data = self._format_entry(conn.entries[0])
+                return self._populate_user_role_on_conn(conn, data)
 
             # Fallback scan
             conn.search(
                 self.user_ou,
                 "(objectClass=person)",
-                attributes=[
-                    "uid",
-                    "cn",
-                    "sn",
-                    "mail",
-                    "objectClass",
-                    "discordName",
-                    "discordId",
-                    "minecraftName",
-                    "minecraftUuid",
-                ],
+                attributes=self.USER_ATTRIBUTES,
             )
             target_lower = target_ign.lower()
             for entry in conn.entries:
                 data = self._format_entry(entry)
                 if data["minecraftName"].lower() == target_lower:
-                    return data
+                    return self._populate_user_role_on_conn(conn, data)
             return None
         finally:
             conn.unbind()
+
+    def _list_all_users_on_conn(
+        self, conn: Connection, include_roles: bool = True
+    ) -> List[Dict[str, Any]]:
+        conn.search(
+            self.user_ou,
+            "(&(objectClass=person)(uid=*))",
+            attributes=self.USER_ATTRIBUTES,
+        )
+        users = [self._format_entry(e) for e in conn.entries]
+        if include_roles and users:
+            admin_dns, mod_dns, player_dns = self._get_role_member_sets_on_conn(conn)
+            for u in users:
+                if not u.get("role"):
+                    u["role"] = self._resolve_role_from_sets(
+                        u.get("dn"), admin_dns, mod_dns, player_dns
+                    )
+        return users
 
     def list_all_users(self) -> List[Dict[str, Any]]:
         """List all users under user_ou."""
         conn = self._get_connection()
         try:
-            conn.search(
-                self.user_ou,
-                "(&(objectClass=person)(uid=*))",
-                attributes=[
-                    "uid",
-                    "cn",
-                    "sn",
-                    "mail",
-                    "objectClass",
-                    "discordName",
-                    "discordId",
-                    "minecraftName",
-                    "minecraftUuid",
-                ],
-            )
-            return [self._format_entry(e) for e in conn.entries]
+            return self._list_all_users_on_conn(conn, include_roles=True)
         finally:
             conn.unbind()
 
@@ -327,42 +357,38 @@ class LDAPClient:
         """Return list of member DNs in a group."""
         conn = self._get_connection()
         try:
-            conn.search(
-                group_dn,
-                "(objectClass=*)",
-                attributes=["member", "uniqueMember"],
-            )
-            if not conn.entries:
-                return []
-            entry = conn.entries[0]
-            members = entry.entry_attributes_as_dict.get("member", [])
-            return list(members)
+            return self._get_group_members_on_conn(conn, group_dn)
         finally:
             conn.unbind()
+
+    def _add_member_to_group_on_conn(
+        self, conn: Connection, group_dn: str, member_dn: str
+    ) -> bool:
+        try:
+            members = self._get_group_members_on_conn(conn, group_dn)
+            if member_dn in members:
+                return True
+            return conn.modify(
+                group_dn,
+                {"member": [(MODIFY_ADD, [member_dn])]},
+            )
+        except Exception as e:
+            logger.error(f"Error adding {member_dn} to {group_dn}: {e}")
+            return False
 
     def add_member_to_group(self, group_dn: str, member_dn: str) -> bool:
         """Add a member DN to an LDAP group."""
         conn = self._get_connection()
         try:
-            members = self.get_group_members(group_dn)
-            if member_dn in members:
-                return True
-            success = conn.modify(
-                group_dn,
-                {"member": [(MODIFY_ADD, [member_dn])]},
-            )
-            return success
-        except Exception as e:
-            logger.error(f"Error adding {member_dn} to {group_dn}: {e}")
-            return False
+            return self._add_member_to_group_on_conn(conn, group_dn, member_dn)
         finally:
             conn.unbind()
 
-    def remove_member_from_group(self, group_dn: str, member_dn: str) -> bool:
-        """Remove a member DN from an LDAP group."""
-        conn = self._get_connection()
+    def _remove_member_from_group_on_conn(
+        self, conn: Connection, group_dn: str, member_dn: str
+    ) -> bool:
         try:
-            members = self.get_group_members(group_dn)
+            members = self._get_group_members_on_conn(conn, group_dn)
             if member_dn not in members:
                 return True
             success = conn.modify(
@@ -378,24 +404,43 @@ class LDAPClient:
         except (LDAPNoSuchAttributeResult, Exception) as e:
             logger.warning(f"Error removing {member_dn} from {group_dn}: {e}")
             return False
+
+    def remove_member_from_group(self, group_dn: str, member_dn: str) -> bool:
+        """Remove a member DN from an LDAP group."""
+        conn = self._get_connection()
+        try:
+            return self._remove_member_from_group_on_conn(conn, group_dn, member_dn)
         finally:
             conn.unbind()
 
     def get_admins_and_mods(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Fetch all admins and mods with full attribute dictionaries."""
-        admin_dns = set(self.get_group_members(self.admin_group_dn))
-        mod_dns = set(self.get_group_members(self.mod_group_dn))
-        all_users = self.list_all_users()
+        conn = self._get_connection()
+        try:
+            admin_dns = {
+                d.strip().lower()
+                for d in self._get_group_members_on_conn(conn, self.admin_group_dn)
+                if isinstance(d, str)
+            }
+            mod_dns = {
+                d.strip().lower()
+                for d in self._get_group_members_on_conn(conn, self.mod_group_dn)
+                if isinstance(d, str)
+            }
+            all_users = self._list_all_users_on_conn(conn, include_roles=False)
+        finally:
+            conn.unbind()
 
         admins = []
         mods = []
 
         for u in all_users:
-            if u["dn"] in admin_dns:
+            dn_norm = u["dn"].strip().lower() if isinstance(u.get("dn"), str) else ""
+            if dn_norm in admin_dns:
                 u_copy = dict(u)
                 u_copy["role"] = "admin"
                 admins.append(u_copy)
-            elif u["dn"] in mod_dns:
+            elif dn_norm in mod_dns:
                 u_copy = dict(u)
                 u_copy["role"] = "mod"
                 mods.append(u_copy)
@@ -404,16 +449,19 @@ class LDAPClient:
 
     def get_players(self) -> List[Dict[str, Any]]:
         """Fetch all registered regular players in cn=wd_players (excluding staff)."""
-        admin_dns = set(self.get_group_members(self.admin_group_dn))
-        mod_dns = set(self.get_group_members(self.mod_group_dn))
-        staff_dns = admin_dns | mod_dns
+        conn = self._get_connection()
+        try:
+            admin_dns, mod_dns, player_dns = self._get_role_member_sets_on_conn(conn)
+            all_users = self._list_all_users_on_conn(conn, include_roles=False)
+        finally:
+            conn.unbind()
 
-        player_dns = set(self.get_group_members(self.player_group_dn))
-        all_users = self.list_all_users()
+        staff_dns = admin_dns | mod_dns
         players = []
 
         for u in all_users:
-            if u["dn"] in player_dns and u["dn"] not in staff_dns:
+            dn_norm = u["dn"].strip().lower() if isinstance(u.get("dn"), str) else ""
+            if dn_norm in player_dns and dn_norm not in staff_dns:
                 u_copy = dict(u)
                 u_copy["role"] = "player"
                 players.append(u_copy)
@@ -538,13 +586,13 @@ class LDAPClient:
         clean_ign = minecraft_name.strip()
         clean_uuid = minecraft_uuid.strip()
 
-        conn = self._get_connection()
         user_dn = f"uid={clean_user},{self.user_ou}"
         existing = self.get_user(clean_user)
         if not existing:
             logger.error(f"User {clean_user} not found in LDAP")
             return False
 
+        conn = self._get_connection()
         try:
             modifications = {}
             if "wdAccount" not in existing.get("objectClass", []):
@@ -570,10 +618,14 @@ class LDAPClient:
             return False
 
         user_dn = user["dn"]
-        s1 = self.remove_member_from_group(self.admin_group_dn, user_dn)
-        s2 = self.remove_member_from_group(self.mod_group_dn, user_dn)
-        s3 = self.remove_member_from_group(self.player_group_dn, user_dn)
-        return s1 and s2 and s3
+        conn = self._get_connection()
+        try:
+            s1 = self._remove_member_from_group_on_conn(conn, self.admin_group_dn, user_dn)
+            s2 = self._remove_member_from_group_on_conn(conn, self.mod_group_dn, user_dn)
+            s3 = self._remove_member_from_group_on_conn(conn, self.player_group_dn, user_dn)
+            return s1 and s2 and s3
+        finally:
+            conn.unbind()
 
     def set_password(self, username: str, new_password: str) -> bool:
         """Sets the userPassword attribute for an LDAP user."""
@@ -604,41 +656,21 @@ class LDAPClient:
             return False
 
         user_dn = f"uid={clean_user},{self.user_ou}"
-        # Strip group memberships first using remove_member_from_group (handles last member code 65 safely)
-        for grp in [self.admin_group, self.mod_group, self.player_group]:
-            try:
-                self.remove_member_from_group(grp, user_dn)
-            except Exception:
-                pass
-
         conn = self._get_connection()
         try:
+            # Strip group memberships first (handles last member code 65 safely)
+            for grp in [self.admin_group_dn, self.mod_group_dn, self.player_group_dn]:
+                try:
+                    self._remove_member_from_group_on_conn(conn, grp, user_dn)
+                except Exception:
+                    pass
+
             success = conn.delete(user_dn)
             if success:
                 logger.info(f"Deleted user {user_dn} from OpenLDAP.")
             return success
         except Exception as e:
             logger.error(f"Failed to delete {user_dn} from OpenLDAP: {e}")
-            return False
-        finally:
-            conn.unbind()
-
-    def clear_minecraft_info(self, username: str) -> bool:
-        """Clears minecraftName and minecraftUuid attributes."""
-        clean_user = sanitize_username(username)
-        user_dn = f"uid={clean_user},{self.user_ou}"
-        conn = self._get_connection()
-        try:
-            conn.modify(
-                user_dn,
-                {
-                    "minecraftName": [(MODIFY_DELETE, [])],
-                    "minecraftUuid": [(MODIFY_DELETE, [])],
-                },
-            )
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to clear Minecraft info for {clean_user}: {e}")
             return False
         finally:
             conn.unbind()

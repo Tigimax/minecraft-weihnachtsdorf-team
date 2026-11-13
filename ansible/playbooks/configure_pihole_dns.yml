@@ -26,20 +26,21 @@
     - name: Flush handlers to reload DNS immediately
       ansible.builtin.meta: flush_handlers
 
-    - name: Validate DNS resolution for Minecraft & SSO endpoints
-      ansible.builtin.command: "getent hosts {{ item }}"
+    - name: Validate DNS resolution against local Pi-hole (@127.0.0.1)
+      ansible.builtin.command: "dig @127.0.0.1 +short {{ item.host }}"
       loop:
-        - mc-node1.net
-        - mc-main.net
-        - idp-01.net
-        - auth.tigimax.mooo.com
-        - panel.tigimax.mooo.com
-        - map.tigimax.mooo.com
-        - plan.tigimax.mooo.com
-        - tigimax.mooo.com
+        - { host: 'mc-node1.net', expected: '192.168.1.148' }
+        - { host: 'mc-main.net', expected: '192.168.1.149' }
+        - { host: 'idp-01.net', expected: '192.168.1.150' }
+        - { host: 'auth.tigimax.mooo.com', expected: '192.168.1.174' }
+        - { host: 'panel.tigimax.mooo.com', expected: '192.168.1.174' }
+        - { host: 'map.tigimax.mooo.com', expected: '192.168.1.174' }
+        - { host: 'plan.tigimax.mooo.com', expected: '192.168.1.174' }
+        - { host: 'play.tigimax.mooo.com', expected: '192.168.1.174' }
+        - { host: 'tigimax.mooo.com', expected: '192.168.1.174' }
       register: dns_check
       changed_when: false
-      failed_when: dns_check.rc != 0
+      failed_when: dns_check.rc != 0 or (dns_check.stdout | trim) != item.expected
 
   handlers:
     - name: Reload Pi-hole DNS

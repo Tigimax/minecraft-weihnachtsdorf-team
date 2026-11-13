@@ -274,6 +274,130 @@ class TestMinecraftSyncLogic(unittest.TestCase):
             self.assertFalse(res)
             mock_conn.assert_not_called()
 
+    def test_sync_all_does_not_rewhitelist_banned_players(self):
+        """Active bans in applications.db must prevent sync_all() from whitelisting banned users and revoke existing whitelist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            self.client.state_file = tmp_path / "mc_sync_state.json"
+            self.client.project_state_file = tmp_path / "project_state.json"
+            self.client.mod_grants_file = tmp_path / "mod_grants.json"
+            self.client.set_project_launched(True)
+
+            # Seed prior state where banned player was whitelisted
+            self.client._save_state({
+                "banned_user": {
+                    "role": "player",
+                    "ign": "BannedPlayer",
+                    "uuid": "11111111-1111-1111-1111-111111111111",
+                    "whitelisted": True,
+                }
+            })
+
+            self.client.ldap = MagicMock()
+            self.client.ldap.get_admins_and_mods.return_value = (
+                [
+                    {
+                        "uid": "banned_admin",
+                        "minecraftName": "BannedAdmin",
+                        "minecraftUuid": "22222222-2222-2222-2222-222222222222",
+                        "discordId": "9001",
+                    }
+                ],
+                [],
+            )
+            self.client.ldap.get_players.return_value = [
+                {
+                    "uid": "banned_user",
+                    "minecraftName": "BannedPlayer",
+                    "minecraftUuid": "11111111-1111-1111-1111-111111111111",
+                    "discordId": "9002",
+                },
+                {
+                    "uid": "clean_user",
+                    "minecraftName": "CleanPlayer",
+                    "minecraftUuid": "33333333-3333-3333-3333-333333333333",
+                    "discordId": "9003",
+                },
+            ]
+            self.client.execute_commands = MagicMock(return_value=True)
+
+            active_bans = [
+                {"discord_id": "9001", "minecraft_ign": None},
+                {"discord_id": None, "minecraft_ign": "bannedplayer"},
+            ]
+
+            with patch("wd_identity.applications.get_all_bans", return_value=active_bans):
+                res = self.client.sync_all(force=True)
+
+            executed = self.client.execute_commands.call_args[0][0]
+            self.assertIn("whitelist add CleanPlayer", executed)
+            self.assertNotIn("whitelist add BannedPlayer", executed)
+            self.assertNotIn("whitelist add BannedAdmin", executed)
+            self.assertIn("whitelist remove BannedPlayer", executed)
+
+            state = self.client._load_state()
+            self.assertFalse(state["banned_user"]["whitelisted"])
+            self.assertFalse(state["banned_admin"]["whitelisted"])
+            self.assertTrue(state["clean_user"]["whitelisted"])
+            self.assertEqual(len(res["revoked_users"]), 1)
+            self.assertEqual(res["revoked_users"][0]["uid"], "banned_user")
+
+    def test_persistent_file_lock_is_reentrant_without_flock_self_deadlock(self):
+        """Re-entering _persistent_file_lock on the same path (even when parent dir is new) must not self-deadlock."""
+        from wd_identity.mc_sync import _persistent_file_lock
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / "nested_locks" / "reentrant.lock"
+            with _persistent_file_lock(lock_path):
+                with _persistent_file_lock(lock_path):
+                    self.assertTrue(lock_path.exists())
+                    try:
+                        import fcntl
+                        with open(lock_path, "a+", encoding="utf-8") as probe_fd:
+                            with self.assertRaises(BlockingIOError):
+                                fcntl.flock(probe_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except ImportError:
+                        pass
+
+            # After outermost exit, lock must be released
+            try:
+                import fcntl
+                with open(lock_path, "a+", encoding="utf-8") as probe_fd:
+                    fcntl.flock(probe_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(probe_fd.fileno(), fcntl.LOCK_UN)
+            except ImportError:
+                pass
+
+    def test_sync_all_with_expired_mod_grant_does_not_deadlock(self):
+        """sync_all() expiring a mod build grant inside get_active_mod_grants() completes cleanly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            self.client.state_file = tmp_path / "mc_sync_state.json"
+            self.client.project_state_file = tmp_path / "project_state.json"
+            self.client.mod_grants_file = tmp_path / "mod_grants.json"
+            self.client.set_project_launched(False)
+            self.client._save_mod_grants({
+                "mod_one": {
+                    "uid": "mod_one",
+                    "ign": "ModOne",
+                    "expires_at": "2020-01-01T00:00:00+00:00",
+                }
+            })
+
+            self.client.ldap = MagicMock()
+            self.client.ldap.get_admins_and_mods.return_value = (
+                [],
+                [{"uid": "mod_one", "minecraftName": "ModOne", "minecraftUuid": "44444444-4444-4444-4444-444444444444"}],
+            )
+            self.client.ldap.get_players.return_value = []
+            self.client.execute_commands = MagicMock(return_value=True)
+
+            with patch("wd_identity.applications.get_all_bans", return_value=[]):
+                res = self.client.sync_all(force=True)
+
+            self.assertTrue(res["success"])
+            self.assertEqual(self.client.get_active_mod_grants(), {})
+
 
 if __name__ == "__main__":
     unittest.main()

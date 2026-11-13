@@ -9,7 +9,8 @@ CREATE DATABASE IF NOT EXISTS mc_plan CHARACTER SET utf8mb4 COLLATE utf8mb4_unic
 -- Users (Replace placeholder passwords before executing)
 CREATE USER IF NOT EXISTS 'pterodactyl'@'127.0.0.1' IDENTIFIED BY 'CHANGE_ME_PTERO_DB_PASSWORD';
 CREATE USER IF NOT EXISTS 'pterodactyl'@'localhost' IDENTIFIED BY 'CHANGE_ME_PTERO_DB_PASSWORD';
-CREATE USER IF NOT EXISTS 'minecraft'@'192.168.1.%' IDENTIFIED BY 'CHANGE_ME_MC_DB_PASSWORD';
+CREATE USER IF NOT EXISTS 'minecraft'@'192.168.1.149' IDENTIFIED BY 'CHANGE_ME_MC_DB_PASSWORD';
+CREATE USER IF NOT EXISTS 'minecraft'@'192.168.1.148' IDENTIFIED BY 'CHANGE_ME_MC_DB_PASSWORD';
 CREATE USER IF NOT EXISTS 'minecraft'@'localhost' IDENTIFIED BY 'CHANGE_ME_MC_DB_PASSWORD';
 CREATE USER IF NOT EXISTS 'minecraft'@'127.0.0.1' IDENTIFIED BY 'CHANGE_ME_MC_DB_PASSWORD';
 
@@ -17,9 +18,13 @@ CREATE USER IF NOT EXISTS 'minecraft'@'127.0.0.1' IDENTIFIED BY 'CHANGE_ME_MC_DB
 GRANT ALL PRIVILEGES ON panel.* TO 'pterodactyl'@'127.0.0.1' WITH GRANT OPTION;
 GRANT ALL PRIVILEGES ON panel.* TO 'pterodactyl'@'localhost' WITH GRANT OPTION;
 
-GRANT ALL PRIVILEGES ON mc_luckperms.* TO 'minecraft'@'192.168.1.%';
-GRANT ALL PRIVILEGES ON mc_coreprotect.* TO 'minecraft'@'192.168.1.%';
-GRANT ALL PRIVILEGES ON mc_plan.* TO 'minecraft'@'192.168.1.%';
+GRANT ALL PRIVILEGES ON mc_luckperms.* TO 'minecraft'@'192.168.1.149';
+GRANT ALL PRIVILEGES ON mc_coreprotect.* TO 'minecraft'@'192.168.1.149';
+GRANT ALL PRIVILEGES ON mc_plan.* TO 'minecraft'@'192.168.1.149';
+
+GRANT ALL PRIVILEGES ON mc_luckperms.* TO 'minecraft'@'192.168.1.148';
+GRANT ALL PRIVILEGES ON mc_coreprotect.* TO 'minecraft'@'192.168.1.148';
+GRANT ALL PRIVILEGES ON mc_plan.* TO 'minecraft'@'192.168.1.148';
 
 GRANT ALL PRIVILEGES ON mc_luckperms.* TO 'minecraft'@'localhost';
 GRANT ALL PRIVILEGES ON mc_coreprotect.* TO 'minecraft'@'localhost';

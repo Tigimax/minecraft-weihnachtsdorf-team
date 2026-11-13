@@ -125,6 +125,7 @@ def create_user_invitation(
     # 4. Configure OpenLDAP record
     ldap = LDAPClient()
     authentik = AuthentikClient()
+    existed_before = ldap.get_user(clean_username) is not None
 
     try:
         ldap.create_or_update_user(
@@ -224,4 +225,5 @@ def create_user_invitation(
         "minecraft_uuid": mc_uuid,
         "invite_link": invite_link,
         "dm_sent": dm_sent,
+        "existed_before": existed_before,
     }

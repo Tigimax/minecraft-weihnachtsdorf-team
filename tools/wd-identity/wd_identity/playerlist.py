@@ -4,6 +4,7 @@ Maintains a beautifully designed, pinned participant embed in #spielerliste.
 Automatically updates whenever users complete onboarding, are promoted, demoted, or deleted.
 """
 
+import asyncio
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -15,6 +16,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import urllib.request
 import urllib.error
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 import discord
 
 from wd_identity.config import settings
@@ -23,10 +29,18 @@ from wd_identity.mc_sync import MinecraftSyncClient
 
 logger = logging.getLogger(__name__)
 
-STATE_FILE = Path("/var/lib/wd-identity/playerlist_state.json")
+_DEFAULT_STATE_FILE = settings.DATA_DIR / "playerlist_state.json"
+STATE_FILE = _DEFAULT_STATE_FILE
 
 _member_cache: Dict[str, str] = {}
 _member_cache_time: float = 0.0
+
+
+def _resolve_state_file() -> Path:
+    if STATE_FILE != _DEFAULT_STATE_FILE:
+        return STATE_FILE
+    data_dir = getattr(settings, "DATA_DIR", Path("/opt/wd-identity/data"))
+    return Path(data_dir) / "playerlist_state.json"
 
 
 def _get_headers() -> Dict[str, str]:
@@ -39,22 +53,57 @@ def _get_headers() -> Dict[str, str]:
 
 
 def load_state() -> Dict[str, Any]:
-    if STATE_FILE.exists():
-        try:
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to read playerlist state: {e}")
+    candidates = [_resolve_state_file(), Path("./data/playerlist_state.json")]
+    for path in candidates:
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to read playerlist state from {path}: {e}")
     return {}
 
 
-def save_state(state: Dict[str, Any]) -> None:
+def _atomic_write_json(file_path: Path, data: Dict[str, Any]) -> None:
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = file_path.parent / f".{file_path.name}.lock"
+    tmp_path = file_path.parent / f".{file_path.name}.tmp.{os.getpid()}_{time.time_ns()}"
+    lock_fd = None
     try:
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f, indent=2)
+        if fcntl is not None:
+            lock_fd = open(lock_path, "a+", encoding="utf-8")
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, file_path)
+    finally:
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                lock_fd.close()
+            except Exception:
+                pass
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+
+
+def save_state(state: Dict[str, Any]) -> None:
+    target = _resolve_state_file()
+    try:
+        _atomic_write_json(target, state)
     except Exception as e:
-        logger.warning(f"Failed to save playerlist state: {e}")
+        logger.warning(f"Failed to save playerlist state to {target}: {e}")
+        fallback = Path("./data/playerlist_state.json")
+        if fallback != target:
+            try:
+                _atomic_write_json(fallback, state)
+            except Exception as fe:
+                logger.warning(f"Failed to save playerlist state to fallback {fallback}: {fe}")
 
 
 def get_guild_member_map() -> Dict[str, str]:
@@ -92,13 +141,17 @@ def get_guild_member_map() -> Dict[str, str]:
     return mapping
 
 
-def _format_entry(u: Dict[str, Any], role: str, is_live: bool, member_map: Dict[str, str]) -> str:
+def _format_entry(
+    u: Dict[str, Any],
+    role: str,
+    is_live: bool,
+    member_map: Dict[str, str],
+    compact: bool = False,
+) -> str:
     ign = u.get("minecraftName")
     uid = u.get("uid") or ""
     d_name = u.get("discordName") or uid
     d_id = u.get("discordId") or member_map.get(d_name.lower())
-
-    tag = f"<@{d_id}>" if d_id else f"`@{d_name}`"
 
     if role == "admin":
         icon = "🛡️"
@@ -106,6 +159,13 @@ def _format_entry(u: Dict[str, Any], role: str, is_live: bool, member_map: Dict[
         icon = "⚔️"
     else:
         icon = "⛄"
+
+    if compact:
+        if ign:
+            return f"{icon} **{ign}**"
+        return f"{icon} **{uid}** *(Einrichtung)*"
+
+    tag = f"<@{d_id}>" if d_id else f"`@{d_name}`"
 
     if ign:
         line = f"• {icon} **{ign}** • {tag}"
@@ -115,12 +175,17 @@ def _format_entry(u: Dict[str, Any], role: str, is_live: bool, member_map: Dict[
     return line
 
 
-def _chunk_lines(lines: List[str], max_items: int = 25, max_chars: int = 1000) -> List[List[str]]:
+def _chunk_lines(
+    lines: List[str],
+    max_items: int = 25,
+    max_chars: int = 1000,
+    sep_len: int = 1,
+) -> List[List[str]]:
     chunks: List[List[str]] = []
     current: List[str] = []
     current_len = 0
     for line in lines:
-        line_len = len(line) + (1 if current else 0)
+        line_len = len(line) + (sep_len if current else 0)
         if current and (len(current) >= max_items or current_len + line_len > max_chars):
             chunks.append(current)
             current = [line]
@@ -131,6 +196,66 @@ def _chunk_lines(lines: List[str], max_items: int = 25, max_chars: int = 1000) -
     if current:
         chunks.append(current)
     return chunks
+
+
+def _calc_embed_chars(embed_dict: Dict[str, Any]) -> int:
+    total = len(embed_dict.get("title") or "")
+    total += len(embed_dict.get("description") or "")
+    total += len((embed_dict.get("footer") or {}).get("text") or "")
+    total += len((embed_dict.get("author") or {}).get("name") or "")
+    for field in embed_dict.get("fields", []):
+        total += len(field.get("name") or "") + len(field.get("value") or "")
+    return total
+
+
+def _enforce_embed_budget(embed_dict: Dict[str, Any], max_total_chars: int = 5800) -> Dict[str, Any]:
+    """Caps embed fields and characters so the embed strictly stays under Discord's 6000-char and 25-field limits."""
+    fields = list(embed_dict.get("fields", []))
+    if _calc_embed_chars(embed_dict) <= max_total_chars and len(fields) <= 25:
+        return embed_dict
+
+    fixed_chars = (
+        len(embed_dict.get("title") or "")
+        + len(embed_dict.get("description") or "")
+        + len((embed_dict.get("footer") or {}).get("text") or "")
+        + len((embed_dict.get("author") or {}).get("name") or "")
+    )
+    budget = max(max_total_chars - fixed_chars, 0)
+
+    kept_fields: List[Dict[str, Any]] = []
+    used = 0
+    suffix = "\n*… weitere Spieler gekürzt (Discord-Limit)*"
+
+    for field in fields:
+        name = (field.get("name") or "")[:256]
+        value = (field.get("value") or "")[:1024]
+        field_len = len(name) + len(value)
+
+        if len(kept_fields) >= 25:
+            break
+
+        if used + field_len <= budget:
+            kept_fields.append({**field, "name": name, "value": value})
+            used += field_len
+        else:
+            avail = budget - used - len(name) - len(suffix)
+            if avail > 20 and len(kept_fields) < 25:
+                truncated = value[:avail].rsplit("\n", 1)[0].rstrip(", ")
+                if not truncated:
+                    truncated = value[:avail].rstrip(", ")
+                kept_fields.append({**field, "name": name, "value": f"{truncated}{suffix}"})
+            elif kept_fields:
+                last = kept_fields[-1]
+                last_val = last["value"]
+                if len(last_val) + len(suffix) <= 1024 and used + len(suffix) <= budget:
+                    last["value"] = f"{last_val}{suffix}"
+                else:
+                    cut = max(len(last_val) - len(suffix), 0)
+                    last["value"] = f"{last_val[:cut].rstrip()}{suffix}"
+            break
+
+    embed_dict["fields"] = kept_fields[:25]
+    return embed_dict
 
 
 def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, Any], str]:
@@ -164,34 +289,40 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
     }
     content_hash = hashlib.sha256(json.dumps(raw_hash_data, sort_keys=True).encode()).hexdigest()
 
-    admin_lines = [_format_entry(a, "admin", is_live, member_map) for a in admins_sorted]
-    mod_lines = [_format_entry(m, "mod", is_live, member_map) for m in mods_sorted]
-    player_lines = [_format_entry(p, "player", is_live, member_map) for p in players_sorted]
-
     total_count = len(admins) + len(mods) + len(players)
+    use_compact = total_count > 70
+
+    admin_lines = [_format_entry(a, "admin", is_live, member_map, compact=use_compact) for a in admins_sorted]
+    mod_lines = [_format_entry(m, "mod", is_live, member_map, compact=use_compact) for m in mods_sorted]
+    player_lines = [_format_entry(p, "player", is_live, member_map, compact=use_compact) for p in players_sorted]
+
+    sep = ", " if use_compact else "\n"
+    sep_len = len(sep)
+    chunk_max_items = 60 if use_compact else 25
+
     status_text = "🟢 Live auf dem Server • Whitelist aktiv" if is_live else "🟡 Pre-Launch (Vorbereitung) • Whitelist gestaged"
 
     fields: List[Dict[str, Any]] = []
 
     # 1. Staff / Admins
     if admin_lines:
-        admin_chunks = _chunk_lines(admin_lines, max_items=25, max_chars=1000)
+        admin_chunks = _chunk_lines(admin_lines, max_items=chunk_max_items, max_chars=1000, sep_len=sep_len)
         for i, chunk in enumerate(admin_chunks):
             title = f"👑 Projektleitung & Administration ({len(admins_sorted)})" if i == 0 else "\u200b"
             fields.append({
                 "name": title,
-                "value": "\n".join(chunk),
+                "value": sep.join(chunk),
                 "inline": False,
             })
 
     # 2. Moderation (if any)
     if mod_lines:
-        mod_chunks = _chunk_lines(mod_lines, max_items=25, max_chars=1000)
+        mod_chunks = _chunk_lines(mod_lines, max_items=chunk_max_items, max_chars=1000, sep_len=sep_len)
         for i, chunk in enumerate(mod_chunks):
             title = f"⚔️ Moderation ({len(mods_sorted)})" if i == 0 else "\u200b"
             fields.append({
                 "name": title,
-                "value": "\n".join(chunk),
+                "value": sep.join(chunk),
                 "inline": False,
             })
 
@@ -203,13 +334,13 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
             "inline": False,
         })
     else:
-        player_chunks = _chunk_lines(player_lines, max_items=25, max_chars=1000)
+        player_chunks = _chunk_lines(player_lines, max_items=chunk_max_items, max_chars=1000, sep_len=sep_len)
         total = len(players_sorted)
         for i, chunk in enumerate(player_chunks):
             title = f"🎮 Angemeldete Spieler ({total})" if i == 0 else "\u200b"
             fields.append({
                 "name": title,
-                "value": "\n".join(chunk),
+                "value": sep.join(chunk),
                 "inline": False,
             })
 
@@ -242,6 +373,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
+    _enforce_embed_budget(embed_dict, max_total_chars=5800)
     return embed_dict, content_hash
 
 
@@ -384,8 +516,8 @@ async def sync_playerlist_bot(bot: discord.Client, force: bool = False) -> bool:
         if m.nick:
             member_map[m.nick.lower()] = uid
 
-    embed, content_hash = build_discord_embed(member_map)
-    state = load_state()
+    embed, content_hash = await asyncio.to_thread(build_discord_embed, member_map)
+    state = await asyncio.to_thread(load_state)
 
     if not force and state.get("last_hash") == content_hash and state.get("message_id"):
         return True
@@ -419,7 +551,7 @@ async def sync_playerlist_bot(bot: discord.Client, force: bool = False) -> bool:
             state["channel_id"] = str(ch.id)
             state["last_hash"] = content_hash
             state["updated_at"] = datetime.now(timezone.utc).isoformat()
-            save_state(state)
+            await asyncio.to_thread(save_state, state)
             return True
         except Exception as e:
             logger.error(f"Failed to edit playerlist message via bot: {e}")
@@ -432,7 +564,7 @@ async def sync_playerlist_bot(bot: discord.Client, force: bool = False) -> bool:
         state["channel_id"] = str(ch.id)
         state["last_hash"] = content_hash
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
-        save_state(state)
+        await asyncio.to_thread(save_state, state)
 
         # Cleanup pin notification
         async for m in ch.history(limit=5):

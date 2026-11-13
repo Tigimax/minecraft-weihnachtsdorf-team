@@ -144,26 +144,31 @@ void async function() {
     chatInput.addEventListener("keydown", (e) => {
         e.stopPropagation();
         if (e.key === "Enter") {
+            const trimmed = chatInput.value.trim();
+            if (!trimmed || !currentMapId) return;
             fetch("/addons/chat/" + currentMapId + "/send", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    message: chatInput.value
+                    message: trimmed
                 })
-            });
+            }).catch((err) => console.error("[Chat/error] Failed to send message", err));
             chatInput.value = "";
         }
     });
 
     window.addEventListener("keydown", (e) => {
-        if (e.key === "t") {
-            toggleChat();
-            if (!chatExpanded) {
-                toggleExpanded();
-                chatInput.focus();
+        if (e.key === "t" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const activeTag = document.activeElement?.tagName;
+            if (activeTag === "INPUT" || activeTag === "TEXTAREA" || document.activeElement?.isContentEditable) {
+                return;
             }
+            e.preventDefault();
+            if (!chatIsOpen) toggleChat();
+            if (!chatExpanded) toggleExpanded();
+            chatInput.focus();
         }
     });
 
@@ -180,7 +185,9 @@ void async function() {
         setTimeout(() => {
             pc.classList.add("fade-out");
             setTimeout(() => {
-                messagesPopup.removeChild(pc);
+                if (pc.parentNode === messagesPopup) {
+                    messagesPopup.removeChild(pc);
+                }
                 if (messagesPopup.children.length === 0 && !chatExpanded) {
                     root.classList.add("no-messages");
                 }
@@ -222,7 +229,9 @@ void async function() {
         setTimeout(() => {
             pc.classList.add("fade-out");
             setTimeout(() => {
-                messagesPopup.removeChild(pc);
+                if (pc.parentNode === messagesPopup) {
+                    messagesPopup.removeChild(pc);
+                }
                 if (messagesPopup.children.length === 0 && !chatExpanded) {
                     root.classList.add("no-messages");
                 }
@@ -244,9 +253,12 @@ void async function() {
         if (!mapId) return;
         currentMapId = mapId;
         eventSource = new EventSource("/addons/chat/" + mapId + "/stream");
-        eventSource.onerror = () => {
-            setupChatLoggedOut();
-            if (chatIsOpen) toggleChat();
+        eventSource.onerror = (err) => {
+            if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+                console.warn("[Chat/warn] EventSource connection closed", err);
+            } else {
+                console.debug("[Chat/debug] EventSource transient error, reconnecting...", err);
+            }
         };
         eventSource.onmessage = (event) => {
             const data = JSON.parse(event.data);

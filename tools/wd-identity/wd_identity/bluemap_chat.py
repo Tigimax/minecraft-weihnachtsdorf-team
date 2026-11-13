@@ -117,15 +117,18 @@ def resolve_minecraft_player_from_authentik(authentik_user: str) -> Tuple[str, s
 
 async def broadcast_bluemap_event(event_dict: Dict[str, Any]) -> None:
     """Dispatches a chat, join, quit, or death event to all connected BlueMap web clients."""
-    dead_queues = []
-    for q in _active_sse_queues:
+    for q in list(_active_sse_queues):
         try:
             q.put_nowait(event_dict)
         except asyncio.QueueFull:
-            dead_queues.append(q)
-    for dq in dead_queues:
-        if dq in _active_sse_queues:
-            _active_sse_queues.remove(dq)
+            try:
+                q.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                q.put_nowait(event_dict)
+            except asyncio.QueueFull:
+                pass
 
 
 @router.get("/addons/integration/whoami")

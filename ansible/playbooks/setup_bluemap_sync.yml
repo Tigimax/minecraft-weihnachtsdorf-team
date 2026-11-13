@@ -8,6 +8,11 @@
     timer_src: "{{ playbook_dir }}/../../scripts/bluemap-world-sync.timer"
 
   tasks:
+    - name: Ensure rsync is installed
+      ansible.builtin.apt:
+        name: rsync
+        state: present
+
     - name: Ensure BlueMap destination directory exists
       ansible.builtin.file:
         path: /opt/bluemap/world

@@ -1,0 +1,14 @@
+# Paper World Defaults Configuration for Weihnachtsdorf 7
+# Lean tuned defaults for 80-120 concurrent players at snowy spawn village
+
+_version: 31
+
+chunks:
+  max-auto-save-chunks-per-tick: 8
+
+collisions:
+  max-entity-collisions: 2
+
+entities:
+  spawning:
+    per-player-mob-spawns: true

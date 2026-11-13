@@ -118,8 +118,9 @@ Wenn ein nicht authentifizierter Benutzer ein Portal aufruft, sendet Nginx einen
    ```
 2. **Wings WebSocket Konsolen-Bypass**:
    Die interaktiven Serverkonsolen der UUIDs `8651ca23` (Velocity) und `a173d02e` (Purpur) leiten WebSocket-Verbindungen direkt an Port 8080 der jeweiligen Node weiter (`auth_request off;`).
-3. **BlueMap HTTP HEAD Rewriting (`configs/nginx/map.conf`)**:
-   Der integrierte BlueMap Webserver unterstützt nur `GET` und `POST` und quittiert `HEAD`-Requests mit HTTP 400. Nginx wandelt client-seitige HEAD-Requests via `$bluemap_method` transparent in ein upstream-`GET` um:
+3. **BlueMap HTTP HEAD Rewriting (`configs/nginx/map.conf`) & WebSocket Upgrade Map (`configs/nginx/websocket.conf`)**:
+   - `configs/nginx/websocket.conf` muss unter `/etc/nginx/conf.d/websocket.conf` (im `http {}`-Kontext) liegen, damit die Variable `$connection_upgrade` in allen VHosts (`panel.conf`, `map.conf`, `planka.conf`, `pterodactyl-wings.conf`) verfügbar ist.
+   - Der integrierte BlueMap Webserver unterstützt nur `GET` und `POST` und quittiert `HEAD`-Requests mit HTTP 400. Nginx wandelt client-seitige HEAD-Requests via `$bluemap_method` transparent in ein upstream-`GET` um:
    ```nginx
    map $request_method $bluemap_method {
        HEAD GET;

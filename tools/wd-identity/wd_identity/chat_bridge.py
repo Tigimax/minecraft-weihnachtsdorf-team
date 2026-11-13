@@ -178,9 +178,13 @@ def _lookup_player_by_minecraft(ign: str, uuid: str = "") -> Dict[str, Any]:
         # 2. Fallbacks if user not found (e.g. tigimax vs tigimax_player or by uid)
         lower_ign = clean_ign.lower()
         if not user:
-            user = ldap.get_user(f"{lower_ign}_player")
+            candidate = ldap.get_user(f"{lower_ign}_player")
+            if candidate and (candidate.get("minecraftName") or "").lower() == lower_ign:
+                user = candidate
         if not user:
-            user = ldap.get_user(lower_ign)
+            candidate = ldap.get_user(lower_ign)
+            if candidate and (candidate.get("minecraftName") or "").lower() == lower_ign:
+                user = candidate
 
         if not user:
             return default_res
@@ -229,6 +233,21 @@ def _lookup_player_by_minecraft(ign: str, uuid: str = "") -> Dict[str, Any]:
         return default_res
 
 
+async def _request_with_429_retry(request_fn, *args, max_attempts: int = 3, **kwargs):
+    """Executes an async httpx request with up to `max_attempts` retries on HTTP 429."""
+    resp = None
+    for attempt in range(max_attempts):
+        resp = await request_fn(*args, **kwargs)
+        if resp.status_code != 429 or attempt == max_attempts - 1:
+            return resp
+        try:
+            retry_after = min(float(resp.json().get("retry_after", 1)), 5.0)
+        except Exception:
+            retry_after = 1.0
+        await asyncio.sleep(max(retry_after, 0.0))
+    return resp
+
+
 async def get_discord_avatar_url(client: httpx.AsyncClient, discord_id: str) -> str:
     """
     Fetches the Discord avatar URL for a user (Guild member avatar, User avatar, or default embed avatar).
@@ -263,7 +282,8 @@ async def get_discord_avatar_url(client: httpx.AsyncClient, discord_id: str) -> 
     try:
         # Try guild member avatar first
         if guild_id:
-            res = await client.get(
+            res = await _request_with_429_retry(
+                client.get,
                 f"https://discord.com/api/v10/guilds/{guild_id}/members/{did}",
                 headers=headers,
             )
@@ -284,7 +304,8 @@ async def get_discord_avatar_url(client: httpx.AsyncClient, discord_id: str) -> 
                     return default_avatar
 
         # Fallback to direct user endpoint
-        u_res = await client.get(
+        u_res = await _request_with_429_retry(
+            client.get,
             f"https://discord.com/api/v10/users/{did}",
             headers=headers,
         )
@@ -347,14 +368,7 @@ async def _send_event_to_webhook(client: httpx.AsyncClient, event: dict) -> None
             "allowed_mentions": {"parse": []},
         }
 
-        resp = await client.post(webhook_url, json=payload)
-        if resp.status_code == 429:
-            try:
-                retry_after = min(float(resp.json().get("retry_after", 1)), 5.0)
-            except Exception:
-                retry_after = 1.0
-            await asyncio.sleep(retry_after)
-            resp = await client.post(webhook_url, json=payload)
+        resp = await _request_with_429_retry(client.post, webhook_url, json=payload)
 
         if resp.status_code in (401, 403, 404):
             _webhook_cache.pop(chan_id, None)
@@ -398,8 +412,9 @@ async def enqueue_to_discord(event: dict) -> None:
         return
 
     global _worker_task
+    loop = asyncio.get_running_loop()
     q = _get_queue()
-    if _worker_task is None or _worker_task.done():
+    if _worker_task is None or _worker_task.done() or _worker_task.get_loop() is not loop:
         _worker_task = asyncio.create_task(_discord_worker_loop())
 
     if q.full():
@@ -422,6 +437,7 @@ def clean_discord_text(message: Any) -> str:
     """
     Cleans a Discord message:
     - Strips custom emojis (<:name:id> -> :name:)
+    - Strips Minecraft section sign (§) formatting codes
     - Converts newlines to spaces
     - Appends [Bild] for attachments / stickers
     - Truncates to 256 characters
@@ -429,6 +445,8 @@ def clean_discord_text(message: Any) -> str:
     text = getattr(message, "clean_content", "") or ""
     # Convert custom discord emojis <:name:id> and animated <a:name:id> to :name:
     text = re.sub(r"<a?:(\w+):\d+>", r":\1:", text)
+    # Strip Minecraft section formatting codes (§)
+    text = text.replace("§", "")
     # Convert newlines to spaces
     text = text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
     text = text.strip()
@@ -486,6 +504,13 @@ def resolve_active_player(discord_id: str) -> Optional[Tuple[str, str]]:
 
 def _lookup_active_player(discord_id: str) -> Optional[Tuple[str, str]]:
     """Internal LDAP lookup for active player verification."""
+    try:
+        from wd_identity import applications
+        if applications.get_user_status(discord_id).get("is_banned"):
+            return None
+    except Exception as e:
+        logger.warning(f"Failed to check ban status for {discord_id}: {e}")
+
     try:
         ldap = LDAPClient()
         user = ldap.search_by_discord(discord_id)
@@ -606,7 +631,7 @@ def chunk_code_blocks(lines: List[str], limit: int = 1900) -> List[str]:
     max_line_len = max(limit - 8, 1)
 
     for raw_line in lines:
-        line = raw_line.rstrip("\r\n")
+        line = raw_line.rstrip("\r\n").replace("```", "'''")
         if len(line) > max_line_len:
             line = line[:max_line_len]
 

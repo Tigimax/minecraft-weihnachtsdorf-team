@@ -68,7 +68,7 @@ flowchart TD
     end
 
     subgraph main["mc-main (VM 120, 192.168.1.149 auf pnode02)"]
-        PUR[Purpur 26.3 · Java 25 LTS<br/>11 GB Heap · Aikar Flags<br/>Tectonic + SnowyWorld Datapacks]
+        PUR[Purpur 26.3 · Java 25 LTS<br/>11 GB Heap · Aikar Flags<br/>29 Server-Datapacks]
         PLAN[Plan Analytics :8804]
         WINGS2[Wings Node 2 Daemon :8080]
     end
@@ -97,7 +97,7 @@ Alle Spieler-, Moderatoren- und Administratoren-Berechtigungen werden zentral ü
 |---|---|---|
 | **`#📋admin-anträge`** | Antragsprüfung für Admins | Interaktive Prüfung von Bewerbungen & Entbannungen (`[✅ Annehmen]`, `[❌ Ablehnen & Sperre]`) |
 | **`#✉admin-einladungen`** | Manuelle Einladungs-Zentrale | Generierung von 24h Authentik-Registrierungslinks (Admin-Einladungen nur für Discord-Admins) |
-| **`#🎛admin-steuerung`** | Admin-Command-Center | Interaktives Steuerungs-Panel mit 26 Slash-Befehlen zur Server- & Spielerverwaltung |
+| **`#🎛admin-steuerung`** | Admin-Command-Center | Interaktives Steuerungs-Panel mit 34 Slash-Befehlen (inkl. Aliase) zur Server- & Spielerverwaltung |
 | **`#📜admin-logs`** | Zentrales Audit-Log | Echtzeit-Protokollierung aller Bewerbungen, Entbannungen, Leaves, Kicks und Server-Events |
 | **`#💻ingame-konsole`** | Live-Admin-Konsole | 2s Log-Streaming, ANSI-/VT100-Filterung & direkte Befehlsausführung (mit Sicherheits-Blacklist) |
 | **`#💬ingame-chat`** | Öffentlicher Chat-Spiegel | Bidirektionale Bridge MC ↔ Discord ↔ BlueMap mit Rangfarben (aktiv nach `/projekt-start`) |
@@ -175,7 +175,7 @@ ansible-playbook -i ansible/inventory.ini ansible/playbooks/<PLAYBOOK>.yml
 │   ├── pihole/             # custom.list (Single Source of Truth für DNS)
 │   ├── purpur/             # purpur.yml, paper-global.yml, server.properties
 │   └── velocity/           # velocity.toml & voicechat-proxy.properties
-├── datapacks/              # tectonic.zip · snowyworld.zip (100% Schneelandschaft)
+├── datapacks/              # 29 Server-Datapacks (u. a. weihnachtsdorf-deko.zip, furnicraft.zip, structory.zip)
 ├── docs/                   # Architektur-, Netzwerk-, Betriebshandbücher & Reports
 ├── scripts/                # Provisionierung, BlueMap-World-Sync (Timer/Service)
 ├── tools/wd-identity/      # FastAPI-Backend, Discord-Bot, CLI (wd-admin), Tests
@@ -185,7 +185,7 @@ ansible-playbook -i ansible/inventory.ini ansible/playbooks/<PLAYBOOK>.yml
 │   │   ├── invitations.py  # Authentik-Einladungs- & Validierungslogik
 │   │   ├── playerlist.py   # Teilnehmerlisten-Aggregator & Sync (#📝teilnehmerliste)
 │   │   ├── applications.py # Bewerbungs- & Entbannungsantrags-Lifecycle (SQLite)
-│   │   ├── discord_bot.py  # WHD Privileges Discord Bot & 24 Slash Commands
+│   │   ├── discord_bot.py  # WHD Privileges Discord Bot & 34 Slash Commands (inkl. Aliase)
 │   │   ├── mc_sync.py      # Wings API Client, Telemetrie, TPS & RCON Broadcast
 │   │   └── cli.py          # wd-admin CLI Suite
 ```

@@ -51,57 +51,60 @@ def init_db(force: bool = False, db_path: Optional[Path] = None):
     if not force and path_key in _initialized_dbs and target_path.exists():
         return
     conn = get_connection(target_path)
-    with conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS applications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                discord_id TEXT NOT NULL,
-                discord_username TEXT NOT NULL,
-                app_type TEXT NOT NULL, -- 'initial' or 'unban'
-                message TEXT NOT NULL,
-                minecraft_ign TEXT,
-                status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'accepted', 'rejected'
-                reviewer_id TEXT,
-                reviewer_name TEXT,
-                reason TEXT,
-                cooldown_until TIMESTAMP,
-                channel_msg_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        # Check if migration is needed for existing applications table without minecraft_ign
-        cursor = conn.execute("PRAGMA table_info(applications);")
-        columns = [col[1] for col in cursor.fetchall()]
-        if "minecraft_ign" not in columns:
-            try:
-                conn.execute("ALTER TABLE applications ADD COLUMN minecraft_ign TEXT;")
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e).lower():
-                    raise
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS applications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    discord_id TEXT NOT NULL,
+                    discord_username TEXT NOT NULL,
+                    app_type TEXT NOT NULL, -- 'initial' or 'unban'
+                    message TEXT NOT NULL,
+                    minecraft_ign TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'accepted', 'rejected'
+                    reviewer_id TEXT,
+                    reviewer_name TEXT,
+                    reason TEXT,
+                    cooldown_until TIMESTAMP,
+                    channel_msg_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+            # Check if migration is needed for existing applications table without minecraft_ign
+            cursor = conn.execute("PRAGMA table_info(applications);")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "minecraft_ign" not in columns:
+                try:
+                    conn.execute("ALTER TABLE applications ADD COLUMN minecraft_ign TEXT;")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        raise
 
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS bans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                discord_id TEXT,
-                minecraft_ign TEXT,
-                banned_by TEXT,
-                reason TEXT,
-                is_active INTEGER DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_discord ON applications (discord_id);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_status ON applications (status);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_ign ON applications (minecraft_ign);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_discord ON bans (discord_id);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_ign ON bans (minecraft_ign);")
-    conn.close()
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS bans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    discord_id TEXT,
+                    minecraft_ign TEXT,
+                    banned_by TEXT,
+                    reason TEXT,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_discord ON applications (discord_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_status ON applications (status);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_ign ON applications (minecraft_ign);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_discord ON bans (discord_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_ign ON bans (minecraft_ign);")
+    finally:
+        conn.close()
     _initialized_dbs.add(path_key)
 
 
@@ -115,39 +118,45 @@ def create_application(
     """Creates a new pending application."""
     init_db()
     conn = get_connection()
-    with conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO applications (discord_id, discord_username, app_type, message, minecraft_ign, status, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-            """,
-            (str(discord_id), discord_username, app_type, message, minecraft_ign.strip() if minecraft_ign else None),
-        )
-        app_id = cursor.lastrowid
-    conn.close()
-    return app_id
+    try:
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO applications (discord_id, discord_username, app_type, message, minecraft_ign, status, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+                """,
+                (str(discord_id), discord_username, app_type, message, minecraft_ign.strip() if minecraft_ign else None),
+            )
+            app_id = cursor.lastrowid
+        return app_id
+    finally:
+        conn.close()
 
 
 def set_channel_message_id(app_id: int, channel_msg_id: str):
     conn = get_connection()
-    with conn:
-        conn.execute(
-            "UPDATE applications SET channel_msg_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (str(channel_msg_id), app_id),
-        )
-    conn.close()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE applications SET channel_msg_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (str(channel_msg_id), app_id),
+            )
+    finally:
+        conn.close()
 
 
 def get_application(app_id: Optional[int] = None, discord_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     conn = get_connection()
-    if app_id is not None:
-        row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
-    elif discord_id is not None:
-        row = conn.execute("SELECT * FROM applications WHERE discord_id = ? ORDER BY id DESC LIMIT 1", (str(discord_id),)).fetchone()
-    else:
-        row = None
-    conn.close()
-    return dict(row) if row else None
+    try:
+        if app_id is not None:
+            row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+        elif discord_id is not None:
+            row = conn.execute("SELECT * FROM applications WHERE discord_id = ? ORDER BY id DESC LIMIT 1", (str(discord_id),)).fetchone()
+        else:
+            row = None
+        return dict(row) if row else None
+    finally:
+        conn.close()
 
 
 def get_user_status(discord_id: str) -> Dict[str, Any]:
@@ -166,37 +175,39 @@ def get_user_status(discord_id: str) -> Dict[str, Any]:
     init_db()
     conn = get_connection()
     discord_str = str(discord_id)
+    try:
+        # 1. Check active ban
+        ban_row = conn.execute(
+            "SELECT * FROM bans WHERE discord_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1",
+            (discord_str,),
+        ).fetchone()
+        active_ban = dict(ban_row) if ban_row else None
 
-    # 1. Check active ban
-    ban_row = conn.execute(
-        "SELECT * FROM bans WHERE discord_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1",
-        (discord_str,),
-    ).fetchone()
-    active_ban = dict(ban_row) if ban_row else None
+        # 2. Check pending applications
+        pending_row = conn.execute(
+            "SELECT * FROM applications WHERE discord_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
+            (discord_str,),
+        ).fetchone()
+        pending_app = dict(pending_row) if pending_row else None
 
-    # 2. Check pending applications
-    pending_row = conn.execute(
-        "SELECT * FROM applications WHERE discord_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
-        (discord_str,),
-    ).fetchone()
-    pending_app = dict(pending_row) if pending_row else None
+        # 3. Check latest application
+        latest_row = conn.execute(
+            "SELECT * FROM applications WHERE discord_id = ? ORDER BY id DESC LIMIT 1",
+            (discord_str,),
+        ).fetchone()
+        latest_app = dict(latest_row) if latest_row else None
 
-    # 3. Check latest application
-    latest_row = conn.execute(
-        "SELECT * FROM applications WHERE discord_id = ? ORDER BY id DESC LIMIT 1",
-        (discord_str,),
-    ).fetchone()
-    latest_app = dict(latest_row) if latest_row else None
-
-    # 4. Check active cooldown across rejected applications
-    cooldown_row = conn.execute(
-        """
-        SELECT cooldown_until FROM applications
-        WHERE discord_id = ? AND status = 'rejected' AND cooldown_until IS NOT NULL
-        ORDER BY cooldown_until DESC LIMIT 1
-        """,
-        (discord_str,),
-    ).fetchone()
+        # 4. Check active cooldown across rejected applications
+        cooldown_row = conn.execute(
+            """
+            SELECT cooldown_until FROM applications
+            WHERE discord_id = ? AND status = 'rejected' AND cooldown_until IS NOT NULL
+            ORDER BY cooldown_until DESC LIMIT 1
+            """,
+            (discord_str,),
+        ).fetchone()
+    finally:
+        conn.close()
 
     in_cooldown = False
     is_permanent = False
@@ -236,8 +247,6 @@ def get_user_status(discord_id: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to parse cooldown timestamp '{raw_cd}': {e}")
 
-    conn.close()
-
     is_rejected = bool(latest_app and latest_app["status"] == "rejected")
 
     return {
@@ -259,30 +268,42 @@ def accept_application(app_id: int, reviewer_id: str, reviewer_name: str) -> Opt
     """Marks application as accepted and clears any active bans."""
     init_db()
     conn = get_connection()
-    with conn:
-        conn.execute(
-            """
-            UPDATE applications
-            SET status = 'accepted', reviewer_id = ?, reviewer_name = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (str(reviewer_id), reviewer_name, app_id),
-        )
-        temp_row = conn.execute("SELECT discord_id FROM applications WHERE id = ?", (app_id,)).fetchone()
-        if temp_row:
-            d_id = temp_row["discord_id"]
-            # Lift active bans and clear cooldowns for this discord_id
+    try:
+        with conn:
             conn.execute(
-                "UPDATE applications SET cooldown_until = NULL WHERE discord_id = ?",
-                (d_id,),
+                """
+                UPDATE applications
+                SET status = 'accepted', reviewer_id = ?, reviewer_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (str(reviewer_id), reviewer_name, app_id),
             )
-            conn.execute(
-                "UPDATE bans SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?",
-                (d_id,),
-            )
-        row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+            temp_row = conn.execute(
+                "SELECT discord_id, minecraft_ign FROM applications WHERE id = ?",
+                (app_id,),
+            ).fetchone()
+            if temp_row:
+                d_id = temp_row["discord_id"]
+                mc_ign = (temp_row["minecraft_ign"] or "").strip()
+                # Lift active bans and clear cooldowns for this discord_id (and minecraft_ign)
+                conn.execute(
+                    "UPDATE applications SET cooldown_until = NULL WHERE discord_id = ?",
+                    (d_id,),
+                )
+                if mc_ign:
+                    conn.execute(
+                        "UPDATE bans SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE (discord_id = ? OR LOWER(minecraft_ign) = LOWER(?)) AND is_active = 1",
+                        (d_id, mc_ign),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE bans SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ? AND is_active = 1",
+                        (d_id,),
+                    )
+            row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
 
 
 def reject_application(
@@ -308,18 +329,20 @@ def reject_application(
             cooldown_until = dt.strftime("%Y-%m-%d %H:%M:%S")
 
     conn = get_connection()
-    with conn:
-        conn.execute(
-            """
-            UPDATE applications
-            SET status = 'rejected', reviewer_id = ?, reviewer_name = ?, reason = ?, cooldown_until = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (str(reviewer_id), reviewer_name, clean_reason, cooldown_until, app_id),
-        )
-        row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        with conn:
+            conn.execute(
+                """
+                UPDATE applications
+                SET status = 'rejected', reviewer_id = ?, reviewer_name = ?, reason = ?, cooldown_until = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (str(reviewer_id), reviewer_name, clean_reason, cooldown_until, app_id),
+            )
+            row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
 
 
 def record_ban(
@@ -332,23 +355,25 @@ def record_ban(
     init_db()
     conn = get_connection()
     clean_reason = (reason or "").strip() or "Verstoß gegen die Server-Regeln."
-    with conn:
-        # Mark prior bans for this discord_id or ign as inactive
-        if discord_id:
-            conn.execute("UPDATE bans SET is_active = 0 WHERE discord_id = ?", (str(discord_id),))
-        if minecraft_ign:
-            conn.execute("UPDATE bans SET is_active = 0 WHERE LOWER(minecraft_ign) = LOWER(?)", (minecraft_ign.strip(),))
+    try:
+        with conn:
+            # Mark prior bans for this discord_id or ign as inactive
+            if discord_id:
+                conn.execute("UPDATE bans SET is_active = 0 WHERE discord_id = ?", (str(discord_id),))
+            if minecraft_ign:
+                conn.execute("UPDATE bans SET is_active = 0 WHERE LOWER(minecraft_ign) = LOWER(?)", (minecraft_ign.strip(),))
 
-        cursor = conn.execute(
-            """
-            INSERT INTO bans (discord_id, minecraft_ign, banned_by, reason, is_active, updated_at)
-            VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-            """,
-            (str(discord_id) if discord_id else None, minecraft_ign, banned_by, clean_reason),
-        )
-        ban_id = cursor.lastrowid
-    conn.close()
-    return ban_id
+            cursor = conn.execute(
+                """
+                INSERT INTO bans (discord_id, minecraft_ign, banned_by, reason, is_active, updated_at)
+                VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+                """,
+                (str(discord_id) if discord_id else None, minecraft_ign, banned_by, clean_reason),
+            )
+            ban_id = cursor.lastrowid
+        return ban_id
+    finally:
+        conn.close()
 
 
 def lift_ban(discord_id: Optional[str] = None, minecraft_ign: Optional[str] = None) -> int:
@@ -356,15 +381,35 @@ def lift_ban(discord_id: Optional[str] = None, minecraft_ign: Optional[str] = No
     init_db()
     conn = get_connection()
     count = 0
-    with conn:
-        if discord_id:
-            c = conn.execute("UPDATE bans SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ? AND is_active = 1", (str(discord_id),))
-            count += c.rowcount
-        if minecraft_ign:
-            c = conn.execute("UPDATE bans SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE LOWER(minecraft_ign) = LOWER(?) AND is_active = 1", (minecraft_ign.strip(),))
-            count += c.rowcount
-    conn.close()
-    return count
+    try:
+        with conn:
+            if discord_id:
+                c = conn.execute("UPDATE bans SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ? AND is_active = 1", (str(discord_id),))
+                count += c.rowcount
+            if minecraft_ign:
+                c = conn.execute("UPDATE bans SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE LOWER(minecraft_ign) = LOWER(?) AND is_active = 1", (minecraft_ign.strip(),))
+                count += c.rowcount
+        return count
+    finally:
+        conn.close()
+
+
+def get_all_bans(active_only: bool = True) -> List[Dict[str, Any]]:
+    """Returns ban records from the database (optionally only active bans)."""
+    init_db()
+    conn = get_connection()
+    try:
+        if active_only:
+            rows = conn.execute(
+                "SELECT * FROM bans WHERE is_active = 1 ORDER BY id DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM bans ORDER BY id DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def purge_user_history(discord_id: Optional[str] = None, minecraft_ign: Optional[str] = None) -> int:
@@ -372,18 +417,20 @@ def purge_user_history(discord_id: Optional[str] = None, minecraft_ign: Optional
     init_db()
     conn = get_connection()
     count = 0
-    with conn:
-        if discord_id:
-            c1 = conn.execute("DELETE FROM applications WHERE discord_id = ?", (str(discord_id),)).rowcount
-            c2 = conn.execute("DELETE FROM bans WHERE discord_id = ?", (str(discord_id),)).rowcount
-            count += c1 + c2
-        clean_ign = minecraft_ign.strip() if minecraft_ign else None
-        if clean_ign:
-            c3 = conn.execute("DELETE FROM bans WHERE LOWER(minecraft_ign) = LOWER(?)", (clean_ign,)).rowcount
-            c4 = conn.execute("DELETE FROM applications WHERE LOWER(minecraft_ign) = LOWER(?)", (clean_ign,)).rowcount
-            count += c3 + c4
-    conn.close()
-    return count
+    try:
+        with conn:
+            if discord_id:
+                c1 = conn.execute("DELETE FROM applications WHERE discord_id = ?", (str(discord_id),)).rowcount
+                c2 = conn.execute("DELETE FROM bans WHERE discord_id = ?", (str(discord_id),)).rowcount
+                count += c1 + c2
+            clean_ign = minecraft_ign.strip() if minecraft_ign else None
+            if clean_ign:
+                c3 = conn.execute("DELETE FROM bans WHERE LOWER(minecraft_ign) = LOWER(?)", (clean_ign,)).rowcount
+                c4 = conn.execute("DELETE FROM applications WHERE LOWER(minecraft_ign) = LOWER(?)", (clean_ign,)).rowcount
+                count += c3 + c4
+        return count
+    finally:
+        conn.close()
 
 
 def list_applications(
@@ -405,9 +452,11 @@ def list_applications(
     query += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
 
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    try:
+        rows = conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 # Backward-compatible alias

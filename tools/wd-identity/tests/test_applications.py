@@ -231,6 +231,32 @@ class TestApplications(unittest.TestCase):
         self.assertFalse(status["in_cooldown"])
         self.assertTrue(status["has_pending"])
 
+    def test_accept_application_lifts_ign_only_ban(self):
+        ban_id = applications.record_ban(
+            discord_id=None,
+            minecraft_ign="BannedGuy",
+            banned_by="AdminTigi",
+            reason="Griefing",
+        )
+        self.assertGreater(ban_id, 0)
+        self.assertEqual(len(applications.get_all_bans(active_only=True)), 1)
+
+        app_id = applications.create_application(
+            discord_id="999000111",
+            discord_username="banned_guy_dc",
+            app_type="unban",
+            message="Entschuldigung!",
+            minecraft_ign="bannedguy",
+        )
+        accepted = applications.accept_application(
+            app_id=app_id,
+            reviewer_id="1",
+            reviewer_name="AdminTigi",
+        )
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertEqual(applications.get_all_bans(active_only=True), [])
+        self.assertFalse(applications.get_user_status("999000111")["is_banned"])
+
 
 if __name__ == "__main__":
     unittest.main()

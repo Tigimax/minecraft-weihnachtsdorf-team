@@ -4,13 +4,16 @@ Interacts with Pterodactyl Wings API on Node 2 to manage whitelist and LuckPerms
 Includes state tracking for idempotency and automatic revocation of removed staff.
 """
 
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
+import hashlib
 import json
 import logging
 import os
 from pathlib import Path
 import re
 import sys
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 import requests
@@ -31,7 +34,7 @@ STATE_PATHS = [
     Path("/var/lib/wd-identity/mc_sync_state.json"),
     Path("/opt/wd-identity/.mc_sync_state.json"),
     Path.home() / ".mc_sync_state.json",
-    Path("/tmp/mc_sync_state.json"),
+    settings.DATA_DIR / "mc_sync_state.json",
 ]
 
 PROJECT_STATE_PATHS = [
@@ -39,15 +42,89 @@ PROJECT_STATE_PATHS = [
     Path("/var/lib/wd-identity/project_state.json"),
     Path("/opt/wd-identity/.project_state.json"),
     Path.home() / ".wd_project_state.json",
-    Path("/tmp/wd_project_state.json"),
+    settings.DATA_DIR / "project_state.json",
 ]
 
 MOD_GRANTS_PATHS = [
     Path("/var/lib/wd-identity/mod_build_grants.json"),
     Path("/opt/wd-identity/.mod_build_grants.json"),
     Path.home() / ".mod_build_grants.json",
-    Path("/tmp/mod_build_grants.json"),
+    settings.DATA_DIR / "mod_build_grants.json",
 ]
+
+_in_process_locks: Dict[str, Dict[str, Any]] = {}
+_in_process_locks_guard = threading.Lock()
+
+
+def _get_persistent_lock_dir() -> Path:
+    """Returns a writable directory for persistent lock files (never /tmp)."""
+    candidates = [
+        settings.DATA_DIR / ".locks",
+        Path.home() / ".wd-identity-locks",
+    ]
+    for lock_dir in candidates:
+        try:
+            lock_dir.mkdir(parents=True, exist_ok=True)
+            return lock_dir
+        except (OSError, PermissionError):
+            continue
+    return Path.cwd() / ".wd-identity-locks"
+
+
+@contextmanager
+def _persistent_file_lock(lock_path: Path):
+    """
+    Acquires both an in-process RLock and a persistent fcntl.flock on lock_path.
+    Tracks per-key re-entrancy depth so nested acquisition in the same thread
+    never re-opens and self-deadlocks on Linux fcntl.flock.
+    Never unlinks lock_path so concurrent processes always lock the same inode.
+    """
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_key = str(lock_path.resolve())
+    except Exception:
+        resolved_key = os.path.abspath(str(lock_path))
+
+    with _in_process_locks_guard:
+        state = _in_process_locks.get(resolved_key)
+        if state is None:
+            state = {"lock": threading.RLock(), "depth": 0, "lock_fd": None}
+            _in_process_locks[resolved_key] = state
+
+    with state["lock"]:
+        state["depth"] += 1
+        if state["depth"] == 1:
+            lock_fd = None
+            try:
+                lock_path.parent.mkdir(parents=True, exist_ok=True)
+                if fcntl:
+                    lock_fd = open(lock_path, "a+", encoding="utf-8")
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+            except Exception as le:
+                logger.debug(f"Could not acquire flock on {lock_path}: {le}")
+                if lock_fd:
+                    try:
+                        lock_fd.close()
+                    except Exception:
+                        pass
+                    lock_fd = None
+            state["lock_fd"] = lock_fd
+        try:
+            yield
+        finally:
+            state["depth"] -= 1
+            if state["depth"] == 0:
+                lock_fd = state["lock_fd"]
+                state["lock_fd"] = None
+                if lock_fd:
+                    try:
+                        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                    except Exception:
+                        pass
+                    try:
+                        lock_fd.close()
+                    except Exception:
+                        pass
 
 
 def new_log_lines(prev: List[str], cur: List[str]) -> List[str]:
@@ -71,43 +148,29 @@ def new_log_lines(prev: List[str], cur: List[str]) -> List[str]:
 def _atomic_write_json(file_path: Path, data: Any, use_lock: bool = True) -> bool:
     """
     Writes JSON data to file_path atomically using a temporary file in the same directory,
-    fsync, and atomic rename (os.replace). Uses flock if available to prevent concurrent write collisions.
+    fsync, and atomic rename (os.replace). Uses persistent flock if available to prevent
+    concurrent write collisions across processes without unlinking the lock file.
     """
     tmp_path = None
-    lock_fd = None
     try:
         parent_dir = file_path.parent
         parent_dir.mkdir(parents=True, exist_ok=True)
         tmp_path = parent_dir / f".{file_path.name}.tmp.{os.getpid()}_{time.time_ns()}"
-        lock_path = parent_dir / f".{file_path.name}.lock"
+        path_hash = hashlib.sha256(str(file_path.resolve()).encode("utf-8")).hexdigest()[:16]
+        lock_path = _get_persistent_lock_dir() / f".{file_path.name}.{path_hash}.lock"
 
-        if use_lock and fcntl:
-            try:
-                lock_fd = open(lock_path, "w")
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-            except Exception as le:
-                logger.debug(f"Could not acquire flock on {lock_path}: {le}")
-                lock_fd = None
-
-        try:
+        def _do_write() -> bool:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, file_path)
             return True
-        finally:
-            if lock_fd:
-                try:
-                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-                    lock_fd.close()
-                except Exception:
-                    pass
-                try:
-                    if lock_path.exists():
-                        lock_path.unlink()
-                except Exception:
-                    pass
+
+        if use_lock:
+            with _persistent_file_lock(lock_path):
+                return _do_write()
+        return _do_write()
     except Exception as e:
         logger.warning(f"Could not save JSON atomically to {file_path}: {e}")
         return False
@@ -139,14 +202,21 @@ class MinecraftSyncClient:
                 return p
             except (OSError, PermissionError):
                 continue
-        fallback = Path("/tmp/mod_build_grants.json")
-        if not fallback.exists() or fallback.stat().st_size == 0:
-            try:
+        fallback = settings.DATA_DIR / "mod_build_grants.json"
+        try:
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            if not fallback.exists() or fallback.stat().st_size == 0:
                 with open(fallback, "w", encoding="utf-8") as f:
                     json.dump({}, f, indent=2)
-            except Exception:
-                pass
+        except Exception:
+            pass
         return fallback
+
+    def _mod_grants_lock_path(self) -> Path:
+        return self.mod_grants_file.parent / "mod_build_grants.lock"
+
+    def _mc_sync_lock_path(self) -> Path:
+        return self.state_file.parent / "mc_sync.lock"
 
     def _load_mod_grants(self) -> Dict[str, Any]:
         if self.mod_grants_file.exists():
@@ -162,28 +232,29 @@ class MinecraftSyncClient:
 
     def get_active_mod_grants(self) -> Dict[str, Any]:
         """Returns all currently active (unexpired) temporary mod build grants."""
-        raw = self._load_mod_grants()
-        now = datetime.now(timezone.utc)
-        active = {}
-        has_expired = False
+        with _persistent_file_lock(self._mod_grants_lock_path()):
+            raw = self._load_mod_grants()
+            now = datetime.now(timezone.utc)
+            active = {}
+            has_expired = False
 
-        for k, v in raw.items():
-            exp_str = v.get("expires_at")
-            if not exp_str:
-                continue
-            try:
-                exp_dt = datetime.fromisoformat(exp_str)
-                if exp_dt > now:
-                    active[k] = v
-                else:
+            for k, v in raw.items():
+                exp_str = v.get("expires_at")
+                if not exp_str:
+                    continue
+                try:
+                    exp_dt = datetime.fromisoformat(exp_str)
+                    if exp_dt > now:
+                        active[k] = v
+                    else:
+                        has_expired = True
+                except Exception:
                     has_expired = True
-            except Exception:
-                has_expired = True
 
-        if has_expired:
-            self._save_mod_grants(active)
+            if has_expired:
+                self._save_mod_grants(active)
 
-        return active
+            return active
 
     def has_active_mod_grant(self, uid: str, ign: Optional[str] = None) -> bool:
         """Checks if a given mod UID or IGN currently has an active build grant."""
@@ -268,17 +339,19 @@ class MinecraftSyncClient:
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=duration_hours)
 
-        grants = self._load_mod_grants()
-        grants[uid] = {
-            "uid": uid,
-            "ign": ign,
-            "uuid": mc_uuid,
-            "granted_at": now.isoformat(),
-            "expires_at": expires_at.isoformat(),
-            "duration_hours": duration_hours,
-            "initiator": initiator,
-        }
-        self._save_mod_grants(grants)
+        with _persistent_file_lock(self._mod_grants_lock_path()):
+            grants = self._load_mod_grants()
+            grants[uid] = {
+                "uid": uid,
+                "ign": ign,
+                "uuid": mc_uuid,
+                "granted_at": now.isoformat(),
+                "expires_at": expires_at.isoformat(),
+                "duration_hours": duration_hours,
+                "initiator": initiator,
+            }
+            self._save_mod_grants(grants)
+            grant_entry = grants[uid]
 
         # Ensure permissions and whitelist
         self.setup_mod_permissions()
@@ -324,7 +397,7 @@ class MinecraftSyncClient:
         except Exception as e:
             logger.warning(f"Failed to post audit log for mod build grant: {e}")
 
-        return grants[uid]
+        return grant_entry
 
     def revoke_mod_build_access(self, target: str, initiator: str = "Admin") -> Dict[str, Any]:
         """Revokes temporary building access from a moderator."""
@@ -337,9 +410,10 @@ class MinecraftSyncClient:
         uid = user["uid"] if user else clean_target
         ign = user.get("minecraftName") if user else clean_target
 
-        grants = self._load_mod_grants()
-        had_grant = grants.pop(uid, None)
-        self._save_mod_grants(grants)
+        with _persistent_file_lock(self._mod_grants_lock_path()):
+            grants = self._load_mod_grants()
+            had_grant = grants.pop(uid, None)
+            self._save_mod_grants(grants)
 
         if not self.is_project_launched() and ign:
             if validate_minecraft_ign(ign):
@@ -378,13 +452,14 @@ class MinecraftSyncClient:
                 return p
             except (OSError, PermissionError):
                 continue
-        fallback = Path("/tmp/wd_project_state.json")
-        if not fallback.exists() or fallback.stat().st_size == 0:
-            try:
+        fallback = settings.DATA_DIR / "project_state.json"
+        try:
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            if not fallback.exists() or fallback.stat().st_size == 0:
                 with open(fallback, "w", encoding="utf-8") as f:
                     json.dump({"launched": False}, f, indent=2)
-            except Exception:
-                pass
+        except Exception:
+            pass
         return fallback
 
     def is_project_launched(self) -> bool:
@@ -414,7 +489,12 @@ class MinecraftSyncClient:
                 return p
             except (OSError, PermissionError):
                 continue
-        return Path("/tmp/mc_sync_state.json")
+        fallback = settings.DATA_DIR / "mc_sync_state.json"
+        try:
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return fallback
 
     def _load_state(self) -> Dict[str, Any]:
         if self.state_file.exists():
@@ -542,7 +622,7 @@ class MinecraftSyncClient:
         if not validate_minecraft_ign(ign):
             logger.error(f"Invalid Minecraft IGN for ban: '{ign}'")
             return False
-        clean_reason = reason.replace("\n", " ").replace('"', "'")
+        clean_reason = reason.replace("\r", " ").replace("\n", " ").replace('"', "'")
         cmds = [
             f'ban {ign} {clean_reason}',
             f'whitelist remove {ign}',
@@ -584,14 +664,51 @@ class MinecraftSyncClient:
     def sync_all(self, force: bool = False) -> Dict[str, Any]:
         """
         Polls LDAP admin, mod, and player groups and synchronizes with Minecraft.
-        Admins and mods are always kept whitelisted.
-        Regular players are only whitelisted if project is launched (is_project_launched() is True).
+        Admins and mods are always kept whitelisted (unless banned).
+        Regular players are only whitelisted if project is launched (is_project_launched() is True) and not banned.
         """
+        with _persistent_file_lock(self._mc_sync_lock_path()):
+            return self._sync_all_locked(force=force)
+
+    def _sync_all_locked(self, force: bool = False) -> Dict[str, Any]:
         admins, mods = self.ldap.get_admins_and_mods()
         players = self.ldap.get_players()
         is_launched = self.is_project_launched()
         prev_state = self._load_state()
         current_state: Dict[str, Any] = {}
+
+        banned_discord_ids: set[str] = set()
+        banned_igns: set[str] = set()
+        try:
+            from wd_identity import applications
+            for ban in applications.get_all_bans(active_only=True):
+                d_id = str(ban.get("discord_id") or "").strip()
+                b_ign = str(ban.get("minecraft_ign") or "").strip().lower()
+                if d_id:
+                    banned_discord_ids.add(d_id)
+                if b_ign:
+                    banned_igns.add(b_ign)
+        except Exception as e:
+            logger.warning(f"Could not query active bans during sync_all: {e}")
+
+        def _is_banned(user_entry: Dict[str, Any], user_ign: str) -> bool:
+            d_id = str(user_entry.get("discordId") or "").strip()
+            if d_id and d_id in banned_discord_ids:
+                return True
+            if user_ign.strip().lower() in banned_igns:
+                return True
+            return False
+
+        def _maybe_remove_old_ign(uid: str, cur_ign: str) -> None:
+            prev_entry = prev_state.get(uid, {})
+            old_ign = prev_entry.get("ign")
+            if (
+                old_ign
+                and old_ign != cur_ign
+                and validate_minecraft_ign(old_ign)
+                and prev_entry.get("whitelisted", True)
+            ):
+                commands_to_run.append(f"whitelist remove {old_ign}")
 
         commands_to_run: List[str] = []
         synced_admins: List[Dict[str, Any]] = []
@@ -613,7 +730,17 @@ class MinecraftSyncClient:
             if not validate_minecraft_ign(ign):
                 skipped_users.append({"uid": uid, "reason": f"Invalid Minecraft IGN: {ign}"})
                 continue
+            if _is_banned(admin, ign):
+                skipped_users.append({"uid": uid, "reason": "Active ban in applications.db"})
+                current_state[uid] = {"role": "admin", "ign": ign, "uuid": mc_uuid, "whitelisted": False}
+                if prev_state.get(uid, {}).get("whitelisted") is True:
+                    old_ign = prev_state[uid].get("ign") or ign
+                    if validate_minecraft_ign(old_ign):
+                        commands_to_run.extend(self._build_revoke_commands(old_ign, mc_uuid))
+                    revoked_users.append({"uid": uid, "ign": old_ign, "uuid": mc_uuid})
+                continue
 
+            _maybe_remove_old_ign(uid, ign)
             current_state[uid] = {"role": "admin", "ign": ign, "uuid": mc_uuid, "whitelisted": True}
             if force or uid not in prev_state or prev_state[uid] != current_state[uid]:
                 commands_to_run.extend(self._build_set_role_commands(ign, "admin", mc_uuid))
@@ -633,11 +760,21 @@ class MinecraftSyncClient:
             if not validate_minecraft_ign(ign):
                 skipped_users.append({"uid": uid, "reason": f"Invalid Minecraft IGN: {ign}"})
                 continue
+            if _is_banned(mod, ign):
+                skipped_users.append({"uid": uid, "reason": "Active ban in applications.db"})
+                current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": False}
+                if prev_state.get(uid, {}).get("whitelisted") is True:
+                    old_ign = prev_state[uid].get("ign") or ign
+                    if validate_minecraft_ign(old_ign):
+                        commands_to_run.extend(self._build_revoke_commands(old_ign, mc_uuid))
+                    revoked_users.append({"uid": uid, "ign": old_ign, "uuid": mc_uuid})
+                continue
 
             has_grant = uid in active_grants or any(g.get("ign", "").lower() == ign.lower() for g in active_grants.values())
             is_mod_whitelisted = is_launched or has_grant
 
             if is_mod_whitelisted:
+                _maybe_remove_old_ign(uid, ign)
                 current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": True}
                 if force or uid not in prev_state or prev_state[uid] != current_state[uid]:
                     commands_to_run.extend(self._build_set_role_commands(ign, "mod", mc_uuid))
@@ -647,6 +784,7 @@ class MinecraftSyncClient:
             else:
                 current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": False}
                 if prev_state.get(uid, {}).get("whitelisted") is True:
+                    _maybe_remove_old_ign(uid, ign)
                     commands_to_run.append(f"whitelist remove {ign}")
                     commands_to_run.append(f'kick {ign} "Bau-Zeitfenster abgelaufen (Pre-Launch)"')
                     revoked_users.append({"uid": uid, "ign": ign, "uuid": mc_uuid})
@@ -664,9 +802,19 @@ class MinecraftSyncClient:
             if not validate_minecraft_ign(ign):
                 skipped_users.append({"uid": uid, "reason": f"Invalid Minecraft IGN: {ign}"})
                 continue
+            if _is_banned(player, ign):
+                skipped_users.append({"uid": uid, "reason": "Active ban in applications.db"})
+                current_state[uid] = {"role": "player", "ign": ign, "uuid": mc_uuid, "whitelisted": False}
+                if prev_state.get(uid, {}).get("whitelisted") is True:
+                    old_ign = prev_state[uid].get("ign") or ign
+                    if validate_minecraft_ign(old_ign):
+                        commands_to_run.extend(self._build_revoke_commands(old_ign, mc_uuid))
+                    revoked_users.append({"uid": uid, "ign": old_ign, "uuid": mc_uuid})
+                continue
 
             target = mc_uuid if mc_uuid else ign
             if is_launched:
+                _maybe_remove_old_ign(uid, ign)
                 current_state[uid] = {"role": "player", "ign": ign, "uuid": mc_uuid, "whitelisted": True}
                 if force or uid not in prev_state or prev_state[uid] != current_state[uid]:
                     commands_to_run.append(f"whitelist add {ign}")
@@ -678,7 +826,9 @@ class MinecraftSyncClient:
                 # Pre-Launch mode: players must NOT be whitelisted on server
                 current_state[uid] = {"role": "player", "ign": ign, "uuid": mc_uuid, "whitelisted": False}
                 if prev_state.get(uid, {}).get("whitelisted") is True:
+                    _maybe_remove_old_ign(uid, ign)
                     commands_to_run.append(f"whitelist remove {ign}")
+                    commands_to_run.append(f'kick {ign} "Der Server befindet sich im Wartungs-/Pre-Launch-Modus."')
                     revoked_users.append({"uid": uid, "ign": ign, "uuid": mc_uuid})
                 else:
                     staged_players.append({"uid": uid, "ign": ign, "uuid": mc_uuid})

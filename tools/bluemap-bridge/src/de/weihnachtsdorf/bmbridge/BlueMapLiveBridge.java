@@ -40,6 +40,7 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
     private Path outFile;
     private Path tmpFile;
     private String lastPayload = "";
+    private final Object fileWriteLock = new Object();
     private final Set<UUID> vanishedPlayers = ConcurrentHashMap.newKeySet();
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
@@ -87,9 +88,11 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         if (outFile != null) {
-            try {
-                Files.writeString(outFile, "{\"players\":[]}", StandardCharsets.UTF_8);
-            } catch (Exception ignored) {
+            synchronized (fileWriteLock) {
+                try {
+                    Files.writeString(outFile, "{\"players\":[]}", StandardCharsets.UTF_8);
+                } catch (Exception ignored) {
+                }
             }
         }
         vanishedPlayers.clear();
@@ -329,16 +332,18 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
     }
 
     private void writeSync(String payload) {
-        try {
-            if (outFile != null && tmpFile != null) {
-                Files.writeString(tmpFile, payload, StandardCharsets.UTF_8);
-                try {
-                    Files.move(tmpFile, outFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                    Files.move(tmpFile, outFile, StandardCopyOption.REPLACE_EXISTING);
+        synchronized (fileWriteLock) {
+            try {
+                if (outFile != null && tmpFile != null) {
+                    Files.writeString(tmpFile, payload, StandardCharsets.UTF_8);
+                    try {
+                        Files.move(tmpFile, outFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                    } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                        Files.move(tmpFile, outFile, StandardCopyOption.REPLACE_EXISTING);
+                    }
                 }
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {
         }
     }
 

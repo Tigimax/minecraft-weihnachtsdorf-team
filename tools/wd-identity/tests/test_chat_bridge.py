@@ -49,6 +49,16 @@ def test_clean_discord_text_newlines():
     assert result == "First line Second line Third line"
 
 
+def test_clean_discord_text_strips_section_sign():
+    msg = MagicMock()
+    msg.clean_content = "§cRed §lBold §kObfuscated §rReset"
+    msg.attachments = []
+    msg.stickers = []
+    result = chat_bridge.clean_discord_text(msg)
+    assert "§" not in result
+    assert result == "cRed lBold kObfuscated rReset"
+
+
 def test_clean_discord_text_length_limit():
     msg = MagicMock()
     msg.clean_content = "A" * 300
@@ -292,6 +302,15 @@ def test_chunk_code_blocks():
     assert len(chunks[0]) <= 1900
     assert chunks[0].startswith("```\n")
     assert chunks[0].endswith("\n```")
+
+
+def test_chunk_code_blocks_escapes_triple_backticks():
+    lines = ["Player said: ```@everyone```", "Normal line"]
+    chunks = chat_bridge.chunk_code_blocks(lines, limit=1900)
+    assert len(chunks) == 1
+    body = chunks[0][4:-4]
+    assert "```" not in body
+    assert "'''@everyone'''" in body
 
 
 # ---------------------------------------------------------------------------

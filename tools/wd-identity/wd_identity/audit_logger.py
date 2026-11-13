@@ -8,10 +8,9 @@ from datetime import datetime, timezone
 import json
 import logging
 from typing import Any, Dict, List, Optional
-import urllib.request
-import urllib.error
 
 from wd_identity.config import settings
+from wd_identity.utils import _discord_rest_request
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +72,14 @@ def log_admin_event(
     payload = json.dumps({"embeds": [embed]}).encode("utf-8")
 
     try:
-        req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            return resp.status in (200, 201)
+        status_code, _ = _discord_rest_request(
+            url,
+            headers=headers,
+            data=payload,
+            method="POST",
+            timeout=8,
+        )
+        return status_code in (200, 201)
     except Exception as e:
         logger.warning(f"Failed to post to #admin-logs: {e}")
         return False

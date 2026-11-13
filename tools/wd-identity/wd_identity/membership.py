@@ -15,7 +15,12 @@ from wd_identity.ldap_client import LDAPClient
 from wd_identity.mc_sync import MinecraftSyncClient
 from wd_identity.planka_sync import PlankaSyncClient
 from wd_identity.playerlist import sync_playerlist_rest
-from wd_identity.utils import check_is_discord_admin, check_is_discord_mod, sanitize_username
+from wd_identity.utils import (
+    check_is_discord_admin,
+    check_is_discord_mod,
+    sanitize_username,
+    validate_minecraft_ign,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +116,6 @@ def revoke_user_privileges(
 
     # 1. OpenLDAP: Remove all group memberships (wd_admins, wd_mods, wd_players)
     ldap_roles_ok = ldap.revoke_roles(username)
-    ldap.remove_member_from_group(ldap.player_group_dn, user_dn)
-    ldap.remove_member_from_group(ldap.admin_group_dn, user_dn)
-    ldap.remove_member_from_group(ldap.mod_group_dn, user_dn)
 
     # 2. Authentik IdP: Deactivate user and block BlueMap policy, delete pending invitations
     auth_deact_ok = authentik.deactivate_user(username)
@@ -135,18 +137,22 @@ def revoke_user_privileges(
     # 4. Minecraft Server: Whitelist remove, clear LuckPerms, kick if online
     mc_ok = False
     if ign:
-        try:
-            mc_ok = mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
-            target_lp = mc_uuid if mc_uuid else ign
-            mc.execute_commands([
-                f"whitelist remove {ign}",
-                f"lp user {target_lp} clear",
-                f"lp user {target_lp} parent set default",
-                f'kick {ign} "Rechte entzogen: {reason}"',
-            ])
-            mc.sync_all(force=True)
-        except Exception as e:
-            logger.error(f"Error revoking Minecraft privileges for {ign}: {e}")
+        if validate_minecraft_ign(ign):
+            try:
+                mc_ok = mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
+                target_lp = mc_uuid if mc_uuid else ign
+                clean_kick_reason = (reason or "").replace('"', '').replace('\r', ' ').replace('\n', ' ').strip()
+                mc.execute_commands([
+                    f"whitelist remove {ign}",
+                    f"lp user {target_lp} clear",
+                    f"lp user {target_lp} parent set default",
+                    f'kick {ign} "Rechte entzogen: {clean_kick_reason}"',
+                ])
+                mc.sync_all(force=True)
+            except Exception as e:
+                logger.error(f"Error revoking Minecraft privileges for {ign}: {e}")
+        else:
+            logger.warning(f"Invalid Minecraft IGN '{ign}' for {username}; skipping Minecraft commands.")
 
     # 5. SQLite DB: Cancel any pending applications
     if discord_id:
@@ -240,6 +246,8 @@ def restore_user_privileges(
     - Logs to #admin-logs & updates playerlist
     """
     clean_role = (role or "player").lower().strip()
+    if clean_role not in ("admin", "mod", "player"):
+        raise ValueError(f"Ungültige Rolle '{role}'. Erlaubt sind: admin, mod, player.")
     ldap = LDAPClient()
     authentik = AuthentikClient()
     planka = PlankaSyncClient()
@@ -294,32 +302,63 @@ def restore_user_privileges(
     mc_uuid = user.get("minecraftUuid")
     email = user.get("mail")
 
-    # 1. OpenLDAP: assign to correct group
-    target_group_dn = ldap.admin_group_dn if clean_role == "admin" else ldap.player_group_dn
-    ldap.add_member_to_group(target_group_dn, user_dn)
+    # Security check: Admin/Mod role requires corresponding Discord role
+    if clean_role == "admin":
+        check_target = discord_id or discord_name or username
+        if check_target:
+            is_admin, admin_reason = check_is_discord_admin(check_target)
+            if not is_admin:
+                raise PermissionError(
+                    f"SICHERHEITSSPERRE: Der Nutzer '{check_target}' besitzt keine Discord-Administrator-Rechte!\n"
+                    f"Grund: {admin_reason}"
+                )
+    elif clean_role == "mod":
+        check_target = discord_id or discord_name or username
+        if check_target:
+            is_mod, mod_reason = check_is_discord_mod(check_target)
+            if not is_mod:
+                raise PermissionError(
+                    f"SICHERHEITSSPERRE: Der Nutzer '{check_target}' besitzt keine Discord-Moderator-Rechte!\n"
+                    f"Grund: {mod_reason}"
+                )
 
-    # 2. Authentik: activate & unban
+    # 1. OpenLDAP: assign to correct group cleanly
+    ldap.revoke_roles(username)
+    role_group_map = {
+        "admin": ldap.admin_group_dn,
+        "mod": ldap.mod_group_dn,
+        "player": ldap.player_group_dn,
+    }
+    ldap.add_member_to_group(role_group_map[clean_role], user_dn)
+
+    # 2. Authentik: activate & unban & sync groups
     authentik.activate_user(username)
     authentik.set_user_banned(username, False)
+    authentik.sync_user_groups(username, clean_role)
 
     try:
         authentik.trigger_ldap_sync()
     except Exception as e:
         logger.warning(f"Failed to trigger LDAP sync in Authentik for {username}: {e}")
 
-    # 3. Planka: re-sync user (reactivates)
-    planka.sync_user(username=username, email=email, role=clean_role)
+    # 3. Planka: re-sync user for staff roles
+    if clean_role in ("admin", "mod"):
+        planka.sync_user(username=username, email=email, role=clean_role)
 
     # 4. Minecraft Server: whitelist & role
     mc_ok = False
     if ign:
-        try:
-            mc.whitelist_add(ign)
-            mc.set_player_role(ign, clean_role, mc_uuid=mc_uuid)
-            mc.sync_all(force=True)
-            mc_ok = True
-        except Exception as e:
-            logger.error(f"Error restoring Minecraft privileges for {ign}: {e}")
+        if validate_minecraft_ign(ign):
+            try:
+                if clean_role in ("admin", "mod") or mc.is_project_launched():
+                    mc.whitelist_add(ign)
+                mc.set_player_role(ign, clean_role, mc_uuid=mc_uuid)
+                mc.sync_all(force=True)
+                mc_ok = True
+            except Exception as e:
+                logger.error(f"Error restoring Minecraft privileges for {ign}: {e}")
+        else:
+            logger.warning(f"Invalid Minecraft IGN '{ign}' for {username}; skipping Minecraft restore.")
 
     # 5. Audit log
     try:
@@ -488,6 +527,12 @@ def set_user_role(
         logger.warning(f"Fehler bei Authentik-Rollenupdate für {username}: {e}")
 
     # 3. Minecraft Server: LuckPerms & Whitelist
+    if old_role == "mod" and clean_role == "player":
+        try:
+            mc.revoke_mod_build_access(username, initiator=initiator)
+        except Exception as e:
+            logger.warning(f"Fehler beim Entfernen von Mod-Bau-Grants für {username}: {e}")
+
     mc_ok = False
     if ign:
         try:
@@ -629,18 +674,21 @@ def purge_user_completely(
     # 1. Minecraft: Whitelist remove, revoke LuckPerms privileges, kick if online, unban, sync
     mc_ok = False
     if ign:
-        try:
-            mc.whitelist_remove(ign)
-            mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
-            clean_kick_reason = reason.replace('"', '').replace('\r', ' ').replace('\n', ' ').strip()
-            mc.execute_commands([
-                f'kick {ign} "Account gelöscht: {clean_kick_reason}"',
-                f"pardon {ign}",
-            ])
-            mc.sync_all(force=True)
-            mc_ok = True
-        except Exception as e:
-            logger.error(f"Error purging Minecraft privileges for '{ign}': {e}")
+        if validate_minecraft_ign(ign):
+            try:
+                mc.whitelist_remove(ign)
+                mc.revoke_player_privileges(ign, mc_uuid=mc_uuid)
+                clean_kick_reason = reason.replace('"', '').replace('\r', ' ').replace('\n', ' ').strip()
+                mc.execute_commands([
+                    f'kick {ign} "Account gelöscht: {clean_kick_reason}"',
+                    f"pardon {ign}",
+                ])
+                mc.sync_all(force=True)
+                mc_ok = True
+            except Exception as e:
+                logger.error(f"Error purging Minecraft privileges for '{ign}': {e}")
+        else:
+            logger.warning(f"Invalid Minecraft IGN '{ign}' for '{username}'; skipping Minecraft purge commands.")
 
     # 2. Planka: Delete user account and sessions
     planka_deleted = False

@@ -209,7 +209,16 @@ def _calc_embed_chars(embed_dict: Dict[str, Any]) -> int:
 
 
 def _enforce_embed_budget(embed_dict: Dict[str, Any], max_total_chars: int = 5800) -> Dict[str, Any]:
-    """Caps embed fields and characters so the embed strictly stays under Discord's 6000-char and 25-field limits."""
+    """Caps embed description, fields and characters so the embed strictly stays under Discord's limits."""
+    desc = embed_dict.get("description") or ""
+    if len(desc) > 4096:
+        desc_suffix = "\n*… weitere Spieler gekürzt (Discord-Limit)*"
+        cut_limit = 4096 - len(desc_suffix)
+        truncated_desc = desc[:cut_limit].rsplit("\n", 1)[0].rstrip(", ")
+        if not truncated_desc:
+            truncated_desc = desc[:cut_limit].rstrip(", ")
+        embed_dict["description"] = f"{truncated_desc}{desc_suffix}"
+
     fields = list(embed_dict.get("fields", []))
     if _calc_embed_chars(embed_dict) <= max_total_chars and len(fields) <= 25:
         return embed_dict
@@ -282,6 +291,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
 
     # Build unique hash
     raw_hash_data = {
+        "layout_version": 2,
         "is_live": is_live,
         "admins": [(a.get("uid"), a.get("minecraftName"), a.get("discordName")) for a in admins_sorted],
         "mods": [(m.get("uid"), m.get("minecraftName"), m.get("discordName")) for m in mods_sorted],
@@ -291,58 +301,68 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
 
     total_count = len(admins) + len(mods) + len(players)
     use_compact = total_count > 70
-
-    admin_lines = [_format_entry(a, "admin", is_live, member_map, compact=use_compact) for a in admins_sorted]
-    mod_lines = [_format_entry(m, "mod", is_live, member_map, compact=use_compact) for m in mods_sorted]
-    player_lines = [_format_entry(p, "player", is_live, member_map, compact=use_compact) for p in players_sorted]
-
-    sep = ", " if use_compact else "\n"
-    sep_len = len(sep)
-    chunk_max_items = 60 if use_compact else 25
-
     status_text = "🟢 Live auf dem Server • Whitelist aktiv" if is_live else "🟡 Pre-Launch (Vorbereitung) • Whitelist gestaged"
 
-    fields: List[Dict[str, Any]] = []
+    header = (
+        "Herzlich willkommen im weihnachtlichen Community-Projekt **Weihnachtsdorf 7**! 🎅✨\n"
+        "Hier findest du die aktuelle Übersicht aller freigeschalteten Teammitglieder und Spieler.\n\n"
+        f"📡 **Server-Status:** `{status_text}`\n"
+        f"🌐 **Server-Adresse:** `tigimax.mooo.com` *(Purpur 26.3)*\n"
+        f"👥 **Registriert:** **{total_count}** Teilnehmer (`{len(admins_sorted) + len(mods_sorted)}` Team • `{len(players_sorted)}` Spieler)"
+    )
 
-    # 1. Staff / Admins
-    if admin_lines:
-        admin_chunks = _chunk_lines(admin_lines, max_items=chunk_max_items, max_chars=1000, sep_len=sep_len)
-        for i, chunk in enumerate(admin_chunks):
-            title = f"👑 Projektleitung & Administration ({len(admins_sorted)})" if i == 0 else "\u200b"
-            fields.append({
-                "name": title,
-                "value": sep.join(chunk),
-                "inline": False,
-            })
+    def _build_body(compact: bool) -> Tuple[str, List[Dict[str, Any]]]:
+        admin_lines = [_format_entry(a, "admin", is_live, member_map, compact=compact) for a in admins_sorted]
+        mod_lines = [_format_entry(m, "mod", is_live, member_map, compact=compact) for m in mods_sorted]
+        player_lines = [_format_entry(p, "player", is_live, member_map, compact=compact) for p in players_sorted]
 
-    # 2. Moderation (if any)
-    if mod_lines:
-        mod_chunks = _chunk_lines(mod_lines, max_items=chunk_max_items, max_chars=1000, sep_len=sep_len)
-        for i, chunk in enumerate(mod_chunks):
-            title = f"⚔️ Moderation ({len(mods_sorted)})" if i == 0 else "\u200b"
-            fields.append({
-                "name": title,
-                "value": sep.join(chunk),
-                "inline": False,
-            })
+        sep = ", " if compact else "\n"
+        sections: List[str] = []
 
-    # 3. Regular Players
-    if not player_lines:
-        fields.append({
-            "name": "🎮 Angemeldete Spieler (0)",
-            "value": "*Noch keine regulären Spieler angemeldet.*",
-            "inline": False,
-        })
-    else:
-        player_chunks = _chunk_lines(player_lines, max_items=chunk_max_items, max_chars=1000, sep_len=sep_len)
-        total = len(players_sorted)
-        for i, chunk in enumerate(player_chunks):
-            title = f"🎮 Angemeldete Spieler ({total})" if i == 0 else "\u200b"
-            fields.append({
-                "name": title,
-                "value": sep.join(chunk),
-                "inline": False,
-            })
+        if admin_lines:
+            sections.append(f"**👑 Projektleitung & Administration ({len(admins_sorted)})**\n{sep.join(admin_lines)}")
+        if mod_lines:
+            sections.append(f"**⚔️ Moderation ({len(mods_sorted)})**\n{sep.join(mod_lines)}")
+
+        player_title = f"**🎮 Angemeldete Spieler ({len(players_sorted)})**"
+        if not player_lines:
+            sections.append(f"{player_title}\n*Noch keine regulären Spieler angemeldet.*")
+        else:
+            sections.append(f"{player_title}\n{sep.join(player_lines)}")
+
+        desc = "\n\n".join([header] + sections)
+        overflow_fields: List[Dict[str, Any]] = []
+
+        if len(desc) > 4096 and compact and player_lines:
+            prefix_sections = sections[:-1]
+            prefix = "\n\n".join([header] + prefix_sections) + f"\n\n{player_title}\n"
+            avail = max(4096 - len(prefix), 0)
+            in_desc: List[str] = []
+            used = 0
+            split_idx = 0
+            for idx, line in enumerate(player_lines):
+                add_len = len(line) + (len(sep) if in_desc else 0)
+                if used + add_len <= avail:
+                    in_desc.append(line)
+                    used += add_len
+                    split_idx = idx + 1
+                else:
+                    break
+            desc = prefix + sep.join(in_desc)
+            remaining = player_lines[split_idx:]
+            if remaining:
+                for chunk in _chunk_lines(remaining, max_items=60, max_chars=1000, sep_len=len(sep)):
+                    overflow_fields.append({
+                        "name": "\u200b",
+                        "value": sep.join(chunk),
+                        "inline": False,
+                    })
+
+        return desc, overflow_fields
+
+    description_text, fields = _build_body(use_compact)
+    if not use_compact and len(description_text) > 4096:
+        description_text, fields = _build_body(True)
 
     # 4. Info & Bewerbung
     anmeldung_id = getattr(settings, "DISCORD_CHANNEL_ANMELDUNG_ID", "")
@@ -355,13 +375,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
 
     embed_dict = {
         "title": "🎄 Weihnachtsdorf 7 • Offizielle Teilnehmerliste ❄️",
-        "description": (
-            "Herzlich willkommen im weihnachtlichen Community-Projekt **Weihnachtsdorf 7**! 🎅✨\n"
-            "Hier findest du die aktuelle Übersicht aller freigeschalteten Teammitglieder und Spieler.\n\n"
-            f"📡 **Server-Status:** `{status_text}`\n"
-            f"🌐 **Server-Adresse:** `tigimax.mooo.com` *(Purpur 26.3)*\n"
-            f"👥 **Registriert:** **{total_count}** Teilnehmer (`{len(admins_sorted) + len(mods_sorted)}` Team • `{len(players_sorted)}` Spieler)\n"
-        ),
+        "description": description_text,
         "color": 0x1f8b4c,
         "thumbnail": {
             "url": "https://cdn.discordapp.com/icons/909437200125538364/8f9dfac93f8187fb9f98ed058aebd84d.png",

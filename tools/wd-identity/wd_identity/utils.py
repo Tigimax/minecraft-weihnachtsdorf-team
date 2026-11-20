@@ -149,7 +149,7 @@ def _check_discord_guild_role(target: str, mode: str) -> Tuple[bool, str]:
 
     headers = {
         "Authorization": f"Bot {settings.DISCORD_BOT_TOKEN.strip()}",
-        "User-Agent": "DiscordBot-WD7 (https://tigimax.mooo.com)",
+        "User-Agent": "DiscordBot-WD7 (https://tigimax.com)",
         "Content-Type": "application/json",
     }
     guild_id = settings.DISCORD_GUILD_ID
@@ -280,7 +280,7 @@ def resolve_discord_user(discord_name_or_id: str) -> tuple[Optional[str], Option
 
     headers = {
         "Authorization": f"Bot {settings.DISCORD_BOT_TOKEN.strip()}",
-        "User-Agent": "DiscordBot-WD7 (https://tigimax.mooo.com)",
+        "User-Agent": "DiscordBot-WD7 (https://tigimax.com)",
         "Content-Type": "application/json",
     }
     guild_id = settings.DISCORD_GUILD_ID or "909437200125538364"
@@ -341,7 +341,7 @@ def send_dm_rest(discord_name_or_id: str, message: str) -> bool:
     token = settings.DISCORD_BOT_TOKEN.strip()
     headers = {
         "Authorization": f"Bot {token}",
-        "User-Agent": "DiscordBot-WD7 (https://tigimax.mooo.com)",
+        "User-Agent": "DiscordBot-WD7 (https://tigimax.com)",
         "Content-Type": "application/json",
     }
 

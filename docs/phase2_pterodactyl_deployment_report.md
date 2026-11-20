@@ -19,7 +19,7 @@ Phase 2 wurde erfolgreich abgeschlossen und verifiziert:
    - **Node 1 (`mc-node1`)** im Panel registriert, Wings verbunden und gesund.
 
 2. **Reverse Proxy auf `usrv01` (`192.168.1.174`)**:
-   - Nginx-Vhost für `panel.tigimax.mooo.com` -> `http://192.168.1.148:80`.
+   - Nginx-Vhost für `panel.tigimax.com` -> `http://192.168.1.148:80`.
    - WebSocket-Forwarding (`Upgrade` und `Connection` Header) aktiv.
    - Let's Encrypt TLS aktiv (`HTTP/2 200 OK`).
 
@@ -56,7 +56,7 @@ Phase 2 wurde erfolgreich abgeschlossen und verifiziert:
 Alle Komponenten wurden als Infrastructure-as-Code (IaC) versioniert und verifiziert:
 - **Firewall & DOCKER-USER Chains**: [`ansible/playbooks/configure_firewall.yml`](../ansible/playbooks/configure_firewall.yml) isoliert Port 25574 (Purpur) exklusiv auf Node 1 Velocity und schützt BlueMap (Port 8123) sowie Plan Analytics (Port 8804) auf Ingress `usrv01`.
 - **Kernel- & Sysctl-Tuning**: [`ansible/playbooks/tune_mc_nodes.yml`](../ansible/playbooks/tune_mc_nodes.yml) deaktiviert Swap und setzt Socket-Puffer (`net.core.rmem_max=2500000`, `vm.max_map_count=262144`).
-- **Pi-hole DNS Management**: [`ansible/playbooks/configure_pihole_dns.yml`](../ansible/playbooks/configure_pihole_dns.yml) pflegt alle internen `.net` und Split-DNS Einträge für `*.tigimax.mooo.com`.
+- **Pi-hole DNS Management**: [`ansible/playbooks/configure_pihole_dns.yml`](../ansible/playbooks/configure_pihole_dns.yml) pflegt alle internen `.net` und Split-DNS Einträge für `*.tigimax.com`.
 - **BlueMap World Sync**: [`ansible/playbooks/setup_bluemap_sync.yml`](../ansible/playbooks/setup_bluemap_sync.yml) orchestriert den zyklischen 5-Minuten World-Sync von `mc-main` auf `mc-node1`.
 
 ---

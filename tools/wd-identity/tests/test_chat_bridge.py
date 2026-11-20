@@ -992,3 +992,45 @@ def test_cmd_mc_befehl_execution_error():
     asyncio.run(_run())
 
 
+def test_waldlaufer_rudi_custom_avatar_and_display_name():
+    from wd_identity import chat_bridge
+
+    async def _run():
+        posts = []
+
+        class _Resp:
+            status_code = 204
+            text = ""
+
+        class _Client:
+            async def post(self, url, json=None):
+                posts.append({"url": url, "json": json})
+                return _Resp()
+
+        with patch("wd_identity.chat_bridge._get_channel_webhook_url", return_value="https://discord.example/hook"), \
+             patch("wd_identity.chat_bridge.resolve_player_by_minecraft") as mock_resolve:
+            client = _Client()
+            await chat_bridge._send_event_to_webhook(client, {
+                "type": "join",
+                "username": "Waldlaufer_Rudi",
+                "uuid": "fake-uuid",
+                "message": "",
+            })
+            await chat_bridge._send_event_to_webhook(client, {
+                "type": "death",
+                "username": "Waldlaufer_Rudi",
+                "uuid": "fake-uuid",
+                "message": "Waldlaufer_Rudi was slain by Zombie",
+            })
+            mock_resolve.assert_not_called()
+
+        assert len(posts) == 2
+        assert posts[0]["json"]["username"] == "🌲 Waldläufer Rudi"
+        assert posts[0]["json"]["avatar_url"] == "https://mc-heads.net/avatar/774108455ea34f4e82bf81c894611e61/128"
+        assert posts[0]["json"]["content"] == "➕ **🌲 Waldläufer Rudi** hat den Server betreten"
+        assert posts[1]["json"]["content"] == "💀 🌲 Waldläufer Rudi was slain by Zombie"
+
+    asyncio.run(_run())
+
+
+

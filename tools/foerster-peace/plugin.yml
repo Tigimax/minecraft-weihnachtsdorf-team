@@ -1,0 +1,5 @@
+name: FoersterPeace
+version: 1.0.0
+main: de.weihnachtsdorf.foersterpeace.FoersterPeacePlugin
+api-version: '1.21'
+description: Keeps hostile mobs friendly and non-aggressive toward Waldlaufer_Rudi

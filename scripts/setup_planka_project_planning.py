@@ -292,7 +292,7 @@ def main():
         ["Prio: Normal", "Infrastruktur & Server"],
         [
             ("OpenLDAP Verzeichnisdienst mit Gruppen (wd_admins, wd_mods, wd_players)", True),
-            ("Authentik Forward-Auth für Planka (tigimax.mooo.com)", True),
+            ("Authentik Forward-Auth für Planka (tigimax.com)", True),
             ("Automatisches Provisioning bei Discord-Rollenvergabe", True)
         ]
     )
@@ -300,7 +300,7 @@ def main():
     add_card(
         durchfuehrung_id, df_list_ids["✅ Erledigt"],
         "BlueMap Web-Livekarte mit Spieler-Positionen",
-        "Hochauflösende 3D-Karte auf https://map.tigimax.mooo.com mit kontinuierlicher Echtzeit-Positionssynchronisation.\n\n"
+        "Hochauflösende 3D-Karte auf https://map.tigimax.com mit kontinuierlicher Echtzeit-Positionssynchronisation.\n\n"
         "Keine Geister-Bots: Nur tatsächlich online verbundene Spieler werden visualisiert.",
         262144,
         ["Prio: Normal", "Infrastruktur & Server"],
@@ -512,7 +512,7 @@ def main():
 
     print("\n" + "=" * 70)
     print("✅ Planka Projektplanung für Weihnachtsdorf 7 erfolgreich eingerichtet!")
-    print("   🌐 Erreichbar unter: https://tigimax.mooo.com")
+    print("   🌐 Erreichbar unter: https://tigimax.com")
     print("=" * 70)
 
 if __name__ == "__main__":

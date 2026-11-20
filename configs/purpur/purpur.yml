@@ -76,3 +76,12 @@ world-settings:
       arrow: 8
       ender_pearl: 8
       snowball: 4
+
+  world_nether:
+    blocks:
+      lava:
+        speed:
+          nether: 20
+    mobs:
+      zombified_piglin:
+        can-pick-up-loot: false

@@ -10,7 +10,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import com.destroystokyo.paper.profile.PlayerProfile;
+import com.destroystokyo.paper.profile.ProfileProperty;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.server.RemoteServerCommandEvent;
@@ -42,6 +46,11 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
     private String lastPayload = "";
     private final Object fileWriteLock = new Object();
     private final Set<UUID> vanishedPlayers = ConcurrentHashMap.newKeySet();
+    private static final String BOT_NAME = "Waldlaufer_Rudi";
+    private static final String BOT_SKIN_VALUE =
+            "ewogICJ0aW1lc3RhbXAiIDogMTc5NDU3MzkyMjU0MywKICAicHJvZmlsZUlkIiA6ICI3NzQxMDg0NTVlYTM0ZjRlODJiZjgxYzg5NDYxMWU2MSIsCiAgInByb2ZpbGVOYW1lIiA6ICJsdW1iZXJqYWNrIiwKICAic2lnbmF0dXJlUmVxdWlyZWQiIDogdHJ1ZSwKICAidGV4dHVyZXMiIDogewogICAgIlNLSU4iIDogewogICAgICAidXJsIiA6ICJodHRwOi8vdGV4dHVyZXMubWluZWNyYWZ0Lm5ldC90ZXh0dXJlL2U2NjFmMzJjNmNmMDFhZjg2N2RjNWIyMzEyZGEyMDFlYmRlNDU2YWE0MmY5NDA1ZjU5MmU0ZGJhYTI5ODEwOTkiCiAgICB9CiAgfQp9";
+    private static final String BOT_SKIN_SIG =
+            "SdGGyHu6eIFzs+vezTQzMsw/IsoTByp3eLoqaDHAqtuG8epeef8ZXOwSoEyAL+SOabpzi4KtNXzciQXvqP9o02EejODim3oS9dwpkERGogzENlZ8u4kL1NAv0dX++Rx2+uLjjUemkO5VSgGrfD7wAUgyXI0G/7af1QXFU91RGSFUiPBoge+/QSZMVZ1NggkXA3PsvVzZFUpcrAYEJWbvEgc6wEV8BaqcCcFSzbpH8r1PrNX7boybSUDRafpoIH9GjO9abPKqr/CDc3lLVM1mCzu4zpba/PYeUwHB5S2qbjJf1H7r6UHbvwq89Vq4kXrE9IoF8TDAAc/BzR67LinfeP/ao7Br8UbRntRiqp95N5+sBe3aI5P7n3I0bDcespoaq/756XCPWz89TD/MZFWJV5NLRT6fI5CI+2f/kVNpxc4sjE+x6NhDutavFUIAqAPI0EnZp42lewPw4zoNFcvIkk7DmA9jzMNc00CS5nrQ+GI5i4MuXXtl/ZtTN6EYFkRJ6Qo1fdCOqO7yphrVzFz6e/b1uEd2iFiZWAYBdA62M9biRMa2VRzkz/MldxxNW2zGHXEBa/rgcublQ5j0XMqAVYjUQFeWhrFd3q8BLPpar9o53qNq+VqehjqaK3vo82ZANmjPbDyz5PptxDXwlrMm1NUUV898rQYyeWg8neFtlJ8=";
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
@@ -74,6 +83,12 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
             if (isVanished(p)) {
                 vanishedPlayers.add(p.getUniqueId());
             }
+            if (BOT_NAME.equalsIgnoreCase(p.getName())) {
+                PlayerProfile profile = p.getPlayerProfile();
+                if (ensureBotSkin(profile, "onEnable")) {
+                    p.setPlayerProfile(profile);
+                }
+            }
         }
 
         // Export player positions every 2 seconds (40 ticks)
@@ -98,12 +113,62 @@ public class BlueMapLiveBridge extends JavaPlugin implements Listener {
         vanishedPlayers.clear();
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    private boolean ensureBotSkin(PlayerProfile profile, String stage) {
+        boolean matches = false;
+        boolean hadTextures = false;
+        for (ProfileProperty prop : profile.getProperties()) {
+            if ("textures".equals(prop.getName())) {
+                hadTextures = true;
+                matches = BOT_SKIN_VALUE.equals(prop.getValue()) && prop.isSigned();
+            }
+        }
+        getLogger().info("Bot profile at " + stage + ": hadTextures=" + hadTextures + ", matchesSigned=" + matches);
+        if (!matches) {
+            profile.setProperty(new ProfileProperty("textures", BOT_SKIN_VALUE, BOT_SKIN_SIG));
+            return true;
+        }
+        return false;
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPreLogin(AsyncPlayerPreLoginEvent event) {
+        if (BOT_NAME.equalsIgnoreCase(event.getName())) {
+            ensureBotSkin(event.getPlayerProfile(), "preLogin");
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
-        if (vanishedPlayers.contains(event.getPlayer().getUniqueId())) {
+        Player player = event.getPlayer();
+        if (vanishedPlayers.contains(player.getUniqueId())) {
             return;
         }
-        postEvent("chat", event.getPlayer().getUniqueId().toString(), event.getPlayer().getName(), event.getMessage());
+        postEvent("chat", player.getUniqueId().toString(), player.getName(), event.getMessage());
+
+        // Suppress Purpur [Not Secure] badge for local offline-mode bot by rebroadcasting as system component
+        if (BOT_NAME.equalsIgnoreCase(player.getName())) {
+            String formatted;
+            try {
+                formatted = String.format(event.getFormat(), player.getDisplayName(), event.getMessage());
+            } catch (Exception e) {
+                formatted = "<" + player.getDisplayName() + "> " + event.getMessage();
+            }
+            event.setCancelled(true);
+            final String out = formatted;
+            Bukkit.getScheduler().runTask(this, () ->
+                    Bukkit.broadcast(LegacyComponentSerializer.legacySection().deserialize(out)));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onJoinSkin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        if (BOT_NAME.equalsIgnoreCase(player.getName())) {
+            PlayerProfile profile = player.getPlayerProfile();
+            if (ensureBotSkin(profile, "onJoin")) {
+                player.setPlayerProfile(profile);
+            }
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

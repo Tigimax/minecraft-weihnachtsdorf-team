@@ -47,9 +47,9 @@ All web traffic routes through Nginx on `ubuntu-server-01` (`usrv01.net` / `192.
 
 | Public Domain | Internal Destination | Protocol | Purpose |
 | :--- | :--- | :---: | :--- |
-| **`panel.tigimax.mooo.com`** | `https://usrv03.net:8443` | HTTPS (WebSocket) | Crafty 4 Web Administration Panel |
-| **`map.tigimax.mooo.com`** | `http://192.168.1.147:8123` | HTTP | BlueMap / Dynmap Live 3D World Viewer |
-| **`plan.tigimax.mooo.com`** | `http://192.168.1.147:8804` | HTTP | Plan Player & Performance Analytics |
+| **`panel.tigimax.com`** | `https://usrv03.net:8443` | HTTPS (WebSocket) | Crafty 4 Web Administration Panel |
+| **`map.tigimax.com`** | `http://192.168.1.147:8123` | HTTP | BlueMap / Dynmap Live 3D World Viewer |
+| **`plan.tigimax.com`** | `http://192.168.1.147:8804` | HTTP | Plan Player & Performance Analytics |
 
 ### Local DNS Shortcuts (Pi-hole `192.168.1.173`)
 * `crafty.net` / `dynmap.net` -> Resolves to `192.168.1.174` (Nginx redirect to HTTPS panels).
@@ -160,5 +160,5 @@ Historical Minecraft seasons are preserved across the storage cluster:
 
 > [!NOTE]
 > **FreeDNS 6-Month Inactivity Expiration:**
-> `panel.tigimax.mooo.com`, `map.tigimax.mooo.com`, and `plan.tigimax.mooo.com` are managed via FreeDNS.
+> `panel.tigimax.com`, `map.tigimax.com`, and `plan.tigimax.com` are managed via FreeDNS.
 > Subdomains expire every 6 months if not refreshed in the web UI at [freedns.afraid.org](https://freedns.afraid.org/). If external access fails, log in and re-save the records.

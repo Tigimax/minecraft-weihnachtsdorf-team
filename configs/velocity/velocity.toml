@@ -17,6 +17,8 @@ enable-player-address-logging = true
 	try = ["hauptwelt"]
 
 [forced-hosts]
+	"play.tigimax.com" = ["hauptwelt"]
+	"tigimax.com" = ["hauptwelt"]
 	"play.tigimax.mooo.com" = ["hauptwelt"]
 	"tigimax.mooo.com" = ["hauptwelt"]
 

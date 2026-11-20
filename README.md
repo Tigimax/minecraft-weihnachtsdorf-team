@@ -21,15 +21,15 @@ für das 80–120 Spieler Weihnachts-Event am Spawn.
 
 | Dienst | Externe Adresse | Internes Ziel | Schutz / Authentifizierung |
 |---|---|---|---|
-| 🎮 **Minecraft Server** | `tigimax.mooo.com:25565` (TCP) | `mc-node1:25565` | Whitelist (Mojang Auth via Velocity HMAC) |
-| 🎙️ **Simple VoiceChat** | `tigimax.mooo.com:24454` (UDP) | `mc-node1:24454` | Proximity Chat UDP (Kernel DNAT) |
-| 🔐 **Authentik SSO** | https://auth.tigimax.mooo.com | `idp-01:9000` | 2FA (TOTP / WebAuthn) |
-| 🗺️ **BlueMap Live-Karte** | https://map.tigimax.mooo.com | `mc-node1:8123` | Forward-Auth (`wd-bluemap`) |
-| 📊 **Plan Analytics** | https://plan.tigimax.mooo.com | `mc-main:8804` | Forward-Auth (`wd-plan`) |
-| 🦖 **Pterodactyl Panel** | https://panel.tigimax.mooo.com | `mc-node1:80` | Forward-Auth (`wd-panel`) |
-| 📋 **Planka Kanban** | https://tigimax.mooo.com | `usrv01:3000` | Forward-Auth (`wd-planka`) |
+| 🎮 **Minecraft Server** | `tigimax.com:25565` (TCP) | `mc-node1:25565` | Whitelist (Mojang Auth via Velocity HMAC) |
+| 🎙️ **Simple VoiceChat** | `tigimax.com:24454` (UDP) | `mc-node1:24454` | Proximity Chat UDP (Kernel DNAT) |
+| 🔐 **Authentik SSO** | https://auth.tigimax.com | `idp-01:9000` | 2FA (TOTP / WebAuthn) |
+| 🗺️ **BlueMap Live-Karte** | https://map.tigimax.com | `mc-node1:8123` | Forward-Auth (`wd-bluemap`) |
+| 📊 **Plan Analytics** | https://plan.tigimax.com | `mc-main:8804` | Forward-Auth (`wd-plan`) |
+| 🦖 **Pterodactyl Panel** | https://panel.tigimax.com | `mc-node1:80` | Forward-Auth (`wd-panel`) |
+| 📋 **Planka Kanban** | https://tigimax.com | `usrv01:3000` | Forward-Auth (`wd-planka`) |
 
-> 🔑 Ein gemeinsames Session-Cookie auf `.tigimax.mooo.com` sorgt für nahtloses **Single Sign-On** über alle Web-Portale.
+> 🔑 Ein gemeinsames Session-Cookie auf `.tigimax.com` sorgt für nahtloses **Single Sign-On** über alle Web-Portale.
 
 ---
 
@@ -46,7 +46,7 @@ flowchart TD
     end
 
     subgraph dns["ulxc01 (192.168.1.173)"]
-        PIHOLE[Pi-hole DNS :53<br/>Split-DNS *.tigimax.mooo.com<br/>Interne .net Zone]
+        PIHOLE[Pi-hole DNS :53<br/>Split-DNS *.tigimax.com<br/>Interne .net Zone]
     end
 
     subgraph idp["idp-01 (VM 121, 192.168.1.150)"]
@@ -68,7 +68,7 @@ flowchart TD
     end
 
     subgraph main["mc-main (VM 120, 192.168.1.149 auf pnode02)"]
-        PUR[Purpur 26.3 · Java 25 LTS<br/>11 GB Heap · Aikar Flags<br/>29 Server-Datapacks]
+        PUR[Purpur 26.3 · Java 25 LTS<br/>11 GB Heap · Aikar Flags<br/>25 Server-Datapacks]
         PLAN[Plan Analytics :8804]
         WINGS2[Wings Node 2 Daemon :8080]
     end
@@ -175,7 +175,7 @@ ansible-playbook -i ansible/inventory.ini ansible/playbooks/<PLAYBOOK>.yml
 │   ├── pihole/             # custom.list (Single Source of Truth für DNS)
 │   ├── purpur/             # purpur.yml, paper-global.yml, server.properties
 │   └── velocity/           # velocity.toml & voicechat-proxy.properties
-├── datapacks/              # 29 Server-Datapacks (u. a. weihnachtsdorf-deko.zip, furnicraft.zip, structory.zip)
+├── datapacks/              # 25 Server-Datapacks (u. a. weihnachtsdorf-deko.zip, arwens-furniture.zip, structory.zip)
 ├── docs/                   # Architektur-, Netzwerk-, Betriebshandbücher & Reports
 ├── scripts/                # Provisionierung, BlueMap-World-Sync (Timer/Service)
 ├── tools/wd-identity/      # FastAPI-Backend, Discord-Bot, CLI (wd-admin), Tests

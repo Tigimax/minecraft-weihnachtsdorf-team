@@ -186,7 +186,7 @@ flowchart TD
 
     subgraph PROXY["mc-node1 (Velocity Proxy 4.3.1)"]
         VEL["Velocity Netty IO<br/>ViaVersion 1.20.4 -> 1.21.4"]
-        BM["BlueMap Web & Daemon (:8123)<br/>https://map.tigimax.mooo.com"]
+        BM["BlueMap Web & Daemon (:8123)<br/>https://map.tigimax.com"]
     end
 
     subgraph SERVER["mc-main (Purpur 26.3 SMP)"]
@@ -212,7 +212,7 @@ flowchart TD
    * Automatischer Respawn-Handler bei eventuellen Void-/Desync-Fällen.
 4. **Echtzeit-Synchronisation auf BlueMap:**
    * Alle 2 Sekunden exportieren die Worker die Koordinaten **ausschließlich der tatsächlich online verbundenen Spieler**.
-   * Die Live-Positionen und Spielerköpfe wurden in Echtzeit auf der öffentlichen Webkarte ([`https://map.tigimax.mooo.com`](https://map.tigimax.mooo.com)) visualisiert. Nach Testende wird die Karte sofort auf 0 bereinigt (keine Geister-Bots).
+   * Die Live-Positionen und Spielerköpfe wurden in Echtzeit auf der öffentlichen Webkarte ([`https://map.tigimax.com`](https://map.tigimax.com)) visualisiert. Nach Testende wird die Karte sofort auf 0 bereinigt (keine Geister-Bots).
 5. **Memory- & Cgroup-Härtung:**
    * Zur Verhinderung von Linux-Cgroup-OOMs durch Netty-Direktspeicher bei gleichzeitigem Chunk-Streaming für 100 Spieler wurde der Heap auf `-Xms8G -Xmx8G` kalibriert. Dadurch verbleiben **3,55 GiB Headroom** bis zum Container-Limit (11,55 GiB).
 

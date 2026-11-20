@@ -100,7 +100,7 @@ class AuthentikSsoMiddleware
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
-            return redirect()->away('https://auth.tigimax.mooo.com/if/flow/default-invalidation-flow/');
+            return redirect()->away('https://auth.tigimax.com/if/flow/default-invalidation-flow/');
         }
 
         return $next($request);

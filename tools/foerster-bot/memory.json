@@ -1,0 +1,24 @@
+{
+  "botName": "Waldlaufer_Rudi",
+  "hutLocation": {
+    "x": -6158,
+    "y": 75,
+    "z": -3157
+  },
+  "hutBuilt": false,
+  "currentMood": "zielstrebig und gemütlich",
+  "recentGoals": [
+    "Hier unten am Wasser treibt sich ein Zombie herum, also mache ich mich schnell hoch zu meinem Bauplatz und zimmere endlich meine gemütliche kleine Försterhütte.",
+    "Es schneit und es ist Nacht, also mache ich mich jetzt endlich daran, meine kleine gemütliche Försterhütte aufzubauen.",
+    "Tigimax grüßt mich im Chat, also antworte ich ihm freundlich und mache mich bei dem Schneegestöber endlich an den Bau meiner kleinen Försterhütte.",
+    "Tigimax wollte ein Geschenk, da geb ich ihm am besten gleich ein paar saftige Süßbeeren.",
+    "Es schneit so schön, da wird es jetzt Zeit, endlich meine gemütliche kleine Hütte aufzubauen."
+  ],
+  "players": {
+    "Tigimax": {
+      "note": "Hatte mich vorhin gegrüßt.",
+      "updatedAt": "2026-11-13T11:04:22.435Z"
+    }
+  },
+  "learnedSkills": {}
+}

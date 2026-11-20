@@ -64,7 +64,7 @@ def log_admin_event(
 
     headers = {
         "Authorization": f"Bot {token}",
-        "User-Agent": "DiscordBot-WD7 (https://tigimax.mooo.com)",
+        "User-Agent": "DiscordBot-WD7 (https://tigimax.com)",
         "Content-Type": "application/json",
     }
 

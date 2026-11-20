@@ -1,0 +1,19 @@
+[Unit]
+Description=Weihnachtsdorf 7 - Autonomer Foerster-Bot (Waldlaufer_Rudi)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dweisstan
+WorkingDirectory=/home/dweisstan/agy/minecraft-weihnachtsdorf
+EnvironmentFile=-/etc/default/wd-identity
+EnvironmentFile=-/home/dweisstan/.config/wd-foerster.env
+ExecStart=/usr/bin/node /home/dweisstan/agy/minecraft-weihnachtsdorf/tools/foerster-bot/bot.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -71,21 +71,21 @@ Der Host `usrv01` (`192.168.1.174`) fungiert als zentrales Eingangstor für säm
 
 | Öffentliche Domain | Protokoll | Backend-Ziel | Authentifizierung / Schutz |
 |---|---|---|---|
-| `auth.tigimax.mooo.com` | HTTPS :443 | `http://192.168.1.150:9000` | Authentik IdP Portal (Direktzugriff) |
-| `panel.tigimax.mooo.com` | HTTPS :443 | `http://192.168.1.148:80` | Forward-Auth Outpost (`wd-panel`) + Bypass für Wings API |
-| `map.tigimax.mooo.com` | HTTPS :443 | `http://192.168.1.148:8123` | Forward-Auth Outpost (`wd-bluemap`), HTTP-HEAD Rewriting |
-| `plan.tigimax.mooo.com` | HTTPS :443 | `http://192.168.1.149:8804` | Forward-Auth Outpost (`wd-plan`) |
-| `tigimax.mooo.com` | HTTPS :443 | `http://127.0.0.1:3000` | Forward-Auth Outpost (`wd-planka`) + WebSocket Upgrade |
-| `panel.tigimax.mooo.com:8081` | HTTPS :8081 | `http://192.168.1.148:8080` | TLS-Proxy für Wings Node 1 API |
-| `panel.tigimax.mooo.com:8082` | HTTPS :8082 | `http://192.168.1.149:8080` | TLS-Proxy für Wings Node 2 API |
+| `auth.tigimax.com` | HTTPS :443 | `http://192.168.1.150:9000` | Authentik IdP Portal (Direktzugriff) |
+| `panel.tigimax.com` | HTTPS :443 | `http://192.168.1.148:80` | Forward-Auth Outpost (`wd-panel`) + Bypass für Wings API |
+| `map.tigimax.com` | HTTPS :443 | `http://192.168.1.148:8123` | Forward-Auth Outpost (`wd-bluemap`), HTTP-HEAD Rewriting |
+| `plan.tigimax.com` | HTTPS :443 | `http://192.168.1.149:8804` | Forward-Auth Outpost (`wd-plan`) |
+| `tigimax.com` | HTTPS :443 | `http://127.0.0.1:3000` | Forward-Auth Outpost (`wd-planka`) + WebSocket Upgrade |
+| `panel.tigimax.com:8081` | HTTPS :8081 | `http://192.168.1.148:8080` | TLS-Proxy für Wings Node 1 API |
+| `panel.tigimax.com:8082` | HTTPS :8082 | `http://192.168.1.149:8080` | TLS-Proxy für Wings Node 2 API |
 
 > [!WARNING]
 > **FreeDNS 6-Monats-Verfallsregel (`mooo.com`)**:  
-> Die öffentliche Zone `*.tigimax.mooo.com` wird über Dynamic DNS von [FreeDNS (afraid.org)](https://freedns.afraid.org/) verwaltet. Unbenutzte oder nicht aktualisierte Subdomains verfallen alle 6 Monate automatisch. Bei plötzlichen WAN-Ausfällen der externen Namen muss der Betreiber die Records auf freedns.afraid.org prüfen und reaktivieren.
+> Die öffentliche Zone `*.tigimax.com` wird über Dynamic DNS von [FreeDNS (afraid.org)](https://freedns.afraid.org/) verwaltet. Unbenutzte oder nicht aktualisierte Subdomains verfallen alle 6 Monate automatisch. Bei plötzlichen WAN-Ausfällen der externen Namen muss der Betreiber die Records auf freedns.afraid.org prüfen und reaktivieren.
 
 ### 🔐 Authentik Forward-Auth Architektur
 
-Alle internen Webservices (`panel`, `map`, `plan`, `tigimax.mooo.com`) binden die Authentik Forward-Auth Snippets ein:
+Alle internen Webservices (`panel`, `map`, `plan`, `tigimax.com`) binden die Authentik Forward-Auth Snippets ein:
 
 ```nginx
 # /etc/nginx/snippets/authentik-forward-auth.conf
@@ -104,7 +104,7 @@ location = /outpost.goauthentik.io/auth/nginx {
 }
 ```
 
-Wenn ein nicht authentifizierter Benutzer ein Portal aufruft, sendet Nginx einen internen `auth_request` an Authentik. Schlägt dieser mit HTTP 401 fehl, leitet `@authentik_signin` den Browser automatisch per HTTP 302 auf `https://auth.tigimax.mooo.com` um. Nach erfolgreichem Login wird ein bereichsübergreifendes Session-Cookie für die Domain `.tigimax.mooo.com` gesetzt (**Single Sign-On**).
+Wenn ein nicht authentifizierter Benutzer ein Portal aufruft, sendet Nginx einen internen `auth_request` an Authentik. Schlägt dieser mit HTTP 401 fehl, leitet `@authentik_signin` den Browser automatisch per HTTP 302 auf `https://auth.tigimax.com` um. Nach erfolgreichem Login wird ein bereichsübergreifendes Session-Cookie für die Domain `.tigimax.com` gesetzt (**Single Sign-On**).
 
 ### ⚡ Spezifische Ingress-Bypasses & Rewrites
 
@@ -190,7 +190,7 @@ WantedBy=multi-user.target
 
 Auf `ulxc01` (`192.168.1.173`) läuft der zentrale DNS-Server (Pi-hole im Docker-Container). Er übernimmt zwei essenzielle Aufgaben:
 1. **Interne `.net` Namensauflösung**: Alle Server im Homelab können über kurze Hostnamen (`mc-node1.net`, `mc-main.net`, `idp-01.net`) kommunizieren.
-2. **Split-DNS für `*.tigimax.mooo.com`**: Verhindert NAT-Loopback-Probleme im lokalen Netz. Interne Clients erhalten sofort die lokale IP von `usrv01` (`192.168.1.174`) bzw. `mc-node1` (`192.168.1.148`), ohne über den Internet-Router geroutet zu werden.
+2. **Split-DNS für `*.tigimax.com`**: Verhindert NAT-Loopback-Probleme im lokalen Netz. Interne Clients erhalten sofort die lokale IP von `usrv01` (`192.168.1.174`) bzw. `mc-node1` (`192.168.1.148`), ohne über den Internet-Router geroutet zu werden.
 
 ### 📁 Source of Truth: `configs/pihole/custom.list`
 
@@ -204,8 +204,8 @@ Auszug der relevanten Weihnachtsdorf-Einträge:
 192.168.1.148 velocity.net
 192.168.1.148 mc.net
 192.168.1.148 play.net
-192.168.1.148 mc.tigimax.mooo.com
-192.168.1.148 velocity.tigimax.mooo.com
+192.168.1.148 mc.tigimax.com
+192.168.1.148 velocity.tigimax.com
 
 192.168.1.149 mc-main.net
 192.168.1.149 mc-main
@@ -214,10 +214,10 @@ Auszug der relevanten Weihnachtsdorf-Einträge:
 
 # Ingress & Web Portale
 192.168.1.174 usrv01.net
-192.168.1.174 panel.tigimax.mooo.com
-192.168.1.174 auth.tigimax.mooo.com
-192.168.1.174 map.tigimax.mooo.com
-192.168.1.174 plan.tigimax.mooo.com
+192.168.1.174 panel.tigimax.com
+192.168.1.174 auth.tigimax.com
+192.168.1.174 map.tigimax.com
+192.168.1.174 plan.tigimax.com
 192.168.1.174 tigimax.mooo.com
 
 # Identity & LDAP
@@ -239,7 +239,7 @@ ansible-playbook -i ansible/inventory.ini ansible/playbooks/configure_pihole_dns
 **Sicherheitsmechanismen des Playbooks:**
 1. **Automatisches Backup**: Vor jeder Änderung wird auf `ulxc01` eine Kopie mit Timestamp angelegt (`custom.list.bak_YYYYMMDD_HHMMSS`).
 2. **Handler Reload**: Triggert `docker exec pihole pihole restartdns reload`.
-3. **Automatisierte Validierung**: Prüft via `getent hosts`, ob alle 8 kritischen Domänen (`mc-node1.net`, `mc-main.net`, `idp-01.net`, `auth`, `panel`, `map`, `plan`, `tigimax.mooo.com`) sauber auflösen. Schlägt ein Lookup fehl, schlägt das Playbook mit Fehler fehl.
+3. **Automatisierte Validierung**: Prüft via `getent hosts`, ob alle 8 kritischen Domänen (`mc-node1.net`, `mc-main.net`, `idp-01.net`, `auth`, `panel`, `map`, `plan`, `tigimax.com`) sauber auflösen. Schlägt ein Lookup fehl, schlägt das Playbook mit Fehler fehl.
 
 ---
 
@@ -334,7 +334,7 @@ ssh tigimax@192.168.1.174 "sudo iptables -t nat -L PREROUTING -n -v | grep -E '2
 
 # DNS Namensauflösung im LAN testen:
 dig @192.168.1.173 mc-node1.net +short
-dig @192.168.1.173 panel.tigimax.mooo.com +short
+dig @192.168.1.173 panel.tigimax.com +short
 ```
 
 ---

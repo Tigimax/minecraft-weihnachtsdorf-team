@@ -337,24 +337,39 @@ async def _send_event_to_webhook(client: httpx.AsyncClient, event: dict) -> None
         ign = event.get("username") or "Spieler"
         raw_uuid = str(event.get("uuid") or "")
 
+        custom_avatars = {
+            "waldlaufer_rudi": "https://mc-heads.net/avatar/774108455ea34f4e82bf81c894611e61/128",
+        }
+        custom_names = {
+            "waldlaufer_rudi": "🌲 Waldläufer Rudi",
+        }
+        ign_key = ign.strip().lower()
+        display_ign = custom_names.get(ign_key, ign)
+
         # Resolve player discord_id and avatar
-        player_info = await asyncio.to_thread(resolve_player_by_minecraft, ign, raw_uuid)
-        discord_id = player_info.get("discord_id", "")
-        if discord_id:
-            avatar_url = await get_discord_avatar_url(client, discord_id)
+        if ign_key in custom_avatars:
+            avatar_url = custom_avatars[ign_key]
         else:
-            avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+            player_info = await asyncio.to_thread(resolve_player_by_minecraft, ign, raw_uuid)
+            discord_id = player_info.get("discord_id", "")
+            if discord_id:
+                avatar_url = await get_discord_avatar_url(client, discord_id)
+            else:
+                avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
 
         raw_msg = str(event.get("message") or "")
 
         if ev_type in ("webchat", "chat"):
             content = escape_markdown(raw_msg)[:1900]
         elif ev_type == "join":
-            content = f"➕ **{escape_markdown(ign)}** hat den Server betreten"
+            shown_ign = display_ign if ign_key in custom_names else escape_markdown(ign)
+            content = f"➕ **{shown_ign}** hat den Server betreten"
         elif ev_type == "quit":
-            content = f"➖ **{escape_markdown(ign)}** hat den Server verlassen"
+            shown_ign = display_ign if ign_key in custom_names else escape_markdown(ign)
+            content = f"➖ **{shown_ign}** hat den Server verlassen"
         elif ev_type == "death":
-            content = f"💀 {escape_markdown(raw_msg)}"
+            death_raw = raw_msg.replace(ign, display_ign) if ign_key in custom_names else raw_msg
+            content = f"💀 {escape_markdown(death_raw)}"
         else:
             content = escape_markdown(raw_msg)[:1900]
 
@@ -362,7 +377,7 @@ async def _send_event_to_webhook(client: httpx.AsyncClient, event: dict) -> None
             return
 
         payload = {
-            "username": sanitize_webhook_username(ign),
+            "username": sanitize_webhook_username(display_ign),
             "avatar_url": avatar_url,
             "content": content,
             "allowed_mentions": {"parse": []},

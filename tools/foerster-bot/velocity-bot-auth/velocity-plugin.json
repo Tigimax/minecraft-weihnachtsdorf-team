@@ -1,0 +1,8 @@
+{
+  "id": "wd-localbot",
+  "name": "WDLocalBotAuth",
+  "version": "1.0.0",
+  "description": "Local offline-mode & Forester skin provider for Waldlaufer_Rudi",
+  "authors": ["Weihnachtsdorf"],
+  "main": "de.weihnachtsdorf.botauth.LocalBotAuth"
+}

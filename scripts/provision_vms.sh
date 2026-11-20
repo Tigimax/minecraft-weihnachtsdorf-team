@@ -49,7 +49,7 @@ if ! qm status 119 >/dev/null 2>&1; then
     --sshkeys /tmp/deploy_keys.pub \
     --ipconfig0 ip=192.168.1.148/24,gw=192.168.1.1 \
     --nameserver 192.168.1.173 \
-    --searchdomain tigimax.mooo.com \
+    --searchdomain tigimax.com \
     --agent enabled=1
 
   qm disk resize 119 scsi0 40G
@@ -86,7 +86,7 @@ if ! qm status 120 >/dev/null 2>&1; then
     --sshkeys /tmp/deploy_keys.pub \
     --ipconfig0 ip=192.168.1.149/24,gw=192.168.1.1 \
     --nameserver 192.168.1.173 \
-    --searchdomain tigimax.mooo.com \
+    --searchdomain tigimax.com \
     --affinity 0-5 \
     --startup order=1,up=30 \
     --agent enabled=1

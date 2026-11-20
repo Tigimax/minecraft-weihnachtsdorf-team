@@ -39,7 +39,7 @@ Für das Event **Minecraft SMP Weihnachtsdorf 7** wurde ein zentrales, hochsiche
                                            │ 1. Klickt Einladungslink       │ 7. Erhält Willkommens-DM
                                            ▼                                │    & Links via Discord
 ┌────────────────────────────────────────────────────────────────────────┐  │
-│                   Authentik IdP (auth.tigimax.mooo.com)               │  │
+│                   Authentik IdP (auth.tigimax.com)               │  │
 │  ├─ Invitation Enrollment Flow (24h Token)                             │  │
 │  ├─ Passwort setzen & TOTP 2FA Einrichtung                             │  │
 │  ├─ Prompt Stage: "Minecraft In-Game Name (IGN)"                       │  │
@@ -74,7 +74,7 @@ Für das Event **Minecraft SMP Weihnachtsdorf 7** wurde ein zentrales, hochsiche
 | **`anode01`** (VM 105) | `192.168.1.164` | Ubuntu 24.04 LTS (slapd) | **OpenLDAP 2.5.20** (LDAPS Port 636), Schemas `wdAccount`, Gruppen `wd_admins`, `wd_mods`, `proxmox_admins`, `homelab_admins` |
 | **`idp-01`** (VM 121) | `192.168.1.150` | Ubuntu 24.04 LTS (Docker) | **Authentik 2026.8.5** (:9000), **`wd-identity.service`** (:8000), **`wd-bot.service`**, **`mc-admin-sync.timer`** |
 | **`usrv01`** | `192.168.1.174` | Ubuntu 22.04 LTS | **Nginx Reverse Proxy** & Ingress, Let's Encrypt TLS, Forward-Auth Outpost Gate, **Planka Kanban** (:3000), Kernel DNAT (25565/24454) |
-| **`ulxc01`** | `192.168.1.173` | Ubuntu 22.04 LTS (LXC) | **Pi-hole DNS** (Port 53), Split-DNS für `*.tigimax.mooo.com` & `.net` Zone (Ansible-gesteuert) |
+| **`ulxc01`** | `192.168.1.173` | Ubuntu 22.04 LTS (LXC) | **Pi-hole DNS** (Port 53), Split-DNS für `*.tigimax.com` & `.net` Zone (Ansible-gesteuert) |
 | **`mc-node1`** (VM 119) | `192.168.1.148` | Ubuntu 24.04 LTS | **Velocity Proxy 3.5.1** (:25565), **BlueMap CLI Server** (:8123), Pterodactyl Panel v1.15.2, Wings Node 1, MariaDB 10.11, Redis |
 | **`mc-main`** (VM 120) | `192.168.1.149` | Ubuntu 24.04 LTS | **Purpur 26.3 Build 2654** auf Java 25 LTS (:25574), Plan Analytics (:8804), Wings Node 2 (:8080) |
 | **`pnode01`** | `<PROXMOX_NODE1_IP>` | Proxmox VE 8.x | Proxmox Cluster Node 1 (LDAP-Realm `ldap`, Host für VM 119 `mc-node1`) |
@@ -85,26 +85,26 @@ Für das Event **Minecraft SMP Weihnachtsdorf 7** wurde ein zentrales, hochsiche
 
 ## 4. Öffentliche Domains & Forward-Auth Schutz
 
-Alle administrativen Webanwendungen befinden sich hinter dem zentralen Authentik Forward-Auth Gate auf `usrv01`. Nicht authentifizierte Zugriffe werden automatisch per HTTP 302 auf `https://auth.tigimax.mooo.com` umgeleitet. Durch die gemeinsame Cookie-Domain `.tigimax.mooo.com` genügt ein einmaliger Login, um alle Portale zu nutzen.
+Alle administrativen Webanwendungen befinden sich hinter dem zentralen Authentik Forward-Auth Gate auf `usrv01`. Nicht authentifizierte Zugriffe werden automatisch per HTTP 302 auf `https://auth.tigimax.com` umgeleitet. Durch die gemeinsame Cookie-Domain `.tigimax.com` genügt ein einmaliger Login, um alle Portale zu nutzen.
 
 | Dienst | Öffentliche URL | Backend-Ziel | Schutzmechanismus |
 |---|---|---|---|
-| **SSO Portal** | `https://auth.tigimax.mooo.com` | `idp-01:9000` | Authentik IdP (Let's Encrypt TLS) |
-| **Live-Karte** | `https://map.tigimax.mooo.com` | `mc-node1:8123` | Nginx Forward-Auth (`wd-bluemap` Provider) & `wd-bluemap-access-policy` (Pre-Launch Schutz) |
-| **Server-Analytics** | `https://plan.tigimax.mooo.com` | `mc-main:8804` | Nginx Forward-Auth (`wd-plan` Provider) |
-| **Game-Panel** | `https://panel.tigimax.mooo.com` | `mc-node1:80` | Nginx Forward-Auth (`wd-panel` Provider) + `AuthentikSsoMiddleware` (Auto-Provisioning & Root-Admin Sync) |
-| **Kanban-Board** | `https://tigimax.mooo.com` | `usrv01:3000` | Nginx Forward-Auth (`wd-planka` Provider) + interner DB-Sync |
-| **Minecraft Server** | `tigimax.mooo.com:25565` | `mc-node1:25565` | Purpur Whitelist & LuckPerms Berechtigungsgruppen |
+| **SSO Portal** | `https://auth.tigimax.com` | `idp-01:9000` | Authentik IdP (Let's Encrypt TLS) |
+| **Live-Karte** | `https://map.tigimax.com` | `mc-node1:8123` | Nginx Forward-Auth (`wd-bluemap` Provider) & `wd-bluemap-access-policy` (Pre-Launch Schutz) |
+| **Server-Analytics** | `https://plan.tigimax.com` | `mc-main:8804` | Nginx Forward-Auth (`wd-plan` Provider) |
+| **Game-Panel** | `https://panel.tigimax.com` | `mc-node1:80` | Nginx Forward-Auth (`wd-panel` Provider) + `AuthentikSsoMiddleware` (Auto-Provisioning & Root-Admin Sync) |
+| **Kanban-Board** | `https://tigimax.com` | `usrv01:3000` | Nginx Forward-Auth (`wd-planka` Provider) + interner DB-Sync |
+| **Minecraft Server** | `tigimax.com:25565` | `mc-node1:25565` | Purpur Whitelist & LuckPerms Berechtigungsgruppen |
 
 > [!TIP]
 > **Pterodactyl Transparent Single Sign-On (SSO)**:  
 > Da das Pterodactyl Panel von Haus aus kein LDAP unterstützt, übernimmt [`AuthentikSsoMiddleware.php`](file:///home/dweisstan/agy/minecraft-weihnachtsdorf/configs/pterodactyl/AuthentikSsoMiddleware.php) die nahtlose Anmeldung:
-> Beim ersten Aufruf von `panel.tigimax.mooo.com` liest Pterodactyl die von Authentik übergebenen Header (`X-authentik-username`, `X-authentik-groups`, `X-authentik-email`).
+> Beim ersten Aufruf von `panel.tigimax.com` liest Pterodactyl die von Authentik übergebenen Header (`X-authentik-username`, `X-authentik-groups`, `X-authentik-email`).
 > Existiert der Benutzer noch nicht, wird er **automatisch angelegt**. Gehört er zu `wd_admins`, erhält er direkt `root_admin = true` und vollen Server-Zugriff – komplett ohne zweite Passwortabfrage!
 
 > [!IMPORTANT]
 > **Pterodactyl Wings Daemon Bypass**:  
-> Der Daemon auf Node 2 kommuniziert mit dem Panel über `panel.tigimax.mooo.com/api/remote/` unter Verwendung eines Bearer-Tokens. In der Nginx-Konfiguration ist dieser Pfad explizit mit `auth_request off;` konfiguriert, damit interne Daemon-Heartbeats und Server-Installationen nicht durch Cookie-Redirects blockiert werden.
+> Der Daemon auf Node 2 kommuniziert mit dem Panel über `panel.tigimax.com/api/remote/` unter Verwendung eines Bearer-Tokens. In der Nginx-Konfiguration ist dieser Pfad explizit mit `auth_request off;` konfiguriert, damit interne Daemon-Heartbeats und Server-Installationen nicht durch Cookie-Redirects blockiert werden.
 
 ---
 

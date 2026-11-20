@@ -1,6 +1,16 @@
 void async function() {
     console.log("[Auth/info] Authentication integration loaded!");
 
+    // BlueMap CLI SSE emits tile events only; keep live/players.json polling active despite SSE "open" pausing it.
+    const keepPlayerPollingAlive = () => {
+        const pm = window.bluemap?.playerMarkerManager;
+        if (pm && !pm.disposed && pm._paused && pm._updateIntervalMillis > 0) {
+            pm.resumeAutoUpdates();
+        }
+    };
+    keepPlayerPollingAlive();
+    setInterval(keepPlayerPollingAlive, 2000);
+
     let authData = { loggedIn: false };
     try {
         const res = await fetch("/addons/integration/whoami");

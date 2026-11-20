@@ -116,11 +116,11 @@ Dein Zugang als **{role.upper()}** wurde erfolgreich eingerichtet.
 
 📌 **Wichtige Zugänge & Portale (Single Sign-On):**
 • **Authentik SSO Portal:** {settings.AUTHENTIK_BASE_URL}
-• **BlueMap Live-Karte:** https://map.tigimax.mooo.com
-• **Plan Analytics:** https://plan.tigimax.mooo.com
-• **Pterodactyl Panel:** https://panel.tigimax.mooo.com
-• **Planka Kanban Board:** https://tigimax.mooo.com
-• **Minecraft Server:** `tigimax.mooo.com` (Purpur 26.3)
+• **BlueMap Live-Karte:** https://map.tigimax.com
+• **Plan Analytics:** https://plan.tigimax.com
+• **Pterodactyl Panel:** https://panel.tigimax.com
+• **Planka Kanban Board:** https://tigimax.com
+• **Minecraft Server:** `tigimax.com` (Purpur 26.3)
 
 🎮 **Minecraft Profil:**
 • Ingame-Name: `{ign}`
@@ -146,8 +146,8 @@ Deine Registrierung als **Spieler** war erfolgreich.
 
 📌 **Wichtige Zugänge & Portale:**
 • **Authentik SSO Portal:** {settings.AUTHENTIK_BASE_URL} (Profil, Passwort & 2FA verwalten)
-• **BlueMap Live-Karte:** https://map.tigimax.mooo.com
-• **Minecraft Server:** `tigimax.mooo.com` (Purpur 26.3)
+• **BlueMap Live-Karte:** https://map.tigimax.com
+• **Minecraft Server:** `tigimax.com` (Purpur 26.3)
 
 🎮 **Dein Minecraft Profil:**
 • Ingame-Name: `{ign}`
@@ -1424,19 +1424,19 @@ async def handle_admin_accept(interaction: discord.Interaction, app_id: int):
         else f"deinen Minecraft-Namen `{canonical_ign}` (oder `{clean_user}`)"
     )
     if is_launched:
-        mc_status_line = f"• **Minecraft-Server:** Dein Account `{canonical_ign}` steht ab sofort auf der Whitelist! (IP: `tigimax.mooo.com`)"
+        mc_status_line = f"• **Minecraft-Server:** Dein Account `{canonical_ign}` steht ab sofort auf der Whitelist! (IP: `tigimax.com`)"
         wl_embed_line = "• Whitelist & Authentik: Aktiviert"
     else:
-        mc_status_line = f"• **Minecraft-Server (Pre-Launch):** Dein Account `{canonical_ign}` ist registriert und wird automatisch zum offiziellen Projektstart auf der Whitelist freigeschaltet! (IP: `tigimax.mooo.com`)"
+        mc_status_line = f"• **Minecraft-Server (Pre-Launch):** Dein Account `{canonical_ign}` ist registriert und wird automatisch zum offiziellen Projektstart auf der Whitelist freigeschaltet! (IP: `tigimax.com`)"
         wl_embed_line = "• Whitelist (Pre-Launch gestaged) & Authentik: Registriert"
 
     dm_message = (
         f"🎅 **Glückwunsch! Deine Anmeldung für Weihnachtsdorf 7 wurde angenommen!** 🎄\n\n"
         f"Du wurdest als **Spieler** freigeschaltet:\n"
         f"{mc_status_line}\n"
-        f"• **BlueMap Live-Karte:** 👉 https://map.tigimax.mooo.com/\n\n"
+        f"• **BlueMap Live-Karte:** 👉 https://map.tigimax.com/\n\n"
         f"🔐 **Anmeldung auf der BlueMap / Webdiensten:**\n"
-        f"Wenn du auf https://map.tigimax.mooo.com/ gehst, gib beim Anmelden einfach {login_hint} ein.\n"
+        f"Wenn du auf https://map.tigimax.com/ gehst, gib beim Anmelden einfach {login_hint} ein.\n"
         f"Dieser Bot schickt dir dann automatisch einen 6-stelligen Code per DM, mit dem du direkt dein eigenes Passwort erstellen kannst!\n\n"
         f"Viel Spaß beim Weihnachtsdorf 7! ✨"
     )
@@ -1659,17 +1659,17 @@ async def handle_admin_appeal_accept(interaction: discord.Interaction, app_id: i
             else f"deinen Minecraft-Namen `{canonical_ign}` (oder `{clean_user}`)"
         )
         mc_status_line = (
-            f"• **Minecraft-Server:** Dein Account `{canonical_ign}` steht ab sofort auf der Whitelist! (IP: `tigimax.mooo.com`)"
+            f"• **Minecraft-Server:** Dein Account `{canonical_ign}` steht ab sofort auf der Whitelist! (IP: `tigimax.com`)"
             if is_launched
-            else f"• **Minecraft-Server (Pre-Launch):** Dein Account `{canonical_ign}` ist registriert und wird automatisch zum offiziellen Projektstart auf der Whitelist freigeschaltet! (IP: `tigimax.mooo.com`)"
+            else f"• **Minecraft-Server (Pre-Launch):** Dein Account `{canonical_ign}` ist registriert und wird automatisch zum offiziellen Projektstart auf der Whitelist freigeschaltet! (IP: `tigimax.com`)"
         )
         dm_msg = (
             f"🎉 **Dein Einspruch für Weihnachtsdorf 7 wurde angenommen!** 🎄\n\n"
             f"Du wurdest als **Spieler** freigeschaltet:\n"
             f"{mc_status_line}\n"
-            f"• **BlueMap Live-Karte:** 👉 https://map.tigimax.mooo.com/\n\n"
+            f"• **BlueMap Live-Karte:** 👉 https://map.tigimax.com/\n\n"
             f"🔐 **Anmeldung auf der BlueMap / Webdiensten:**\n"
-            f"Wenn du auf https://map.tigimax.mooo.com/ gehst, gib beim Anmelden einfach {login_hint} ein.\n"
+            f"Wenn du auf https://map.tigimax.com/ gehst, gib beim Anmelden einfach {login_hint} ein.\n"
             f"Dieser Bot schickt dir dann automatisch einen 6-stelligen Code per DM, mit dem du direkt dein eigenes Passwort erstellen kannst!\n\n"
             f"Willkommen im Weihnachtsdorf 7! 🎅"
         )
@@ -1926,7 +1926,7 @@ async def handle_reclaim_accept(interaction: discord.Interaction, target_uid: st
                 f"Ein Administrator ({interaction.user.name}) hat deinen Account erfolgreich **reaktiviert**!\n\n"
                 f"🎮 **Status:**\n"
                 f"• Rolle: `{target_role.upper()}`\n"
-                f"• Whitelist & Rechte auf dem Minecraft-Server (`tigimax.mooo.com`) sind wieder aktiv.\n"
+                f"• Whitelist & Rechte auf dem Minecraft-Server (`tigimax.com`) sind wieder aktiv.\n"
                 f"• Deine Portale & SSO-Logins sind wieder freigeschaltet.\n\n"
                 f"Viel Spaß wieder auf dem Server! 🎅"
             )
@@ -3251,27 +3251,27 @@ async def cmd_links(interaction: discord.Interaction):
     )
     embed.add_field(
         name="🗺️ BlueMap Live-Karte",
-        value="[https://map.tigimax.mooo.com](https://map.tigimax.mooo.com)",
+        value="[https://map.tigimax.com](https://map.tigimax.com)",
         inline=True,
     )
     embed.add_field(
         name="📊 Plan Analytics",
-        value="[https://plan.tigimax.mooo.com](https://plan.tigimax.mooo.com)",
+        value="[https://plan.tigimax.com](https://plan.tigimax.com)",
         inline=True,
     )
     embed.add_field(
         name="🕹️ Pterodactyl Game Panel",
-        value="[https://panel.tigimax.mooo.com](https://panel.tigimax.mooo.com)",
+        value="[https://panel.tigimax.com](https://panel.tigimax.com)",
         inline=True,
     )
     embed.add_field(
         name="📋 Planka Kanban Board",
-        value="[https://tigimax.mooo.com](https://tigimax.mooo.com)",
+        value="[https://tigimax.com](https://tigimax.com)",
         inline=True,
     )
     embed.add_field(
         name="⛏️ Minecraft Server",
-        value="`tigimax.mooo.com` (Purpur 26.3)",
+        value="`tigimax.com` (Purpur 26.3)",
         inline=True,
     )
     embed.set_footer(text="Weihnachtsdorf 7 Identity System")

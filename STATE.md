@@ -9,7 +9,7 @@
 
 ### Vorfall A: "Permission Denied" nach erfolgreicher Authentik-Registrierung (z. B. bei `aboutlace`)
 - **Symptom:**  
-  Nachdem ein Benutzer (z. B. `aboutlace`) dem Einladungslink gefolgt ist, sein Passwort und 2FA eingerichtet hat und auf interne Portale (wie Planka Kanban unter `https://tigimax.mooo.com`) zugreifen möchte, erschien die Authentik-Fehlerseite mit **"Permission Denied"**.
+  Nachdem ein Benutzer (z. B. `aboutlace`) dem Einladungslink gefolgt ist, sein Passwort und 2FA eingerichtet hat und auf interne Portale (wie Planka Kanban unter `https://tigimax.com`) zugreifen möchte, erschien die Authentik-Fehlerseite mit **"Permission Denied"**.
 - **Root Cause:**  
   Authentiks Einladungs-Flow (`invitation-enrollment-flow`) legte den Nutzer initially ohne Gruppenmitgliedschaft an (`groups: []`). Die Access Policies für Planka, Panel und Plan (`wd-staff-only-policy`) forderten Mitgliedschaft in `wd_admins` oder `wd_mods`.
 - **Behebung:**  
@@ -74,7 +74,7 @@
 
 ### Vorfall G: BlueMap Pre-Launch Schranke für registrierte Spieler
 - **Symptom:**  
-  Spieler, die sich während der Pre-Launch-Phase erfolgreich über Authentik registriert hatten, erhielten sofortigen Zugriff auf die BlueMap Live-Karte unter `https://map.tigimax.mooo.com`. Dies war unerwünscht, da die Weltkarte vor dem offiziellen Projektstart nur für Teammitglieder (Admins/Mods) einsehbar sein soll.
+  Spieler, die sich während der Pre-Launch-Phase erfolgreich über Authentik registriert hatten, erhielten sofortigen Zugriff auf die BlueMap Live-Karte unter `https://map.tigimax.com`. Dies war unerwünscht, da die Weltkarte vor dem offiziellen Projektstart nur für Teammitglieder (Admins/Mods) einsehbar sein soll.
 - **Root Cause:**  
   Die Authentik Expression-Policy `wd-bluemap-access-policy` prüfte lediglich, ob der Nutzer in `wd_players` Mitglied war (`return request.user.groups.filter(name__in=[..., 'wd_players']).exists()`), ohne den Projektstatus (`is_launched`) abzufragen.
 - **Behebung:**  
@@ -232,11 +232,11 @@
 
 | Service | Host / IP | Status | Beschreibung |
 | :--- | :--- | :--- | :--- |
-| **Authentik IdP** | `idp-01` (`192.168.1.150:9000`) | **Aktiv** | Zentrales SSO & Identity Management (`https://auth.tigimax.mooo.com`) |
+| **Authentik IdP** | `idp-01` (`192.168.1.150:9000`) | **Aktiv** | Zentrales SSO & Identity Management (`https://auth.tigimax.com`) |
 | **OpenLDAP** | `anode01` (`192.168.1.164:636`) | **Aktiv** | Zentraler Verzeichnisdienst für Rollen & Identitäten |
-| **Planka Kanban** | `usrv01` (`192.168.1.174:3000`) | **Aktiv** | Staff-Planung (`https://tigimax.mooo.com`) mit Forward-Auth Auto-Login |
+| **Planka Kanban** | `usrv01` (`192.168.1.174:3000`) | **Aktiv** | Staff-Planung (`https://tigimax.com`) mit Forward-Auth Auto-Login |
 | **Pterodactyl Wings** | `mc-node1` (`192.168.1.148:8080`) & `mc-main` (`192.168.1.149:8080`) | **Aktiv** | Node 1 & Node 2 Daemons, RCON & Telemetrie-Schnittstelle |
-| **BlueMap** | `mc-node1` (`192.168.1.148:8123`) | **Aktiv** | Web-Weltkarte (`https://map.tigimax.mooo.com`), geschützt via `wd-bluemap-access-policy` |
+| **BlueMap** | `mc-node1` (`192.168.1.148:8123`) | **Aktiv** | Web-Weltkarte (`https://map.tigimax.com`), geschützt via `wd-bluemap-access-policy` |
 | **BlueMapLiveBridge** | `mc-main` (`192.168.1.149`) | **Aktiv** | Paper-Plugin v1.1.0: 2s Spielerpositions-Export, Chat-Events, Vanish-Filter & tellraw Interception |
 | **Chat & Console Bridge** | `idp-01` (`wd-identity` / `wd-bot`) | **Aktiv** | Bidirektionale Bridge MC ↔ Discord ↔ BlueMap, dynamisches Channel-Routing & Live-Konsole |
 | **WHD Discord Bot** | `idp-01` (`wd-bot.service`) | **Aktiv** | Discord-Bot (`WHD Privileges`) mit 34 Slash Commands (inkl. Aliase), Live-Konsole & Audit Logging |
@@ -326,7 +326,7 @@ Ein umfassender Belastungstest auf `mc-main` (VM 120, i5-9400F 6C/6T, 12GB RAM, 
 5. **10-Minuten-Dauertest mit 100 echten Spielern (500m Radius & BlueMap Live-Sync):**
    - 100 native Protokoll-Clients (`ServerPlayer`), verteilt auf 20 Cluster im 500-Meter-Radius.
    - Kontinuierliche Bewegung (`position_look`), Arm-Animationen und God-Mode (Creative + Infinite Effects).
-   - Live-Synchronisation im 2-Sekunden-Takt auf [`https://map.tigimax.mooo.com`](https://map.tigimax.mooo.com) ohne Geister-Bots.
+   - Live-Synchronisation im 2-Sekunden-Takt auf [`https://map.tigimax.com`](https://map.tigimax.com) ohne Geister-Bots.
    - Konstante **20.00 TPS** und unter **1.0 ms MSPT** über die gesamten 10 Minuten.
    - Spark Flamegraph unter Volllast: [`https://spark.lucko.me/LLAV3CekeI`](https://spark.lucko.me/LLAV3CekeI).
    - Details: Siehe [`docs/benchmark_hauptnode_stress_test_report.md`](docs/benchmark_hauptnode_stress_test_report.md).

@@ -18,7 +18,7 @@ LDAP_TLS_VERIFY=true
 PROJECT_STATE_FILE=/var/lib/wd-identity/project_state.json
 
 # Authentik Settings
-AUTHENTIK_BASE_URL=https://auth.tigimax.mooo.com
+AUTHENTIK_BASE_URL=https://auth.tigimax.com
 AUTHENTIK_API_URL=http://127.0.0.1:9000
 AUTHENTIK_TOKEN=YOUR_AUTHENTIK_API_TOKEN
 AUTHENTIK_INVITATION_FLOW_UUID=9c936c43-2dad-40d9-a980-7c3054a5c414
@@ -62,3 +62,8 @@ WEBHOOK_SECRET=YOUR_WEBHOOK_SECRET
 # Trusted IPs / CIDRs for BlueMap Bridge and Reverse Proxy (comma-separated, empty = allow all)
 BRIDGE_TRUSTED_IPS=127.0.0.1,::1,192.168.1.149,172.16.0.0/12
 PROXY_TRUSTED_IPS=127.0.0.1,::1,192.168.1.174
+
+# --- Autonomer Foerster-Bot (Waldlaufer_Rudi) ---
+GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+GEMINI_MODEL="gemini-2.5-flash"
+

@@ -59,7 +59,7 @@ class Settings:
 
     # Authentik Settings
     AUTHENTIK_BASE_URL: str = os.getenv(
-        "AUTHENTIK_BASE_URL", "https://auth.tigimax.mooo.com"
+        "AUTHENTIK_BASE_URL", "https://auth.tigimax.com"
     ).rstrip("/")
     AUTHENTIK_API_URL: str = os.getenv(
         "AUTHENTIK_API_URL", "http://127.0.0.1:9000"

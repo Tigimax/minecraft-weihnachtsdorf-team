@@ -47,7 +47,7 @@ def _get_headers() -> Dict[str, str]:
     token = settings.DISCORD_BOT_TOKEN.strip()
     return {
         "Authorization": f"Bot {token}",
-        "User-Agent": "DiscordBot-WD7 (https://tigimax.mooo.com)",
+        "User-Agent": "DiscordBot-WD7 (https://tigimax.com)",
         "Content-Type": "application/json",
     }
 
@@ -307,7 +307,7 @@ def build_playerlist_data(member_map: Optional[Dict[str, str]] = None) -> Tuple[
         "Herzlich willkommen im weihnachtlichen Community-Projekt **Weihnachtsdorf 7**! 🎅✨\n"
         "Hier findest du die aktuelle Übersicht aller freigeschalteten Teammitglieder und Spieler.\n\n"
         f"📡 **Server-Status:** `{status_text}`\n"
-        f"🌐 **Server-Adresse:** `tigimax.mooo.com` *(Purpur 26.3)*\n"
+        f"🌐 **Server-Adresse:** `tigimax.com` *(Purpur 26.3)*\n"
         f"👥 **Registriert:** **{total_count}** Teilnehmer (`{len(admins_sorted) + len(mods_sorted)}` Team • `{len(players_sorted)}` Spieler)"
     )
 

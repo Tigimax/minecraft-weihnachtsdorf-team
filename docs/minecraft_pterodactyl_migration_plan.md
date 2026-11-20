@@ -178,7 +178,7 @@ Wings installieren (gleiche Schritte wie Node 2). Dann im Panel:
 
 1. Admin → Locations → `Homelab`
 2. Admin → Nodes: **Node 1** (4 GB, 50 GB Disk) + **Node 2** (14 GB, 80 GB Disk)
-3. Auf jeder Node: `wings configure --panel-url https://panel.tigimax.mooo.com --token <TOKEN> --node <ID>`
+3. Auf jeder Node: `wings configure --panel-url https://panel.tigimax.com --token <TOKEN> --node <ID>`
 
 **Velocity Proxy erstellen** (Panel → Server → Create):
 - Egg: Velocity, Node: Node 1, RAM: 512 MB, Port: 25565
@@ -199,7 +199,7 @@ hauptwelt = "192.168.1.<NODE2>:25574"
 try = ["hauptwelt"]
 
 [forced-hosts]
-"play.tigimax.mooo.com" = ["hauptwelt"]
+"play.tigimax.com" = ["hauptwelt"]
 
 [advanced]
 compression-threshold = 256

@@ -12,18 +12,18 @@
 
 | Dienst | Externe URL | Interner Port & Host | Authentifizierung |
 |---|---|---|---|
-| **Minecraft Server** | `tigimax.mooo.com:25565` | `mc-node1:25565` (DNAT via `usrv01`) | Whitelist (Mojang Auth) |
-| **Simple Voice Chat** | `tigimax.mooo.com:24454` (UDP) | `mc-node1:24454` (DNAT via `usrv01`) | Proximity Chat UDP |
-| **Authentik SSO** | https://auth.tigimax.mooo.com | `idp-01:9000` | 2FA (TOTP / WebAuthn) |
-| **Pterodactyl Panel** | https://panel.tigimax.mooo.com | `mc-node1:80` | Forward-Auth (`wd-panel`) |
-| **BlueMap Live-Karte** | https://map.tigimax.mooo.com | `mc-node1:8123` | Forward-Auth (`wd-bluemap`) |
-| **Plan Analytics** | https://plan.tigimax.mooo.com | `mc-main:8804` | Forward-Auth (`wd-plan`) |
-| **Planka Kanban** | https://tigimax.mooo.com | `usrv01:3000` | Forward-Auth (`wd-planka`) |
+| **Minecraft Server** | `tigimax.com:25565` | `mc-node1:25565` (DNAT via `usrv01`) | Whitelist (Mojang Auth) |
+| **Simple Voice Chat** | `tigimax.com:24454` (UDP) | `mc-node1:24454` (DNAT via `usrv01`) | Proximity Chat UDP |
+| **Authentik SSO** | https://auth.tigimax.com | `idp-01:9000` | 2FA (TOTP / WebAuthn) |
+| **Pterodactyl Panel** | https://panel.tigimax.com | `mc-node1:80` | Forward-Auth (`wd-panel`) |
+| **BlueMap Live-Karte** | https://map.tigimax.com | `mc-node1:8123` | Forward-Auth (`wd-bluemap`) |
+| **Plan Analytics** | https://plan.tigimax.com | `mc-main:8804` | Forward-Auth (`wd-plan`) |
+| **Planka Kanban** | https://tigimax.com | `usrv01:3000` | Forward-Auth (`wd-planka`) |
 | **Pi-hole Admin** | http://192.168.1.173/admin | `ulxc01:80` | Web-Passwort |
 
 > [!WARNING]
 > **FreeDNS 6-Monats-Verfallsregel (`mooo.com`)**:
-> Alle öffentlichen Subdomains (`*.tigimax.mooo.com`) sind über [FreeDNS (afraid.org)](https://freedns.afraid.org/) registriert. FreeDNS markiert Domains nach **6 Monaten Inaktivität** als abgelaufen und deaktiviert die Auflösung ohne Fehlermeldung. Sollten externe Zugriffe plötzlich fehlschlagen, muss sich der Betreiber bei afraid.org anmelden und die Records per Klick reaktivieren.
+> Alle öffentlichen Subdomains (`*.tigimax.com`) sind über [FreeDNS (afraid.org)](https://freedns.afraid.org/) registriert. FreeDNS markiert Domains nach **6 Monaten Inaktivität** als abgelaufen und deaktiviert die Auflösung ohne Fehlermeldung. Sollten externe Zugriffe plötzlich fehlschlagen, muss sich der Betreiber bei afraid.org anmelden und die Records per Klick reaktivieren.
 
 ---
 
@@ -61,7 +61,7 @@ sudo systemctl status mariadb redis-server php8.3-fpm
 ### 🎮 Minecraft Server: Velocity Proxy & Purpur Backend
 
 #### Starten, Stoppen & Neustarten
-- **Regulär**: Über das Web-Interface https://panel.tigimax.mooo.com.
+- **Regulär**: Über das Web-Interface https://panel.tigimax.com.
 - **Per CLI (im Notfall auf Node 2)**:
   ```bash
   # Docker-Container direkt ansprechen (Weihnachtsdorf 7)
@@ -75,7 +75,7 @@ sudo systemctl status mariadb redis-server php8.3-fpm
   ```
 
 #### Live-Konsole & Chat-Befehle
-- **Über das Pterodactyl Web-Panel**: Console auf https://panel.tigimax.mooo.com
+- **Über das Pterodactyl Web-Panel**: Console auf https://panel.tigimax.com
 - **Über den Discord-Admin-Kanal `#💻ingame-konsole` (`1570071015730716823`)**:
   - Live Log-Streaming alle 2 Sekunden via `console_log_sync_loop`.
   - ANSI- und VT100-bereinigte Textausgabe (`clean_console_line`), frei von JLine-Prompt-Artefakten (`>....`).
@@ -218,7 +218,7 @@ wd-admin invite <discord_name> [--role player|mod|admin] [--ign <minecraft_ign>]
 - Generiert einen 24h gültigen Authentik-Einladungslink.
 - Der Discord-Bot `WHD Privileges` stellt den Link per DM zu.
 - Der Nutzer trägt seinen Minecraft-Namen selbst ein; Mojang-UUID wird automatisch validiert.
-- **Pre-Launch Gate**: Reguläre Spieler erhalten vor dem offiziellen Projektstart noch **keinen** Whitelist-Zugang und **keinen** Zugriff auf die BlueMap Live-Karte. Sie werden vorab registriert (gestaged). Beim Versuch den Minecraft-Server zu betreten oder `map.tigimax.mooo.com` aufzurufen, erhalten sie einen Hinweis auf den Pre-Launch-Modus.
+- **Pre-Launch Gate**: Reguläre Spieler erhalten vor dem offiziellen Projektstart noch **keinen** Whitelist-Zugang und **keinen** Zugriff auf die BlueMap Live-Karte. Sie werden vorab registriert (gestaged). Beim Versuch den Minecraft-Server zu betreten oder `map.tigimax.com` aufzurufen, erhalten sie einen Hinweis auf den Pre-Launch-Modus.
 - **Dienste-Schutz**: Durch die Authentik-Richtlinien `wd-staff-only-policy` und `wd-bluemap-access-policy` sind Pterodactyl Panel, Planka Kanban, Plan Analytics sowie im Pre-Launch auch BlueMap für reguläre Spieler gesperrt.
 
 #### 2. Projekt-Status & Launch Gate (Minecraft & BlueMap)
@@ -419,7 +419,7 @@ Auf `mc-node1` ist das [Blueprint Framework](https://blueprint.zip/) (`beta-2026
 
 Falls Authentik oder der Discord-Bot temporär ausfallen:
 1. **Manueller Whitelist-Eintrag auf Purpur**:
-   Im Panel (https://panel.tigimax.mooo.com) oder per Wings Console:
+   Im Panel (https://panel.tigimax.com) oder per Wings Console:
    ```text
    whitelist add <IGN>
    lp user <IGN> parent set admin
@@ -468,7 +468,7 @@ Spark ist auf Purpur integriert und bietet Live-Metriken:
 
 ### 📊 Plan Analytics Dashboard
 
-Erreichbar unter https://plan.tigimax.mooo.com:
+Erreichbar unter https://plan.tigimax.com:
 - **Player Trends**: Gleichzeitige Spielerzahlen am Spawn.
 - **Performance Tab**: Historische TPS/MSPT-Kurven über Stunden und Tage.
 - **World & Chunks**: Geladene Chunks und Entity-Verteilungen.
@@ -538,11 +538,11 @@ ansible-playbook -i ansible/inventory.ini ansible/playbooks/configure_pihole_dns
 
 | Problem | Mögliche Ursache | Diagnose & Lösung |
 |---|---|---|
-| **Alle externen *.tigimax.mooo.com URLs antworten nicht (NXDOMAIN/Timeout)** | FreeDNS 6-Monats-Inaktivität abgelaufen | 1. Einloggen auf https://freedns.afraid.org<br/>2. Status der Subdomains prüfen und reaktivieren<br/>3. Lokalen Resolver prüfen: `dig @1.1.1.1 panel.tigimax.mooo.com` |
-| **Spieler können nicht verbinden** | Ingress DNAT oder Velocity down | 1. `systemctl status minecraft-portforward.service` auf `usrv01`<br/>2. `systemctl status wings` auf `mc-node1`<br/>3. Ping auf `tigimax.mooo.com:25565` via `nc -zv 192.168.1.148 25565` |
+| **Alle externen *.tigimax.com URLs antworten nicht (NXDOMAIN/Timeout)** | FreeDNS 6-Monats-Inaktivität abgelaufen | 1. Einloggen auf https://freedns.afraid.org<br/>2. Status der Subdomains prüfen und reaktivieren<br/>3. Lokalen Resolver prüfen: `dig @1.1.1.1 panel.tigimax.com` |
+| **Spieler können nicht verbinden** | Ingress DNAT oder Velocity down | 1. `systemctl status minecraft-portforward.service` auf `usrv01`<br/>2. `systemctl status wings` auf `mc-node1`<br/>3. Ping auf `tigimax.com:25565` via `nc -zv 192.168.1.148 25565` |
 | **Simple Voice Chat bleibt rot (kein Audio)** | Port 24454/UDP geblockt | 1. Prüfen, ob `voicechat-proxy.properties` auf Port 24454 läuft<br/>2. Prüfen, ob Ingress UDP weiterleitet: `iptables -t nat -L PREROUTING -n -v \| grep 24454` auf `usrv01` |
 | **502 Bad Gateway auf panel / map / plan** | Backend-Dienst oder Node offline | 1. Prüfen, ob Ziel-Port lauscht (`netstat -tlpn`)<br/>2. BlueMap HTTP: `curl -I http://192.168.1.148:8123`<br/>3. Plan HTTP: `curl -I http://192.168.1.149:8804` |
-| **Authentik Redirect-Loop** | Cookie-Domain oder Zeit-Drift | 1. Browser-Cookies für `.tigimax.mooo.com` löschen<br/>2. NTP-Sync auf allen Hosts prüfen: `timedatectl status` |
+| **Authentik Redirect-Loop** | Cookie-Domain oder Zeit-Drift | 1. Browser-Cookies für `.tigimax.com` löschen<br/>2. NTP-Sync auf allen Hosts prüfen: `timedatectl status` |
 | **Discord-Bot stellt keine DMs zu** | Privatsphäre-Einstellungen des Users | 1. Prüfen, ob User auf dem Server ist<br/>2. User bitten: *Privatsphäre -> Direknachrichten von Servermitgliedern erlauben*<br/>3. Alternativ Discord Snowflake-ID übergeben: `wd-admin invite <ID>` |
 | **Whitelist oder LuckPerms nicht synchron** | Timer oder Wings API hängt | 1. Sync manuell erzwingen: `wd-admin sync --force`<br/>2. Logs prüfen: `journalctl -u wd-identity -n 30` |
 | **Niedrige TPS (<18 TPS)** | Entity-Anhäufung oder Chunk-Lag | 1. `/spark health` ausführen<br/>2. `/spark profiler --timeout 60` starten<br/>3. Ggf. `/kill @e[type=item]` oder Chunky-Status prüfen |

@@ -38,6 +38,12 @@
         - { host: 'plan.tigimax.mooo.com', expected: '192.168.1.174' }
         - { host: 'play.tigimax.mooo.com', expected: '192.168.1.174' }
         - { host: 'tigimax.mooo.com', expected: '192.168.1.174' }
+        - { host: 'auth.tigimax.com', expected: '192.168.1.174' }
+        - { host: 'panel.tigimax.com', expected: '192.168.1.174' }
+        - { host: 'map.tigimax.com', expected: '192.168.1.174' }
+        - { host: 'plan.tigimax.com', expected: '192.168.1.174' }
+        - { host: 'play.tigimax.com', expected: '192.168.1.174' }
+        - { host: 'tigimax.com', expected: '192.168.1.174' }
       register: dns_check
       changed_when: false
       failed_when: dns_check.rc != 0 or (dns_check.stdout | trim) != item.expected

@@ -769,7 +769,7 @@ def complete_web_setup(
                 str(discord_target),
                 f"✅ **Dein Web-Passwort wurde erfolgreich gespeichert!**\n\n"
                 f"Du kannst dich ab sofort jederzeit auf der Live-Karte und allen Spieler-Diensten anmelden:\n"
-                f"🗺️ **BlueMap Live-Karte:** 👉 https://map.tigimax.mooo.com/\n"
+                f"🗺️ **BlueMap Live-Karte:** 👉 https://map.tigimax.com/\n"
                 f"👤 **Anmeldename:** `{ user_entry.get('discordName') or clean_user }` (oder `{ user_entry.get('minecraftName') or clean_user }`)",
             )
     except Exception as e:

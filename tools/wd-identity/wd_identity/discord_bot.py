@@ -119,7 +119,7 @@ Dein Zugang als **{role.upper()}** wurde erfolgreich eingerichtet.
 • **BlueMap Live-Karte:** https://map.tigimax.com
 • **Plan Analytics:** https://plan.tigimax.com
 • **Pterodactyl Panel:** https://panel.tigimax.com
-• **Planka Kanban Board:** https://tigimax.com
+• **Planka Kanban Board:** https://kanban.tigimax.com
 • **Minecraft Server:** `tigimax.com` (Purpur 26.3)
 
 🎮 **Minecraft Profil:**

@@ -292,7 +292,7 @@ def main():
         ["Prio: Normal", "Infrastruktur & Server"],
         [
             ("OpenLDAP Verzeichnisdienst mit Gruppen (wd_admins, wd_mods, wd_players)", True),
-            ("Authentik Forward-Auth für Planka (tigimax.com)", True),
+            ("Authentik Forward-Auth für Planka (kanban.tigimax.com)", True),
             ("Automatisches Provisioning bei Discord-Rollenvergabe", True)
         ]
     )
@@ -512,7 +512,7 @@ def main():
 
     print("\n" + "=" * 70)
     print("✅ Planka Projektplanung für Weihnachtsdorf 7 erfolgreich eingerichtet!")
-    print("   🌐 Erreichbar unter: https://tigimax.com")
+    print("   🌐 Erreichbar unter: https://kanban.tigimax.com")
     print("=" * 70)
 
 if __name__ == "__main__":

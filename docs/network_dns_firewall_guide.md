@@ -75,7 +75,7 @@ Der Host `usrv01` (`192.168.1.174`) fungiert als zentrales Eingangstor für säm
 | `panel.tigimax.com` | HTTPS :443 | `http://192.168.1.148:80` | Forward-Auth Outpost (`wd-panel`) + Bypass für Wings API |
 | `map.tigimax.com` | HTTPS :443 | `http://192.168.1.148:8123` | Forward-Auth Outpost (`wd-bluemap`), HTTP-HEAD Rewriting |
 | `plan.tigimax.com` | HTTPS :443 | `http://192.168.1.149:8804` | Forward-Auth Outpost (`wd-plan`) |
-| `tigimax.com` | HTTPS :443 | `http://127.0.0.1:3000` | Forward-Auth Outpost (`wd-planka`) + WebSocket Upgrade |
+| `kanban.tigimax.com` | HTTPS :443 | `http://127.0.0.1:3000` | Forward-Auth Outpost (`wd-planka`) + WebSocket Upgrade |
 | `panel.tigimax.com:8081` | HTTPS :8081 | `http://192.168.1.148:8080` | TLS-Proxy für Wings Node 1 API |
 | `panel.tigimax.com:8082` | HTTPS :8082 | `http://192.168.1.149:8080` | TLS-Proxy für Wings Node 2 API |
 

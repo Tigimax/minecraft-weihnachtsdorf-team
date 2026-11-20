@@ -18,7 +18,7 @@
 | **Pterodactyl Panel** | https://panel.tigimax.com | `mc-node1:80` | Forward-Auth (`wd-panel`) |
 | **BlueMap Live-Karte** | https://map.tigimax.com | `mc-node1:8123` | Forward-Auth (`wd-bluemap`) |
 | **Plan Analytics** | https://plan.tigimax.com | `mc-main:8804` | Forward-Auth (`wd-plan`) |
-| **Planka Kanban** | https://tigimax.com | `usrv01:3000` | Forward-Auth (`wd-planka`) |
+| **Planka Kanban** | https://kanban.tigimax.com | `usrv01:3000` | Forward-Auth (`wd-planka`) |
 | **Pi-hole Admin** | http://192.168.1.173/admin | `ulxc01:80` | Web-Passwort |
 
 > [!WARNING]

@@ -9,7 +9,7 @@
 
 ### Vorfall A: "Permission Denied" nach erfolgreicher Authentik-Registrierung (z. B. bei `aboutlace`)
 - **Symptom:**  
-  Nachdem ein Benutzer (z. B. `aboutlace`) dem Einladungslink gefolgt ist, sein Passwort und 2FA eingerichtet hat und auf interne Portale (wie Planka Kanban unter `https://tigimax.com`) zugreifen möchte, erschien die Authentik-Fehlerseite mit **"Permission Denied"**.
+  Nachdem ein Benutzer (z. B. `aboutlace`) dem Einladungslink gefolgt ist, sein Passwort und 2FA eingerichtet hat und auf interne Portale (wie Planka Kanban unter `https://kanban.tigimax.com`) zugreifen möchte, erschien die Authentik-Fehlerseite mit **"Permission Denied"**.
 - **Root Cause:**  
   Authentiks Einladungs-Flow (`invitation-enrollment-flow`) legte den Nutzer initially ohne Gruppenmitgliedschaft an (`groups: []`). Die Access Policies für Planka, Panel und Plan (`wd-staff-only-policy`) forderten Mitgliedschaft in `wd_admins` oder `wd_mods`.
 - **Behebung:**  
@@ -234,7 +234,7 @@
 | :--- | :--- | :--- | :--- |
 | **Authentik IdP** | `idp-01` (`192.168.1.150:9000`) | **Aktiv** | Zentrales SSO & Identity Management (`https://auth.tigimax.com`) |
 | **OpenLDAP** | `anode01` (`192.168.1.164:636`) | **Aktiv** | Zentraler Verzeichnisdienst für Rollen & Identitäten |
-| **Planka Kanban** | `usrv01` (`192.168.1.174:3000`) | **Aktiv** | Staff-Planung (`https://tigimax.com`) mit Forward-Auth Auto-Login |
+| **Planka Kanban** | `usrv01` (`192.168.1.174:3000`) | **Aktiv** | Staff-Planung (`https://kanban.tigimax.com`) mit Forward-Auth Auto-Login |
 | **Pterodactyl Wings** | `mc-node1` (`192.168.1.148:8080`) & `mc-main` (`192.168.1.149:8080`) | **Aktiv** | Node 1 & Node 2 Daemons, RCON & Telemetrie-Schnittstelle |
 | **BlueMap** | `mc-node1` (`192.168.1.148:8123`) | **Aktiv** | Web-Weltkarte (`https://map.tigimax.com`), geschützt via `wd-bluemap-access-policy` |
 | **BlueMapLiveBridge** | `mc-main` (`192.168.1.149`) | **Aktiv** | Paper-Plugin v1.1.0: 2s Spielerpositions-Export, Chat-Events, Vanish-Filter & tellraw Interception |

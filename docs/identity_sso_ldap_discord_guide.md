@@ -93,7 +93,7 @@ Alle administrativen Webanwendungen befinden sich hinter dem zentralen Authentik
 | **Live-Karte** | `https://map.tigimax.com` | `mc-node1:8123` | Nginx Forward-Auth (`wd-bluemap` Provider) & `wd-bluemap-access-policy` (Pre-Launch Schutz) |
 | **Server-Analytics** | `https://plan.tigimax.com` | `mc-main:8804` | Nginx Forward-Auth (`wd-plan` Provider) |
 | **Game-Panel** | `https://panel.tigimax.com` | `mc-node1:80` | Nginx Forward-Auth (`wd-panel` Provider) + `AuthentikSsoMiddleware` (Auto-Provisioning & Root-Admin Sync) |
-| **Kanban-Board** | `https://tigimax.com` | `usrv01:3000` | Nginx Forward-Auth (`wd-planka` Provider) + interner DB-Sync |
+| **Kanban-Board** | `https://kanban.tigimax.com` | `usrv01:3000` | Nginx Forward-Auth (`wd-planka` Provider) + interner DB-Sync |
 | **Minecraft Server** | `tigimax.com:25565` | `mc-node1:25565` | Purpur Whitelist & LuckPerms Berechtigungsgruppen |
 
 > [!TIP]

@@ -27,7 +27,7 @@ für das 80–120 Spieler Weihnachts-Event am Spawn.
 | 🗺️ **BlueMap Live-Karte** | https://map.tigimax.com | `mc-node1:8123` | Forward-Auth (`wd-bluemap`) |
 | 📊 **Plan Analytics** | https://plan.tigimax.com | `mc-main:8804` | Forward-Auth (`wd-plan`) |
 | 🦖 **Pterodactyl Panel** | https://panel.tigimax.com | `mc-node1:80` | Forward-Auth (`wd-panel`) |
-| 📋 **Planka Kanban** | https://tigimax.com | `usrv01:3000` | Forward-Auth (`wd-planka`) |
+| 📋 **Planka Kanban** | https://kanban.tigimax.com | `usrv01:3000` | Forward-Auth (`wd-planka`) |
 
 > 🔑 Ein gemeinsames Session-Cookie auf `.tigimax.com` sorgt für nahtloses **Single Sign-On** über alle Web-Portale.
 

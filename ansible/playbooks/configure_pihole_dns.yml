@@ -43,6 +43,7 @@
         - { host: 'map.tigimax.com', expected: '192.168.1.174' }
         - { host: 'plan.tigimax.com', expected: '192.168.1.174' }
         - { host: 'play.tigimax.com', expected: '192.168.1.174' }
+        - { host: 'kanban.tigimax.com', expected: '192.168.1.174' }
         - { host: 'tigimax.com', expected: '192.168.1.174' }
       register: dns_check
       changed_when: false

@@ -8,19 +8,19 @@ WEB_DIR="/var/www/tigimax-com/timelapse"
 FRAMES_DIR="${WEB_DIR}/frames"
 mkdir -p "${FRAMES_DIR}"
 
-# Start ONLY when the Discord launch command has set launched=true in /api/status
+# Start ONLY when the existing Discord /projekt-start command (mc.launch_project) has launched the project
 IS_LAUNCHED=0
 if [ "${FORCE_CAPTURE:-0}" = "1" ]; then
   IS_LAUNCHED=1
 else
-  API_STATUS="$(curl -fsS --max-time 5 https://tigimax.com/api/status 2>/dev/null || true)"
+  API_STATUS="$(curl -fsS --max-time 5 http://192.168.1.150:8000/api/project/status 2>/dev/null || true)"
   if echo "${API_STATUS}" | grep -q '"launched"[[:space:]]*:[[:space:]]*true'; then
     IS_LAUNCHED=1
   fi
 fi
 
 if [ "${IS_LAUNCHED}" != "1" ]; then
-  echo "[wd-timelapse] Pre-Launch (launched=false in /api/status) — skipping capture."
+  echo "[wd-timelapse] Pre-Launch (/projekt-start not executed yet) — skipping capture."
   exit 0
 fi
 

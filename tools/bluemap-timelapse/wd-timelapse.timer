@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly BlueMap 4K Snapshot & Timelapse Timer
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=0
+Persistent=false
+
+[Install]
+WantedBy=timers.target

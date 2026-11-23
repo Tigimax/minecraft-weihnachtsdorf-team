@@ -1,0 +1,12 @@
+[Unit]
+Description=Weihnachtsdorf 7 Hourly BlueMap 4K Snapshot & 24fps Timelapse
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tigimax
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/home/tigimax/bluemap-timelapse/run-hourly.sh
+TimeoutStartSec=420

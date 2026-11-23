@@ -1,0 +1,2027 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Weihnachtsdorf 7 · tigimax.com</title>
+<meta name="description" content="Weihnachtsdorf 7 Community-Minecraft-Server auf tigimax.com. Start am 29. November 2026 um 19:00 Uhr. Welten-Downloads, Modpacks, Galerie und Anmeldung über Discord.">
+<link rel="icon" type="image/png" href="assets/icon-wd7.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base:        #070B0E;
+    --bg-elevated:    #0D141A;
+    --bg-card:        rgba(16, 25, 32, 0.72);
+    --bg-card-hover:  rgba(22, 34, 43, 0.88);
+    --bg-glass:       rgba(11, 18, 23, 0.78);
+    --border-subtle:  rgba(244, 239, 230, 0.09);
+    --border-strong:  rgba(244, 239, 230, 0.18);
+    --border-accent:  rgba(245, 165, 66, 0.42);
+
+    --text-primary:   #F5F2EB;
+    --text-secondary: #9FB2BC;
+    --text-muted:     #697D87;
+
+    --accent-amber:   #F5A542;
+    --accent-amber-h: #F8B763;
+    --accent-green:   #34D399;
+    --accent-red:     #F87171;
+    --accent-discord: #5865F2;
+
+    --font-display:   "Outfit", system-ui, -apple-system, sans-serif;
+    --font-sans:      "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+    --font-mono:      "JetBrains Mono", ui-monospace, monospace;
+
+    --radius-sm:      10px;
+    --radius-md:      16px;
+    --radius-lg:      22px;
+    --radius-xl:      28px;
+    --container:      1180px;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 6rem;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--bg-base);
+    background-image:
+      radial-gradient(ellipse 80% 45% at 50% -10%, rgba(45, 112, 102, 0.22) 0%, transparent 70%),
+      radial-gradient(ellipse 55% 40% at 85% 12%, rgba(245, 165, 66, 0.10) 0%, transparent 65%),
+      radial-gradient(ellipse 60% 50% at 15% 45%, rgba(26, 56, 72, 0.18) 0%, transparent 70%);
+    overflow-x: hidden;
+    line-height: 1.6;
+  }
+
+  #snow-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.55;
+  }
+
+  .page-wrap {
+    position: relative;
+    z-index: 2;
+  }
+
+  .container {
+    width: min(var(--container), calc(100% - 2.5rem));
+    margin-inline: auto;
+  }
+
+  /* ── Floating Glass Navbar ── */
+  .nav-header {
+    position: sticky;
+    top: 1rem;
+    z-index: 50;
+    margin-top: 1rem;
+  }
+  .nav-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.65rem 0.85rem 0.65rem 1rem;
+    border-radius: 999px;
+    background: var(--bg-glass);
+    border: 1px solid var(--border-subtle);
+    box-shadow:
+      0 14px 36px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .nav-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: -0.02em;
+  }
+  .nav-brand img {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 1px solid var(--border-strong);
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .nav-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    padding: 0.45rem 0.85rem;
+    border-radius: 999px;
+    transition: color 150ms ease, background-color 150ms ease;
+  }
+  .nav-links a:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .nav-cta {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+
+  /* ── Buttons & Chips ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    padding: 0.72rem 1.25rem;
+    border-radius: 12px;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 0.92rem;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: transform 140ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  }
+  .btn:active {
+    transform: translateY(1px);
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--accent-amber);
+    outline-offset: 2px;
+  }
+  .btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+
+  .btn--discord {
+    background: var(--accent-discord);
+    color: #FFFFFF;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(88, 101, 242, 0.25);
+  }
+  .btn--discord:hover {
+    background: #6773F5;
+  }
+
+  .btn--glass {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    border-color: var(--border-subtle);
+  }
+  .btn--glass:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-strong);
+  }
+
+  .btn--pill {
+    border-radius: 999px;
+    padding: 0.52rem 1rem;
+    font-size: 0.86rem;
+  }
+
+  .ip-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.68rem 1rem;
+    border-radius: 12px;
+    background: rgba(13, 20, 26, 0.85);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .ip-copy-btn:hover {
+    border-color: var(--accent-amber);
+    background: rgba(20, 31, 40, 0.95);
+  }
+  .ip-copy-btn__badge {
+    font-family: var(--font-sans);
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 0.18rem 0.5rem;
+    border-radius: 6px;
+    background: rgba(245, 165, 66, 0.14);
+    color: var(--accent-amber);
+  }
+
+  /* ── Hero Section ── */
+  .hero {
+    padding: clamp(2.5rem, 6vh, 4.5rem) 0 clamp(2.5rem, 6vh, 4rem);
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: clamp(2rem, 4vw, 3.5rem);
+    align-items: center;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.38rem 0.85rem;
+    border-radius: 999px;
+    background: rgba(245, 165, 66, 0.1);
+    border: 1px solid rgba(245, 165, 66, 0.28);
+    color: var(--accent-amber);
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin-bottom: 1.15rem;
+  }
+  .hero-badge.is-live {
+    background: rgba(52, 211, 153, 0.1);
+    border-color: rgba(52, 211, 153, 0.3);
+    color: var(--accent-green);
+  }
+  .hero-badge.is-offline {
+    background: rgba(248, 113, 113, 0.1);
+    border-color: rgba(248, 113, 113, 0.3);
+    color: var(--accent-red);
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 10px currentColor;
+  }
+
+  .hero-title-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.9rem;
+  }
+  .hero-title-row img {
+    width: 60px;
+    height: 60px;
+    border-radius: 16px;
+    object-fit: cover;
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    flex-shrink: 0;
+  }
+  .hero-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(1.72rem, 4.6vw, 3.65rem);
+    font-weight: 800;
+    line-height: 1.04;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+
+  .hero-desc {
+    margin: 0 0 1.5rem;
+    font-size: 1.02rem;
+    color: var(--text-secondary);
+    max-width: 54ch;
+  }
+
+  .status-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 1.15rem 1.3rem;
+    margin-bottom: 1.5rem;
+    box-shadow:
+      0 16px 40px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(12px);
+  }
+  .status-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+  .status-panel__header strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .status-panel__date {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--accent-amber);
+  }
+
+  .countdown-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+  .cd-box {
+    background: rgba(7, 11, 14, 0.65);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 0.65rem 0.5rem;
+    text-align: center;
+  }
+  .cd-box__num {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 1.55rem;
+    font-weight: 800;
+    line-height: 1.1;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .cd-box__unit {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.73rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .live-status-row {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    background: rgba(7, 11, 14, 0.65);
+    border: 1px solid rgba(52, 211, 153, 0.25);
+  }
+  .live-status-row.is-active {
+    display: flex;
+  }
+  .live-status-row.is-offline {
+    border-color: rgba(248, 113, 113, 0.3);
+  }
+  .countdown-grid.is-hidden {
+    display: none;
+  }
+  .prelaunch-players {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.7rem;
+    padding: 0.55rem 0.85rem;
+    border-radius: 10px;
+    background: rgba(7, 11, 14, 0.65);
+    border: 1px solid rgba(245, 165, 66, 0.25);
+    font-size: 0.86rem;
+  }
+  .prelaunch-players.is-hidden {
+    display: none;
+  }
+  .prelaunch-players__count {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 700;
+    color: var(--accent-amber);
+  }
+  .prelaunch-players.is-offline {
+    border-color: rgba(248, 113, 113, 0.25);
+  }
+  .prelaunch-players.is-offline .prelaunch-players__count {
+    color: var(--accent-red);
+  }
+  .prelaunch-players__meta {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+  }
+  .live-count-big {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--accent-green);
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .hero-showcase {
+    position: relative;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    box-shadow:
+      0 28px 64px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+  .hero-showcase img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    object-position: 62% 55%;
+    transition: transform 500ms ease;
+  }
+  .hero-showcase:hover img {
+    transform: scale(1.02);
+  }
+  .hero-showcase__bar {
+    position: absolute;
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.65rem 0.95rem;
+    border-radius: 14px;
+    background: rgba(7, 11, 14, 0.82);
+    border: 1px solid var(--border-subtle);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+  .hero-showcase__bar strong {
+    color: var(--text-primary);
+  }
+
+  /* ── Section Commons ── */
+  .section {
+    padding: clamp(2.25rem, 5vh, 3.75rem) 0;
+  }
+  .section-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .section-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(1.5rem, 2.6vw, 2.05rem);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+  .section-sub {
+    margin: 0.25rem 0 0;
+    font-size: 0.93rem;
+    color: var(--text-secondary);
+  }
+
+  /* ── Bento Grid ── */
+  .bento-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+  .bento-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 1.45rem;
+    box-shadow:
+      0 14px 34px rgba(0, 0, 0, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(12px);
+  }
+  .bento-card--steps {
+    grid-column: span 7;
+  }
+  .bento-card--portals {
+    grid-column: span 5;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .bento-card--maps {
+    grid-column: span 6;
+  }
+  .bento-card--modpacks {
+    grid-column: span 6;
+  }
+  .bento-card__title {
+    margin: 0 0 0.3rem;
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+  .bento-card__sub {
+    margin: 0 0 1.15rem;
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+  }
+
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+  .step-box {
+    background: rgba(7, 11, 14, 0.55);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 0.95rem;
+  }
+  .step-box__num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: rgba(245, 165, 66, 0.14);
+    color: var(--accent-amber);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+  }
+  .step-box h4 {
+    margin: 0 0 0.28rem;
+    font-family: var(--font-display);
+    font-size: 0.98rem;
+    font-weight: 700;
+  }
+  .step-box p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .step-box code {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.1rem 0.35rem;
+    border-radius: 5px;
+  }
+
+  .server-meta-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.32rem 0.72rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-subtle);
+    font-size: 0.81rem;
+    color: var(--text-secondary);
+  }
+  .meta-pill strong {
+    color: var(--text-primary);
+  }
+
+  .portal-list {
+    display: grid;
+    gap: 0.65rem;
+  }
+  .portal-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.82rem 0.95rem;
+    border-radius: 14px;
+    background: rgba(7, 11, 14, 0.55);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease;
+  }
+  .portal-item:hover {
+    border-color: var(--border-accent);
+    background: rgba(16, 25, 32, 0.9);
+    transform: translateY(-1px);
+  }
+  .portal-item__left {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .portal-item__name {
+    font-weight: 600;
+    font-size: 0.92rem;
+  }
+  .portal-item__desc {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+  .portal-item__tag {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    padding: 0.22rem 0.55rem;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .portal-item__tag--amber {
+    background: rgba(245, 165, 66, 0.14);
+    color: var(--accent-amber);
+  }
+
+  .dl-note {
+    margin: 0.85rem 0 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .dl-note a {
+    color: var(--accent-amber);
+    text-decoration: none;
+  }
+  .dl-note a:hover {
+    text-decoration: underline;
+  }
+
+  /* ── Dorf-Zeitraffer & Snapshot ── */
+  .timelapse-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+  .tl-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    padding: 1.35rem;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  .tl-card--snapshot { grid-column: span 7; }
+  .tl-card--video    { grid-column: span 5; }
+  .tl-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .tl-card__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 700;
+  }
+  .tl-badge {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(245, 165, 66, 0.12);
+    border: 1px solid rgba(245, 165, 66, 0.28);
+    color: var(--accent-amber);
+  }
+  .tl-badge.is-live {
+    background: rgba(52, 211, 153, 0.12);
+    border-color: rgba(52, 211, 153, 0.3);
+    color: var(--accent-green);
+  }
+  .tl-media-box {
+    position: relative;
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px solid var(--border-subtle);
+    background: #05080A;
+    aspect-ratio: 16 / 9;
+  }
+  .tl-media-box img,
+  .tl-media-box video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .tl-media-box--snapshot {
+    cursor: pointer;
+  }
+  .tl-media-box--snapshot img {
+    transition: transform 400ms ease;
+  }
+  .tl-media-box--snapshot:hover img {
+    transform: scale(1.02);
+  }
+  .tl-video-empty {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 1.5rem;
+    gap: 0.45rem;
+    background: radial-gradient(circle at 50% 35%, rgba(245, 165, 66, 0.08), rgba(5, 8, 10, 0.95) 70%);
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+  }
+  .tl-video-empty strong {
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: 1.02rem;
+  }
+  .tl-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+  .tl-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.55rem;
+    margin-top: auto;
+  }
+  .tl-stat {
+    background: rgba(7, 11, 14, 0.65);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 0.55rem 0.6rem;
+    text-align: center;
+  }
+  .tl-stat__val {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .tl-stat__lbl {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 0.1rem;
+  }
+
+  /* ── Galerie Grid ── */
+  .gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.15rem;
+  }
+  .gallery-card {
+    margin: 0;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+    transition: transform 200ms ease, border-color 200ms ease;
+  }
+  .gallery-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-strong);
+  }
+  .gallery-card__img-wrap {
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    background: #090E12;
+  }
+  .gallery-card img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 400ms ease;
+  }
+  .gallery-card:hover img {
+    transform: scale(1.04);
+  }
+  .gallery-card figcaption {
+    padding: 0.72rem 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+  .gallery-card figcaption span:last-child {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--accent-amber);
+  }
+
+  /* ── Archiv: Bisherige Server-Icons ── */
+  .archive-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .archive-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
+    transition: transform 180ms ease, border-color 180ms ease;
+  }
+  .archive-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-strong);
+  }
+  .archive-card--current {
+    border-color: var(--border-accent);
+    background: linear-gradient(180deg, rgba(245, 165, 66, 0.08) 0%, var(--bg-card) 100%);
+  }
+  .archive-card__img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    border-radius: 10px;
+    object-fit: cover;
+    display: block;
+    background: #090E12;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .archive-card__meta {
+    margin-top: 0.65rem;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+  .archive-card__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .archive-card__year {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--accent-amber);
+  }
+  .archive-card__credit {
+    margin-top: 0.25rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+
+  /* ── Footer ── */
+  .site-footer {
+    margin-top: 2rem;
+    padding: 2rem 0 2.5rem;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: 0.86rem;
+  }
+  .footer-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .footer-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .footer-brand img {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    object-fit: cover;
+  }
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.25rem;
+  }
+  .footer-links a,
+  .footer-link-btn {
+    color: var(--text-secondary);
+    text-decoration: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    transition: color 150ms ease;
+  }
+  .footer-links a:hover,
+  .footer-link-btn:hover {
+    color: var(--text-primary);
+  }
+
+  /* ── Modals ── */
+  .modal-dialog {
+    max-width: 36rem;
+    width: calc(100% - 2rem);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-strong);
+    background: #0E161C;
+    color: var(--text-primary);
+    padding: 1.6rem 1.75rem;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.78);
+  }
+  .modal-dialog::backdrop {
+    background: rgba(4, 7, 9, 0.8);
+    backdrop-filter: blur(6px);
+  }
+  .modal-dialog h2 {
+    margin: 0 0 0.85rem;
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+  }
+  .modal-dialog p {
+    margin: 0 0 0.8rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+  .modal-dialog strong {
+    color: var(--text-primary);
+  }
+  .modal-dialog a {
+    color: var(--accent-amber);
+  }
+
+  .lightbox-dialog {
+    max-width: min(1400px, calc(100vw - 1.5rem));
+    padding: 0.75rem;
+    background: #0A1014;
+  }
+  .lightbox-stage {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+    background: #05080A;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-height: calc(100dvh - 7.5rem);
+    touch-action: none;
+    user-select: none;
+    cursor: zoom-in;
+  }
+  .lightbox-stage.is-zoomed {
+    cursor: grab;
+  }
+  .lightbox-stage.is-dragging {
+    cursor: grabbing;
+  }
+  .lightbox-dialog img {
+    display: block;
+    flex-shrink: 0;
+    max-width: 100%;
+    max-height: calc(100dvh - 7.5rem);
+    width: auto;
+    height: auto;
+    border-radius: 12px;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .lightbox-dialog__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.65rem 0.5rem 0.2rem;
+    font-size: 0.86rem;
+    color: var(--text-secondary);
+  }
+  .lightbox-dialog__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 980px) {
+    .hero-grid {
+      grid-template-columns: 1fr;
+    }
+    .bento-card--steps,
+    .bento-card--portals,
+    .bento-card--maps,
+    .bento-card--modpacks,
+    .tl-card--snapshot,
+    .tl-card--video {
+      grid-column: span 12;
+    }
+    .archive-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .gallery-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 680px) {
+    .nav-links {
+      display: none;
+    }
+    .steps-grid,
+    .gallery-grid {
+      grid-template-columns: 1fr;
+    }
+    .archive-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .hero-title-row img {
+      width: 48px;
+      height: 48px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="snow-canvas" aria-hidden="true"></canvas>
+
+<div class="page-wrap">
+
+  <!-- Sticky Glass Navbar -->
+  <header class="nav-header">
+    <div class="container">
+      <nav class="nav-bar" aria-label="Hauptnavigation">
+        <a class="nav-brand" href="#top">
+          <img src="assets/icon-wd7.png" width="34" height="34" alt="Weihnachtsdorf 7 Icon">
+          <span>Weihnachtsdorf 7</span>
+        </a>
+
+        <div class="nav-links">
+          <a href="#uebersicht">Ablauf &amp; Portale</a>
+          <a href="#downloads">Maps &amp; Modpacks</a>
+          <a href="#zeitraffer" id="nav-zeitraffer" style="display:none">Zeitraffer</a>
+          <a href="#galerie">Galerie</a>
+          <a href="#archiv">Archiv</a>
+        </div>
+
+        <div class="nav-cta">
+          <a class="btn btn--discord btn--pill" href="https://discord.gg/kvjc5Fe5t6" target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+            <span>Discord</span>
+          </a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top" class="container">
+
+    <!-- 1 · HERO -->
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="hero-badge" id="hero-status-badge" aria-live="polite">
+            <span class="status-dot"></span>
+            <span id="hero-badge-text">Noch nicht gestartet · Start am 29.11.2026 um 19:00 Uhr</span>
+          </div>
+
+          <div class="hero-title-row">
+            <img src="assets/icon-wd7.png" width="60" height="60" alt="Weihnachtsdorf 7">
+            <h1 class="hero-title">Weihnachtsdorf 7</h1>
+          </div>
+
+          <p class="hero-desc">
+            Unser jährlicher Community-Minecraft-Server zur Weihnachtszeit. Die Anmeldung für die Whitelist läuft direkt über unseren Discord-Server.
+          </p>
+
+          <!-- Live Countdown / Auto-Switch Server Status Widget -->
+          <div class="status-panel" aria-live="polite">
+            <div class="status-panel__header">
+              <strong id="panel-status-title">Countdown bis zum Projektstart</strong>
+              <span class="status-panel__date" id="panel-status-meta">Start am 29.11.2026 um 19:00 Uhr · Anmeldung im Discord</span>
+            </div>
+
+            <div class="countdown-grid" id="countdown-grid">
+              <div class="cd-box">
+                <span class="cd-box__num" id="cd-days">8</span>
+                <span class="cd-box__unit">Tage</span>
+              </div>
+              <div class="cd-box">
+                <span class="cd-box__num" id="cd-hours">10</span>
+                <span class="cd-box__unit">Stunden</span>
+              </div>
+              <div class="cd-box">
+                <span class="cd-box__num" id="cd-mins">00</span>
+                <span class="cd-box__unit">Minuten</span>
+              </div>
+              <div class="cd-box">
+                <span class="cd-box__num" id="cd-secs">00</span>
+                <span class="cd-box__unit">Sekunden</span>
+              </div>
+            </div>
+
+            <div class="prelaunch-players" id="prelaunch-players-row">
+              <span class="prelaunch-players__count">
+                <span class="status-dot"></span>
+                <span id="prelaunch-players-text">0 Spieler online</span>
+              </span>
+              <span class="prelaunch-players__meta" id="prelaunch-players-meta">tigimax.com</span>
+            </div>
+
+            <div class="live-status-row" id="live-status-row">
+              <div>
+                <div class="live-count-big" id="live-players-text">0 Spieler online</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary)" id="live-sub-text">Server ist geöffnet · Whitelist aktiv</div>
+              </div>
+              <a class="btn btn--glass btn--pill" href="https://map.tigimax.com" target="_blank" rel="noopener noreferrer">Live-Karte öffnen</a>
+            </div>
+          </div>
+
+          <div class="hero-actions">
+            <a class="btn btn--discord" href="https://discord.gg/kvjc5Fe5t6" target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+              <span>Discord beitreten</span>
+            </a>
+
+            <button class="ip-copy-btn" type="button" data-copy-ip="tigimax.com" aria-label="Server-IP tigimax.com kopieren">
+              <span>tigimax.com</span>
+              <span class="ip-copy-btn__badge" data-copy-label>IP kopieren</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="hero-showcase" data-lightbox-src="assets/wd6-1.webp" data-lightbox-caption="Weihnachtsdorf 7 · Seed-Vorschau">
+          <img src="assets/wd6-1.webp" width="1536" height="864" alt="Weihnachtsdorf 7 Seed-Vorschau">
+          <div class="hero-showcase__bar">
+            <span><strong>Weihnachtsdorf 7</strong> · Seed-Vorschau</span>
+            <span>Klicken zum Vergrößern</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 · BENTO GRID: ABLAUF & PORTALE -->
+    <section id="uebersicht" class="section">
+      <div class="bento-grid">
+        <div class="bento-card bento-card--steps">
+          <h2 class="bento-card__title">Anmeldung &amp; Mitspielen</h2>
+          <p class="bento-card__sub">So kommst du auf die Whitelist für Weihnachtsdorf 7.</p>
+
+          <div class="steps-grid">
+            <div class="step-box">
+              <span class="step-box__num">01</span>
+              <h4>Discord beitreten</h4>
+              <p>Tritt unserem Discord-Server bei und öffne die Anmeldung.</p>
+            </div>
+            <div class="step-box">
+              <span class="step-box__num">02</span>
+              <h4>Bewerbung senden</h4>
+              <p>Über den Button „Jetzt bewerben“ oder per <code>/anmelden</code> deinen Minecraft-Namen eintragen.</p>
+            </div>
+            <div class="step-box">
+              <span class="step-box__num">03</span>
+              <h4>Account &amp; Start</h4>
+              <p>Nach Annahme erhältst du deinen Web-Login per Bot-DM. Ab dem <strong>29.11.2026</strong> ist der Server offen.</p>
+            </div>
+          </div>
+
+          <div class="server-meta-bar">
+            <span class="meta-pill">Server-Adresse: <strong>tigimax.com</strong></span>
+            <span class="meta-pill">Sprachchat: <strong>Simple VoiceChat</strong></span>
+            <span class="meta-pill">Start: <strong>29. November 2026 (1. Advent)</strong></span>
+          </div>
+        </div>
+
+        <div class="bento-card bento-card--portals">
+          <div>
+            <h2 class="bento-card__title">Server-Portale</h2>
+            <p class="bento-card__sub">Alle Dienste mit gemeinsamem Login auf tigimax.com.</p>
+          </div>
+
+          <div class="portal-list">
+            <a class="portal-item" href="https://discord.gg/kvjc5Fe5t6" target="_blank" rel="noopener noreferrer">
+              <div class="portal-item__left">
+                <span class="portal-item__name">Discord-Server</span>
+                <span class="portal-item__desc">Anmeldung, Ankündigungen &amp; Ingame-Chat</span>
+              </div>
+              <span class="portal-item__tag">discord.gg/kvjc5Fe5t6</span>
+            </a>
+
+            <a class="portal-item" href="https://auth.tigimax.com" target="_blank" rel="noopener noreferrer">
+              <div class="portal-item__left">
+                <span class="portal-item__name">Spieler-Portal (Authentik)</span>
+                <span class="portal-item__desc">Account-Verwaltung &amp; Single Sign-On</span>
+              </div>
+              <span class="portal-item__tag">auth.tigimax.com</span>
+            </a>
+
+            <a class="portal-item" href="https://map.tigimax.com" target="_blank" rel="noopener noreferrer">
+              <div class="portal-item__left">
+                <span class="portal-item__name">BlueMap 3D-Livekarte</span>
+                <span class="portal-item__desc">Weltkarte im Browser ansehen</span>
+              </div>
+              <span class="portal-item__tag" id="portal-map-tag">Ab 29.11. · 19:00 offen</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · DOWNLOADS: WELTEN & MODPACKS -->
+    <section id="downloads" class="section">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Welten-Downloads &amp; Modpacks</h2>
+          <p class="section-sub">Alle Map-Downloads und Modrinth-Modpacks.</p>
+        </div>
+      </div>
+
+      <div class="bento-grid">
+        <!-- Map Downloads -->
+        <div class="bento-card bento-card--maps">
+          <h3 class="bento-card__title">Welten-Archiv (Weihnachtsdorf 1–6)</h3>
+          <p class="bento-card__sub">Alle bisherigen Server-Welten zum Herunterladen für den Singleplayer.</p>
+
+          <div class="portal-list">
+            <a class="portal-item" href="https://www.mediafire.com/file/q94tw1q613lcvxa/Weihnachtsdorf6_Map.zip/file" target="_blank" rel="noopener noreferrer">
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 6 Map (2025)</span>
+                <span class="portal-item__desc">Getrimmt auf die Spawnarea · MediaFire (.zip)</span>
+              </div>
+              <span class="portal-item__tag portal-item__tag--amber">Download</span>
+            </a>
+
+            <a class="portal-item" href="https://www.mediafire.com/file/83o3g60riwhnu1r/Weihnachtsdorf5_Map.zip/file" target="_blank" rel="noopener noreferrer">
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 5 Map (2024)</span>
+                <span class="portal-item__desc">Getrimmt auf die Spawnarea · 384 MB · MediaFire (.zip)</span>
+              </div>
+              <span class="portal-item__tag portal-item__tag--amber">Download</span>
+            </a>
+
+            <a class="portal-item" href="/maps/Weihnachtsdorf_4_Map.tar.gz" download>
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 4 Map (2023)</span>
+                <span class="portal-item__desc">Vollständige Welt · 5,0 GB · Direkt-Download (.tar.gz)</span>
+              </div>
+              <span class="portal-item__tag portal-item__tag--amber">Download</span>
+            </a>
+
+            <a class="portal-item" href="/maps/Weihnachtsdorf_3_Map.tar.gz" download>
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 3 Map (2022)</span>
+                <span class="portal-item__desc">Vollständige Welt · 5,5 GB · Direkt-Download (.tar.gz)</span>
+              </div>
+              <span class="portal-item__tag portal-item__tag--amber">Download</span>
+            </a>
+
+            <a class="portal-item" href="https://www.mediafire.com/file/qc28f8b1z7kalga/world.zip/file" target="_blank" rel="noopener noreferrer">
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 2 Map (2021)</span>
+                <span class="portal-item__desc">Vollständige Welt · 2,2 GB · MediaFire (.zip)</span>
+              </div>
+              <span class="portal-item__tag portal-item__tag--amber">Download</span>
+            </a>
+
+            <a class="portal-item" href="/maps/Weihnachtsdorf_1_Map.tar.gz" download>
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 1 Map (2020)</span>
+                <span class="portal-item__desc">Vollständige Welt · 426 MB · Direkt-Download (.tar.gz)</span>
+              </div>
+              <span class="portal-item__tag portal-item__tag--amber">Download</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Modpacks -->
+        <div class="bento-card bento-card--modpacks">
+          <h3 class="bento-card__title">Modpacks &amp; Installation</h3>
+          <p class="bento-card__sub">Modrinth-Profile (<code>.mrpack</code>) für Shader, Ambience, Simple VoiceChat &amp; FPS-Boost.</p>
+
+          <div class="portal-list">
+            <a class="portal-item" href="assets/downloads/Weihnachtsdorf_6_1.0.1.mrpack" download>
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 6 · Standard Modpack</span>
+                <span class="portal-item__desc">Inkl. Shader, Ambience- &amp; Performance-Mods (Empfohlen)</span>
+              </div>
+              <span class="portal-item__tag portal-item__tag--amber">.mrpack</span>
+            </a>
+
+            <a class="portal-item" href="assets/downloads/Weihnachtsdorf_6_Performance_1.0.2.mrpack" download>
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 6 · Performance Modpack</span>
+                <span class="portal-item__desc">Maximale FPS ohne schwere Ambience-Mods</span>
+              </div>
+              <span class="portal-item__tag">.mrpack</span>
+            </a>
+
+            <a class="portal-item" href="assets/downloads/Weihnachtsdorf_6_Lite_1.0.1.mrpack" download>
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 6 · Basic / Lite Modpack</span>
+                <span class="portal-item__desc">Nur essentielle Tools (VoiceChat, Minimap, World Map)</span>
+              </div>
+              <span class="portal-item__tag">.mrpack</span>
+            </a>
+
+            <a class="portal-item" href="https://www.dropbox.com/scl/fi/sib3okqip5l8ix3rvs7ex/Weihnachtsdorf-2024-1.1.11.mrpack?rlkey=sonst0hzkgkblbignrpl2ycwd&e=1&st=yyd8rios&dl=0" target="_blank" rel="noopener noreferrer">
+              <div class="portal-item__left">
+                <span class="portal-item__name">Weihnachtsdorf 5 · Modpack (2024)</span>
+                <span class="portal-item__desc">Vorjahres-Modpack für die WD 5 Map · Dropbox</span>
+              </div>
+              <span class="portal-item__tag">Dropbox</span>
+            </a>
+          </div>
+
+          <p class="dl-note">Video-Anleitung zur Modrinth-Installation von nummernfeld: <a href="https://www.youtube.com/watch?v=ixouqEEr00Y" target="_blank" rel="noopener noreferrer">YouTube-Tutorial ansehen</a> · Weihnachtlicher Texture-Pack-Credit: <a href="https://linktr.ee/futureazoo" target="_blank" rel="noopener noreferrer">Futureazoo</a></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 · DORF-ZEITRAFFER (wird automatisch ab Projektstart & erstem Snapshot sichtbar) -->
+    <section id="zeitraffer" class="section" style="display:none">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Dorf-Zeitraffer</h2>
+          <p class="section-sub">Jede Stunde entsteht ein neues Bild vom Weihnachtsdorf — zum Reinzoomen und als Zeitraffer.</p>
+        </div>
+      </div>
+
+      <div class="timelapse-grid">
+        <article class="tl-card tl-card--snapshot">
+          <div class="tl-card__head">
+            <h3 class="tl-card__title">Aktuelles Bild</h3>
+            <span class="tl-meta-row" id="tl-updated-text"></span>
+          </div>
+
+          <div class="tl-media-box tl-media-box--snapshot" id="tl-snapshot-trigger" data-lightbox-src="" data-lightbox-caption="Weihnachtsdorf 7">
+            <img id="tl-snapshot-img" src="" width="1600" height="900" alt="Aktuelles Bild vom Weihnachtsdorf 7" loading="lazy">
+          </div>
+        </article>
+
+        <article class="tl-card tl-card--video">
+          <div class="tl-card__head">
+            <h3 class="tl-card__title">Zeitraffer</h3>
+            <a class="btn btn--glass btn--pill" id="tl-video-download" href="timelapse/timelapse.mp4" download="weihnachtsdorf7-zeitraffer.mp4" style="display:none">Herunterladen</a>
+          </div>
+
+          <div class="tl-media-box" id="tl-video-wrap">
+            <div class="tl-video-empty" id="tl-video-empty">
+              <span>Der Zeitraffer erscheint, sobald die ersten Aufnahmen da sind.</span>
+            </div>
+            <video id="tl-video" controls playsinline loop preload="metadata" style="display:none"></video>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- 5 · GALERIE -->
+    <section id="galerie" class="section">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Galerie</h2>
+        </div>
+      </div>
+
+      <div class="gallery-grid">
+        <figure class="gallery-card" data-lightbox-src="assets/wd6-1.webp" data-lightbox-caption="Weihnachtsdorf 7">
+          <div class="gallery-card__img-wrap">
+            <img src="assets/wd6-1.webp" width="1536" height="864" alt="Weihnachtsdorf 7">
+          </div>
+          <figcaption>
+            <span>Weihnachtsdorf 7</span>
+          </figcaption>
+        </figure>
+
+        <figure class="gallery-card" data-lightbox-src="assets/wd6-3.png" data-lightbox-caption="Weihnachtsdorf 6">
+          <div class="gallery-card__img-wrap">
+            <img src="assets/wd6-3.png" width="1920" height="1080" alt="Weihnachtsdorf 6">
+          </div>
+          <figcaption>
+            <span>Weihnachtsdorf 6</span>
+          </figcaption>
+        </figure>
+
+        <figure class="gallery-card" data-lightbox-src="assets/wd6-2.png" data-lightbox-caption="Weihnachtsdorf 6">
+          <div class="gallery-card__img-wrap">
+            <img src="assets/wd6-2.png" width="1920" height="1080" alt="Weihnachtsdorf 6">
+          </div>
+          <figcaption>
+            <span>Weihnachtsdorf 6</span>
+          </figcaption>
+        </figure>
+
+        <figure class="gallery-card" data-lightbox-src="assets/wd5-2.png" data-lightbox-caption="Weihnachtsdorf 5">
+          <div class="gallery-card__img-wrap">
+            <img src="assets/wd5-2.png" width="1920" height="1080" alt="Weihnachtsdorf 5">
+          </div>
+          <figcaption>
+            <span>Weihnachtsdorf 5</span>
+          </figcaption>
+        </figure>
+
+        <figure class="gallery-card" data-lightbox-src="assets/wd5-3.png" data-lightbox-caption="Weihnachtsdorf 5">
+          <div class="gallery-card__img-wrap">
+            <img src="assets/wd5-3.png" width="1920" height="1080" alt="Weihnachtsdorf 5">
+          </div>
+          <figcaption>
+            <span>Weihnachtsdorf 5</span>
+          </figcaption>
+        </figure>
+
+        <figure class="gallery-card" data-lightbox-src="assets/wd5-1.png" data-lightbox-caption="Weihnachtsdorf 5">
+          <div class="gallery-card__img-wrap">
+            <img src="assets/wd5-1.png" width="1920" height="1080" alt="Weihnachtsdorf 5">
+          </div>
+          <figcaption>
+            <span>Weihnachtsdorf 5</span>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 5 · ARCHIV: SERVER-ICONS -->
+    <section id="archiv" class="section">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Server-Icons</h2>
+          <p class="section-sub">Gezeichnet von Snowfux und Miaxian.</p>
+        </div>
+      </div>
+
+      <div class="archive-grid">
+        <article class="archive-card" data-lightbox-src="assets/icon-wd2.png" data-lightbox-caption="Weihnachtsdorf 2 · Gezeichnet von Snowfux">
+          <img class="archive-card__img" src="assets/icon-wd2.png" width="512" height="512" alt="Weihnachtsdorf 2 Icon">
+          <div class="archive-card__meta">
+            <h3 class="archive-card__title">Weihnachtsdorf 2</h3>
+            <span class="archive-card__year">2021</span>
+          </div>
+          <div class="archive-card__credit">Gezeichnet von Snowfux</div>
+        </article>
+
+        <article class="archive-card" data-lightbox-src="assets/icon-wd3.png" data-lightbox-caption="Weihnachtsdorf 3 · Gezeichnet von Snowfux">
+          <img class="archive-card__img" src="assets/icon-wd3.png" width="1024" height="1024" alt="Weihnachtsdorf 3 Icon">
+          <div class="archive-card__meta">
+            <h3 class="archive-card__title">Weihnachtsdorf 3</h3>
+            <span class="archive-card__year">2022</span>
+          </div>
+          <div class="archive-card__credit">Gezeichnet von Snowfux</div>
+        </article>
+
+        <article class="archive-card" data-lightbox-src="assets/icon-wd4.png" data-lightbox-caption="Weihnachtsdorf 4 · Gezeichnet von Miaxian">
+          <img class="archive-card__img" src="assets/icon-wd4.png" width="1280" height="720" alt="Weihnachtsdorf 4 Icon">
+          <div class="archive-card__meta">
+            <h3 class="archive-card__title">Weihnachtsdorf 4</h3>
+            <span class="archive-card__year">2023</span>
+          </div>
+          <div class="archive-card__credit">Gezeichnet von Miaxian</div>
+        </article>
+
+        <article class="archive-card" data-lightbox-src="assets/icon-wd6-b.png" data-lightbox-caption="Minecraft Server-Icon · Gezeichnet von Miaxian">
+          <img class="archive-card__img" src="assets/icon-wd6-b.png" width="512" height="512" alt="Weihnachtsdorf Minecraft Server-Icon">
+          <div class="archive-card__meta">
+            <h3 class="archive-card__title">MC Server-Icon</h3>
+            <span class="archive-card__year">WD 4–6</span>
+          </div>
+          <div class="archive-card__credit">Gezeichnet von Miaxian</div>
+        </article>
+
+        <article class="archive-card" data-lightbox-src="assets/icon-wd6-a.png" data-lightbox-caption="Weihnachtsdorf 5 &amp; 6 · Gezeichnet von Snowfux">
+          <img class="archive-card__img" src="assets/icon-wd6-a.png" width="1024" height="1024" alt="Weihnachtsdorf 5 und 6 Icon">
+          <div class="archive-card__meta">
+            <h3 class="archive-card__title">WD 5 &amp; WD 6</h3>
+            <span class="archive-card__year">2024–25</span>
+          </div>
+          <div class="archive-card__credit">Gezeichnet von Snowfux</div>
+        </article>
+
+        <article class="archive-card archive-card--current" data-lightbox-src="assets/icon-wd7.png" data-lightbox-caption="Weihnachtsdorf 7 · Gezeichnet von Snowfux">
+          <img class="archive-card__img" src="assets/icon-wd7.png" width="1024" height="1024" alt="Weihnachtsdorf 7 Icon">
+          <div class="archive-card__meta">
+            <h3 class="archive-card__title">Weihnachtsdorf 7</h3>
+            <span class="archive-card__year">2026</span>
+          </div>
+          <div class="archive-card__credit">Gezeichnet von Snowfux</div>
+        </article>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/icon-wd7.png" width="24" height="24" alt="">
+        <span>Weihnachtsdorf 7 · tigimax.com</span>
+      </div>
+
+      <div class="footer-links">
+        <a href="https://discord.gg/kvjc5Fe5t6" target="_blank" rel="noopener noreferrer">Discord</a>
+        <a href="https://auth.tigimax.com" target="_blank" rel="noopener noreferrer">Spieler-Login</a>
+        <a href="https://map.tigimax.com" target="_blank" rel="noopener noreferrer">BlueMap</a>
+        <a href="#downloads">Maps &amp; Modpacks</a>
+        <button class="footer-link-btn" type="button" id="open-impressum">Impressum &amp; Datenschutz</button>
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<!-- IMPRESSUM DIALOG -->
+<dialog class="modal-dialog" id="impressum-dialog" aria-labelledby="impressum-title">
+  <h2 id="impressum-title">Impressum &amp; Datenschutzhinweis</h2>
+  <p><strong>Privates Community-Projekt:</strong> Diese Website und der zugehörige Minecraft-Server („Weihnachtsdorf“) werden rein privat und nicht-kommerziell für einen geschlossenen Teilnehmerkreis betrieben. Es bestehen keinerlei Gewinnerzielungsabsicht, kein Verkauf und keine Werbung.</p>
+  <p><strong>Verantwortlich &amp; Kontakt:</strong><br>
+  Administration Weihnachtsdorf (Tigimax)<br>
+  E-Mail: <a href="mailto:admin@tigimax.com">admin@tigimax.com</a><br>
+  Discord: <a href="https://discord.gg/kvjc5Fe5t6" target="_blank" rel="noopener noreferrer">discord.gg/kvjc5Fe5t6</a></p>
+  <p><strong>Datenschutz:</strong> Beim Besuch dieser Seite werden keine Werbe- oder Tracking-Cookies eingesetzt. Zur Darstellung des aktuellen Server-Status wird lediglich die öffentliche Spieleranzahl vom eigenen Server abgerufen. Bei einer Anmeldung über Discord und Authentik werden ausschließlich Discord-ID, Minecraft-UUID/IGN sowie technisch notwendige Session-Cookies auf <code>.tigimax.com</code> für die Whitelist-Verwaltung verwendet.</p>
+  <button class="btn btn--glass btn--pill" type="button" id="close-impressum">Schließen</button>
+</dialog>
+
+<!-- LIGHTBOX DIALOG -->
+<dialog class="modal-dialog lightbox-dialog" id="lightbox-dialog" aria-label="Bildansicht">
+  <div class="lightbox-stage" id="lightbox-stage">
+    <img id="lightbox-img" src="" alt="">
+  </div>
+  <div class="lightbox-dialog__bar">
+    <span id="lightbox-caption"></span>
+    <div class="lightbox-dialog__actions">
+      <button class="btn btn--glass btn--pill" type="button" id="lightbox-zoom-reset" title="Zoom zurücksetzen">100%</button>
+      <button class="btn btn--glass btn--pill" type="button" id="close-lightbox">Schließen</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  // ── 1. Ambient Snowfall ──
+  (function initSnow() {
+    var canvas = document.getElementById('snow-canvas');
+    if (!canvas) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    var ctx = canvas.getContext('2d');
+    var flakes = [];
+    var count = window.innerWidth < 768 ? 28 : 50;
+
+    function resize() {
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function seed() {
+      flakes = [];
+      for (var i = 0; i < count; i++) {
+        flakes.push({
+          x: Math.random() * window.innerWidth,
+          y: Math.random() * window.innerHeight,
+          r: 0.9 + Math.random() * 1.9,
+          vy: 0.28 + Math.random() * 0.55,
+          vx: (Math.random() - 0.5) * 0.25,
+          a: 0.2 + Math.random() * 0.45
+        });
+      }
+    }
+
+    function tick() {
+      var w = window.innerWidth;
+      var h = window.innerHeight;
+      ctx.clearRect(0, 0, w, h);
+      for (var i = 0; i < flakes.length; i++) {
+        var f = flakes[i];
+        f.y += f.vy;
+        f.x += f.vx;
+        if (f.y > h + 6) { f.y = -6; f.x = Math.random() * w; }
+        if (f.x > w + 6) f.x = -6;
+        if (f.x < -6) f.x = w + 6;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(245, 242, 235, ' + f.a + ')';
+        ctx.fill();
+      }
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+    seed();
+    requestAnimationFrame(tick);
+  })();
+
+  // ── 2. One-click Server IP Copy ──
+  document.querySelectorAll('[data-copy-ip]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var ip = btn.getAttribute('data-copy-ip');
+      var label = btn.querySelector('[data-copy-label]');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(ip).catch(function () {});
+      }
+      if (label) {
+        var prev = label.textContent;
+        label.textContent = 'Kopiert!';
+        setTimeout(function () { label.textContent = prev; }, 1800);
+      }
+    });
+  });
+
+  // ── 3. Impressum & Lightbox Modals ──
+  (function initModals() {
+    var impDlg = document.getElementById('impressum-dialog');
+    var openImp = document.getElementById('open-impressum');
+    var closeImp = document.getElementById('close-impressum');
+    if (impDlg && openImp && closeImp) {
+      openImp.addEventListener('click', function () { impDlg.showModal(); });
+      closeImp.addEventListener('click', function () { impDlg.close(); });
+      impDlg.addEventListener('click', function (e) { if (e.target === impDlg) impDlg.close(); });
+      if (window.location.hash === '#impressum') impDlg.showModal();
+    }
+
+    var lbDlg = document.getElementById('lightbox-dialog');
+    var lbStage = document.getElementById('lightbox-stage');
+    var lbImg = document.getElementById('lightbox-img');
+    var lbCap = document.getElementById('lightbox-caption');
+    var lbReset = document.getElementById('lightbox-zoom-reset');
+    var closeLb = document.getElementById('close-lightbox');
+    if (lbDlg && lbStage && lbImg && closeLb) {
+      var scale = 1, tx = 0, ty = 0;
+      var baseW = 0, baseH = 0;
+      var MIN_SCALE = 1, MAX_SCALE = 8;
+      var pointers = new Map();
+      var prevPinch = null;
+
+      function measureBase() {
+        if (scale === 1) {
+          var r = lbImg.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) {
+            baseW = r.width;
+            baseH = r.height;
+          }
+        }
+      }
+
+      function clampPan() {
+        var r = lbStage.getBoundingClientRect();
+        var imgW = (baseW || r.width) * scale;
+        var imgH = (baseH || r.height) * scale;
+        var maxX = Math.max(0, (imgW - r.width) / 2);
+        var maxY = Math.max(0, (imgH - r.height) / 2);
+        tx = Math.max(-maxX, Math.min(maxX, tx));
+        ty = Math.max(-maxY, Math.min(maxY, ty));
+      }
+
+      function renderTransform() {
+        if (scale <= 1.01) {
+          scale = 1; tx = 0; ty = 0;
+          lbStage.style.height = '';
+          lbImg.style.width = '';
+          lbImg.style.height = '';
+          lbImg.style.maxWidth = '';
+          lbImg.style.maxHeight = '';
+          lbImg.style.transform = '';
+          lbStage.classList.remove('is-zoomed');
+        } else {
+          if (!baseW || !baseH) measureBase();
+          if (baseH) lbStage.style.height = baseH + 'px';
+          lbImg.style.maxWidth = 'none';
+          lbImg.style.maxHeight = 'none';
+          lbImg.style.width = (baseW * scale).toFixed(1) + 'px';
+          lbImg.style.height = (baseH * scale).toFixed(1) + 'px';
+          clampPan();
+          lbImg.style.transform = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px)';
+          lbStage.classList.add('is-zoomed');
+        }
+        if (lbReset) lbReset.textContent = Math.round(scale * 100) + '%';
+      }
+
+      function resetZoom() {
+        scale = 1; tx = 0; ty = 0;
+        baseW = 0; baseH = 0;
+        pointers.clear();
+        prevPinch = null;
+        lbStage.classList.remove('is-dragging');
+        renderTransform();
+      }
+
+      function zoomAt(newScale, clientX, clientY) {
+        if (scale === 1) measureBase();
+        var clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+        var ratio = clamped / scale;
+        var r = lbStage.getBoundingClientRect();
+        var cx = clientX - (r.left + r.width / 2);
+        var cy = clientY - (r.top + r.height / 2);
+        tx = cx - (cx - tx) * ratio;
+        ty = cy - (cy - ty) * ratio;
+        scale = clamped;
+        renderTransform();
+      }
+
+      lbStage.addEventListener('wheel', function (e) {
+        e.preventDefault();
+        var factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+        zoomAt(scale * factor, e.clientX, e.clientY);
+      }, { passive: false });
+
+      lbStage.addEventListener('dblclick', function (e) {
+        e.preventDefault();
+        if (scale > 1.1) resetZoom();
+        else zoomAt(3, e.clientX, e.clientY);
+      });
+
+      lbStage.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0 && e.pointerType === 'mouse') return;
+        lbStage.setPointerCapture(e.pointerId);
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointers.size === 1 && scale > 1.01) lbStage.classList.add('is-dragging');
+        if (pointers.size === 2) {
+          var pts = Array.from(pointers.values());
+          prevPinch = {
+            dist: Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y),
+            mx: (pts[0].x + pts[1].x) / 2,
+            my: (pts[0].y + pts[1].y) / 2
+          };
+        }
+      });
+
+      lbStage.addEventListener('pointermove', function (e) {
+        if (!pointers.has(e.pointerId)) return;
+        var prev = pointers.get(e.pointerId);
+        var dx = e.clientX - prev.x;
+        var dy = e.clientY - prev.y;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (pointers.size === 1 && scale > 1.01) {
+          tx += dx;
+          ty += dy;
+          renderTransform();
+        } else if (pointers.size === 2) {
+          var pts = Array.from(pointers.values());
+          var dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+          var mx = (pts[0].x + pts[1].x) / 2;
+          var my = (pts[0].y + pts[1].y) / 2;
+          if (prevPinch && prevPinch.dist > 0) {
+            tx += mx - prevPinch.mx;
+            ty += my - prevPinch.my;
+            zoomAt(scale * (dist / prevPinch.dist), mx, my);
+          }
+          prevPinch = { dist: dist, mx: mx, my: my };
+        }
+      });
+
+      function endPointer(e) {
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) prevPinch = null;
+        if (pointers.size === 0) lbStage.classList.remove('is-dragging');
+      }
+      lbStage.addEventListener('pointerup', endPointer);
+      lbStage.addEventListener('pointercancel', endPointer);
+
+      if (lbReset) lbReset.addEventListener('click', resetZoom);
+
+      document.querySelectorAll('[data-lightbox-src]').forEach(function (el) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', function () {
+          lbImg.src = el.getAttribute('data-lightbox-src');
+          if (lbCap) lbCap.textContent = el.getAttribute('data-lightbox-caption') || '';
+          resetZoom();
+          lbDlg.showModal();
+        });
+      });
+      closeLb.addEventListener('click', function () { lbDlg.close(); resetZoom(); });
+      lbDlg.addEventListener('close', resetZoom);
+      lbDlg.addEventListener('click', function (e) { if (e.target === lbDlg) lbDlg.close(); });
+    }
+  })();
+
+  // ── 4. Live Server Status + Launch Countdown + Automatic Live Switch ──
+  (function initStatusAndCountdown() {
+    var badge = document.getElementById('hero-status-badge');
+    var badgeText = document.getElementById('hero-badge-text');
+    var panelTitle = document.getElementById('panel-status-title');
+    var panelMeta = document.getElementById('panel-status-meta');
+    var cdGrid = document.getElementById('countdown-grid');
+    var prelaunchRow = document.getElementById('prelaunch-players-row');
+    var prelaunchText = document.getElementById('prelaunch-players-text');
+    var prelaunchMeta = document.getElementById('prelaunch-players-meta');
+    var liveRow = document.getElementById('live-status-row');
+    var livePlayers = document.getElementById('live-players-text');
+    var liveSub = document.getElementById('live-sub-text');
+    var mapTag = document.getElementById('portal-map-tag');
+
+    var elDays = document.getElementById('cd-days');
+    var elHours = document.getElementById('cd-hours');
+    var elMins = document.getElementById('cd-mins');
+    var elSecs = document.getElementById('cd-secs');
+
+    var launchTs = new Date('2026-11-29T19:00:00+01:00').getTime();
+    var state = {
+      online: true,
+      players_online: 0,
+      players_max: 120,
+      launched: false
+    };
+
+    function pad(n) {
+      return n < 10 ? '0' + n : String(n);
+    }
+
+    function formatPlayers(count) {
+      var n = typeof count === 'number' ? count : 0;
+      return n === 1 ? '1 Spieler online' : (n + ' Spieler online');
+    }
+
+    function updateUI() {
+      var now = Date.now();
+      var diff = launchTs - now;
+      var timeReached = diff <= 0;
+      var isLaunched = Boolean(state.launched) || (timeReached && state.online);
+      var pText = formatPlayers(state.players_online);
+
+      badge.classList.remove('is-live', 'is-offline');
+
+      if (isLaunched) {
+        cdGrid.classList.add('is-hidden');
+        if (prelaunchRow) prelaunchRow.classList.add('is-hidden');
+        liveRow.classList.add('is-active');
+        if (mapTag) mapTag.textContent = 'map.tigimax.com';
+
+        if (!state.online) {
+          badge.classList.add('is-offline');
+          liveRow.classList.add('is-offline');
+          badgeText.textContent = 'tigimax.com · Wartung / Offline';
+          panelTitle.textContent = 'Server-Status';
+          panelMeta.textContent = 'tigimax.com';
+          livePlayers.textContent = 'Aktuell im Wartungsmodus';
+          livePlayers.style.color = 'var(--accent-red)';
+          liveSub.textContent = 'Der Server ist gleich wieder erreichbar.';
+        } else {
+          badge.classList.add('is-live');
+          liveRow.classList.remove('is-offline');
+          badgeText.textContent = 'Server ist online · ' + pText;
+          panelTitle.textContent = 'Live Server-Status';
+          panelMeta.textContent = 'tigimax.com · Online';
+          livePlayers.textContent = pText;
+          livePlayers.style.color = 'var(--accent-green)';
+          liveSub.textContent = 'Server ist gestartet · Adresse: tigimax.com';
+        }
+      } else {
+        cdGrid.classList.remove('is-hidden');
+        if (prelaunchRow) prelaunchRow.classList.remove('is-hidden');
+        liveRow.classList.remove('is-active', 'is-offline');
+        if (mapTag) mapTag.textContent = 'Ab 29.11. · 19:00 offen';
+
+        var totalSec = Math.max(0, Math.floor(diff / 1000));
+        var d = Math.floor(totalSec / 86400);
+        var h = Math.floor((totalSec % 86400) / 3600);
+        var m = Math.floor((totalSec % 3600) / 60);
+        var s = totalSec % 60;
+
+        if (elDays) elDays.textContent = String(d);
+        if (elHours) elHours.textContent = pad(h);
+        if (elMins) elMins.textContent = pad(m);
+        if (elSecs) elSecs.textContent = pad(s);
+
+        if (state.online) {
+          badgeText.textContent = 'Noch nicht gestartet · ' + pText;
+          if (prelaunchRow) prelaunchRow.classList.remove('is-offline');
+          if (prelaunchText) prelaunchText.textContent = pText;
+          if (prelaunchMeta) prelaunchMeta.textContent = 'Pre-Launch · tigimax.com';
+        } else {
+          badgeText.textContent = 'Noch nicht gestartet · Start am 29.11.2026 um 19:00 Uhr';
+          if (prelaunchRow) prelaunchRow.classList.add('is-offline');
+          if (prelaunchText) prelaunchText.textContent = 'Server offline / Wartung';
+          if (prelaunchMeta) prelaunchMeta.textContent = 'tigimax.com';
+        }
+        panelTitle.textContent = 'Countdown bis zum Projektstart';
+        panelMeta.textContent = 'Start am 29.11.2026 um 19:00 Uhr · Anmeldung im Discord';
+      }
+    }
+
+    function fetchStatus() {
+      fetch('/api/status', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (data && typeof data === 'object') {
+            state = data;
+            if (data.launch_iso) {
+              var t = new Date(data.launch_iso).getTime();
+              if (!isNaN(t)) launchTs = t;
+            }
+          }
+          updateUI();
+        })
+        .catch(function () {
+          updateUI();
+        });
+    }
+
+    updateUI();
+    fetchStatus();
+    setInterval(updateUI, 1000);
+    setInterval(fetchStatus, 20000);
+  })();
+
+  // ── 5. Dorf-Zeitraffer & Live-Snapshot Loader ──
+  (function initTimelapse() {
+    var section = document.getElementById('zeitraffer');
+    var navLink = document.getElementById('nav-zeitraffer');
+    var trigger = document.getElementById('tl-snapshot-trigger');
+    var img = document.getElementById('tl-snapshot-img');
+    var updatedText = document.getElementById('tl-updated-text');
+    var videoEmpty = document.getElementById('tl-video-empty');
+    var video = document.getElementById('tl-video');
+    var videoDl = document.getElementById('tl-video-download');
+    if (!section || !trigger || !img) return;
+
+    function formatDateDE(iso) {
+      try {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+      } catch (e) { return ''; }
+    }
+
+    fetch('timelapse/status.json', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.recording_active || !(d.frames > 0)) return;
+        var ts = encodeURIComponent(d.updated_at || Date.now());
+        var latestUrl = (d.latest_url || 'timelapse/latest.png') + '?t=' + ts;
+        var previewUrl = (d.preview_url || d.latest_url || 'timelapse/latest.png') + '?t=' + ts;
+
+        img.src = previewUrl;
+        trigger.setAttribute('data-lightbox-src', latestUrl);
+        var when = formatDateDE(d.updated_at);
+        trigger.setAttribute('data-lightbox-caption', 'Weihnachtsdorf 7' + (when ? ' · ' + when : ''));
+        if (updatedText && when) updatedText.textContent = 'Stand: ' + when;
+
+        if (d.has_video && d.video_url && video && videoEmpty) {
+          var vidUrl = d.video_url + '?t=' + ts;
+          video.poster = previewUrl;
+          video.src = vidUrl;
+          video.style.display = 'block';
+          videoEmpty.style.display = 'none';
+          if (videoDl) {
+            videoDl.href = vidUrl;
+            videoDl.style.display = 'inline-flex';
+          }
+        }
+
+        section.style.display = '';
+        if (navLink) navLink.style.display = '';
+      })
+      .catch(function () {});
+  })();
+</script>
+</body>
+</html>

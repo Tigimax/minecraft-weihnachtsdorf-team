@@ -45,6 +45,7 @@ class TestMinecraftSyncLogic(unittest.TestCase):
                 "lp user 11111111-2222-3333-4444-555555555555 parent remove admin",
                 "lp user 11111111-2222-3333-4444-555555555555 parent remove mod",
                 "lp user 11111111-2222-3333-4444-555555555555 parent set default",
+                "lp user 11111111-2222-3333-4444-555555555555 meta clear suffixes",
             ],
         )
 

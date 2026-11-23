@@ -320,7 +320,10 @@ async def ingame_chat_event(event: IngameChatEvent, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     payload = event.model_dump() if hasattr(event, "model_dump") else event.dict()
-    if not payload.get("role"):
+    ev_type = str(payload.get("type") or "chat").lower()
+    is_lifecycle = ev_type in ("startup", "server_startup", "shutdown", "server_shutdown")
+
+    if not is_lifecycle and not payload.get("role"):
         try:
             from wd_identity import chat_bridge
             p_info = await asyncio.to_thread(chat_bridge.resolve_player_by_minecraft, payload.get("username", ""), payload.get("uuid", ""))
@@ -328,7 +331,14 @@ async def ingame_chat_event(event: IngameChatEvent, request: Request):
         except Exception:
             payload["role"] = "player"
 
-    await broadcast_bluemap_event(payload)
+    # Never emit {"type": "shutdown"} into SSE queues because chat_stream uses it as lifespan exit sentinel
+    sse_payload = dict(payload)
+    if ev_type == "shutdown":
+        sse_payload["type"] = "server_shutdown"
+    elif ev_type == "startup":
+        sse_payload["type"] = "server_startup"
+
+    await broadcast_bluemap_event(sse_payload)
 
     if event.source != "discord":
         try:

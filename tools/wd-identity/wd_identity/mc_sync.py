@@ -558,7 +558,35 @@ class MinecraftSyncClient:
         cmds.append(f"lp user {target} parent remove admin")
         cmds.append(f"lp user {target} parent remove mod")
         cmds.append(f"lp user {target} parent set default")
+        cmds.append(f"lp user {target} meta clear suffixes")
         return cmds
+    @staticmethod
+    def _sanitize_discord_name(discord_name: Optional[str]) -> str:
+        if not discord_name:
+            return ""
+        # Strip whitespace/control chars and characters unsafe for LuckPerms/MC color codes
+        clean = str(discord_name).strip().lstrip("@")
+        clean = re.sub(r"[^a-zA-Z0-9._-]", "", clean)
+        return clean[:32]
+
+    @classmethod
+    def _effective_discord_suffix(cls, ign: str, discord_name: Optional[str]) -> str:
+        clean_dc = cls._sanitize_discord_name(discord_name)
+        if not clean_dc or clean_dc.lower() == ign.strip().lower():
+            return ""
+        return clean_dc
+
+    def _build_discord_suffix_commands(
+        self, ign: str, discord_name: Optional[str], mc_uuid: Optional[str] = None
+    ) -> List[str]:
+        if not validate_minecraft_ign(ign):
+            return []
+        target = mc_uuid if mc_uuid else ign
+        clean_dc = self._effective_discord_suffix(ign, discord_name)
+        if clean_dc:
+            return [f'lp user {target} meta setsuffix 100 " &8(&7{clean_dc}&8)&r"']
+        return [f"lp user {target} meta clear suffixes"]
+
 
     def whitelist_add(self, ign: str) -> bool:
         """Adds a player to the Minecraft server whitelist."""
@@ -741,9 +769,11 @@ class MinecraftSyncClient:
                 continue
 
             _maybe_remove_old_ign(uid, ign)
-            current_state[uid] = {"role": "admin", "ign": ign, "uuid": mc_uuid, "whitelisted": True}
+            dc_name = self._effective_discord_suffix(ign, admin.get("discordName"))
+            current_state[uid] = {"role": "admin", "ign": ign, "uuid": mc_uuid, "whitelisted": True, "discord": dc_name}
             if force or uid not in prev_state or prev_state[uid] != current_state[uid]:
                 commands_to_run.extend(self._build_set_role_commands(ign, "admin", mc_uuid))
+                commands_to_run.extend(self._build_discord_suffix_commands(ign, dc_name, mc_uuid))
                 synced_admins.append({"uid": uid, "ign": ign, "uuid": mc_uuid})
             else:
                 unchanged_users.append({"uid": uid, "ign": ign, "role": "admin"})
@@ -773,16 +803,20 @@ class MinecraftSyncClient:
             has_grant = uid in active_grants or any(g.get("ign", "").lower() == ign.lower() for g in active_grants.values())
             is_mod_whitelisted = is_launched or has_grant
 
+            dc_name = self._effective_discord_suffix(ign, mod.get("discordName"))
             if is_mod_whitelisted:
                 _maybe_remove_old_ign(uid, ign)
-                current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": True}
+                current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": True, "discord": dc_name}
                 if force or uid not in prev_state or prev_state[uid] != current_state[uid]:
                     commands_to_run.extend(self._build_set_role_commands(ign, "mod", mc_uuid))
+                    commands_to_run.extend(self._build_discord_suffix_commands(ign, dc_name, mc_uuid))
                     synced_mods.append({"uid": uid, "ign": ign, "uuid": mc_uuid})
                 else:
                     unchanged_users.append({"uid": uid, "ign": ign, "role": "mod"})
             else:
-                current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": False}
+                current_state[uid] = {"role": "mod", "ign": ign, "uuid": mc_uuid, "whitelisted": False, "discord": dc_name}
+                if force or prev_state.get(uid, {}).get("discord") != dc_name:
+                    commands_to_run.extend(self._build_discord_suffix_commands(ign, dc_name, mc_uuid))
                 if prev_state.get(uid, {}).get("whitelisted") is True:
                     _maybe_remove_old_ign(uid, ign)
                     commands_to_run.append(f"whitelist remove {ign}")
@@ -813,18 +847,22 @@ class MinecraftSyncClient:
                 continue
 
             target = mc_uuid if mc_uuid else ign
+            dc_name = self._effective_discord_suffix(ign, player.get("discordName"))
             if is_launched:
                 _maybe_remove_old_ign(uid, ign)
-                current_state[uid] = {"role": "player", "ign": ign, "uuid": mc_uuid, "whitelisted": True}
+                current_state[uid] = {"role": "player", "ign": ign, "uuid": mc_uuid, "whitelisted": True, "discord": dc_name}
                 if force or uid not in prev_state or prev_state[uid] != current_state[uid]:
                     commands_to_run.append(f"whitelist add {ign}")
                     commands_to_run.append(f"lp user {target} parent set default")
+                    commands_to_run.extend(self._build_discord_suffix_commands(ign, dc_name, mc_uuid))
                     synced_players.append({"uid": uid, "ign": ign, "uuid": mc_uuid})
                 else:
                     unchanged_users.append({"uid": uid, "ign": ign, "role": "player"})
             else:
                 # Pre-Launch mode: players must NOT be whitelisted on server
-                current_state[uid] = {"role": "player", "ign": ign, "uuid": mc_uuid, "whitelisted": False}
+                current_state[uid] = {"role": "player", "ign": ign, "uuid": mc_uuid, "whitelisted": False, "discord": dc_name}
+                if force or prev_state.get(uid, {}).get("discord") != dc_name:
+                    commands_to_run.extend(self._build_discord_suffix_commands(ign, dc_name, mc_uuid))
                 if prev_state.get(uid, {}).get("whitelisted") is True:
                     _maybe_remove_old_ign(uid, ign)
                     commands_to_run.append(f"whitelist remove {ign}")

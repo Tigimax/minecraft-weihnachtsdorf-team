@@ -257,6 +257,29 @@ class TestApplications(unittest.TestCase):
         self.assertEqual(applications.get_all_bans(active_only=True), [])
         self.assertFalse(applications.get_user_status("999000111")["is_banned"])
 
+    def test_duplicate_pending_application_is_idempotent(self):
+        first_id = applications.create_application(
+            discord_id="777888999",
+            discord_username="double_clicker",
+            app_type="initial",
+            message="Hi!",
+            minecraft_ign="DoubleClicker",
+        )
+        second_id = applications.create_application(
+            discord_id="777888999",
+            discord_username="double_clicker",
+            app_type="initial",
+            message="Hi!",
+            minecraft_ign="DoubleClicker",
+        )
+        self.assertEqual(first_id, second_id)
+        conn = applications.get_connection()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM applications WHERE discord_id = '777888999' AND status = 'pending'"
+        ).fetchone()[0]
+        conn.close()
+        self.assertEqual(count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

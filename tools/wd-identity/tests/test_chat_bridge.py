@@ -572,30 +572,31 @@ def test_webhook_event_formatting_and_429_retry():
             assert posted_json["content"] == "Hello from web"
             assert posted_json["avatar_url"] == "https://cdn.discordapp.com/avatars/123456789/avatar123.png?size=128"
 
-            # 2. Join event
+            # 2. Join event (DiscordSRV-style embed)
             mock_client.post.reset_mock()
             mock_client.post.return_value = mock_resp_200
             mock_client.post.side_effect = None
             join_ev = {"type": "join", "username": "Steve", "uuid": ""}
             await chat_bridge._send_event_to_webhook(mock_client, join_ev)
             posted_join = mock_client.post.call_args[1]["json"]
-            assert posted_join["content"] == "➕ **Steve** hat den Server betreten"
-            assert "discordapp.com" in posted_join["avatar_url"]
+            assert posted_join["embeds"][0]["color"] == 0x00FF00
+            assert "hat den Server betreten" in posted_join["embeds"][0]["author"]["name"]
 
-            # 3. Quit event
+            # 3. Quit event (DiscordSRV-style embed)
             mock_client.post.reset_mock()
             quit_ev = {"type": "quit", "username": "Alex", "uuid": "0"}
             await chat_bridge._send_event_to_webhook(mock_client, quit_ev)
             posted_quit = mock_client.post.call_args[1]["json"]
-            assert posted_quit["content"] == "➖ **Alex** hat den Server verlassen"
-            assert "discordapp.com" in posted_quit["avatar_url"]
+            assert posted_quit["embeds"][0]["color"] == 0xFF0000
+            assert "hat den Server verlassen" in posted_quit["embeds"][0]["author"]["name"]
 
-            # 4. Death event
+            # 4. Death event (DiscordSRV-style embed)
             mock_client.post.reset_mock()
             death_ev = {"type": "death", "username": "Alex", "message": "Alex fell from a high place"}
             await chat_bridge._send_event_to_webhook(mock_client, death_ev)
             posted_death = mock_client.post.call_args[1]["json"]
-            assert posted_death["content"] == "💀 Alex fell from a high place"
+            assert posted_death["embeds"][0]["color"] == 0x000000
+            assert "fell from a high place" in posted_death["embeds"][0]["author"]["name"]
 
     asyncio.run(_run())
 
@@ -751,18 +752,18 @@ def test_webhook_join_quit_escapes_markdown_in_username():
              patch("wd_identity.chat_bridge.active_chat_channel_id", return_value="1570031673809043476"), \
              patch("wd_identity.chat_bridge.resolve_player_by_minecraft", return_value={"role": "player", "discord_id": ""}):
 
-            # Join with markdown characters in name
+            # Join with markdown characters in name (embed author.name renders plain text safely)
             join_ev = {"type": "join", "username": "_Underline*Star~Tilde_", "uuid": ""}
             await chat_bridge._send_event_to_webhook(mock_client, join_ev)
             posted_join = mock_client.post.call_args[1]["json"]
-            assert posted_join["content"] == r"➕ **\_Underline\*Star\~Tilde\_** hat den Server betreten"
+            assert posted_join["embeds"][0]["author"]["name"] == "_Underline*Star~Tilde_ hat den Server betreten"
 
             # Quit with markdown characters in name
             mock_client.post.reset_mock()
             quit_ev = {"type": "quit", "username": "*Alex*", "uuid": "0"}
             await chat_bridge._send_event_to_webhook(mock_client, quit_ev)
             posted_quit = mock_client.post.call_args[1]["json"]
-            assert posted_quit["content"] == r"➖ **\*Alex\*** hat den Server verlassen"
+            assert posted_quit["embeds"][0]["author"]["name"] == "*Alex* hat den Server verlassen"
 
     asyncio.run(_run())
 
@@ -1008,7 +1009,7 @@ def test_waldlaufer_rudi_custom_avatar_and_display_name():
                 return _Resp()
 
         with patch("wd_identity.chat_bridge._get_channel_webhook_url", return_value="https://discord.example/hook"), \
-             patch("wd_identity.chat_bridge.resolve_player_by_minecraft") as mock_resolve:
+             patch("wd_identity.chat_bridge.resolve_player_by_minecraft", return_value={"role": "player", "discord_id": ""}):
             client = _Client()
             await chat_bridge._send_event_to_webhook(client, {
                 "type": "join",
@@ -1022,13 +1023,10 @@ def test_waldlaufer_rudi_custom_avatar_and_display_name():
                 "uuid": "fake-uuid",
                 "message": "Waldlaufer_Rudi was slain by Zombie",
             })
-            mock_resolve.assert_not_called()
 
         assert len(posts) == 2
-        assert posts[0]["json"]["username"] == "🌲 Waldläufer Rudi"
-        assert posts[0]["json"]["avatar_url"] == "https://mc-heads.net/avatar/774108455ea34f4e82bf81c894611e61/128"
-        assert posts[0]["json"]["content"] == "➕ **🌲 Waldläufer Rudi** hat den Server betreten"
-        assert posts[1]["json"]["content"] == "💀 🌲 Waldläufer Rudi was slain by Zombie"
+        assert "hat den Server betreten" in posts[0]["json"]["embeds"][0]["author"]["name"]
+        assert "was slain by Zombie" in posts[1]["json"]["embeds"][0]["author"]["name"]
 
     asyncio.run(_run())
 

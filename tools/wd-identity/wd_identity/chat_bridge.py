@@ -14,6 +14,7 @@ import logging
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import httpx
 from discord.utils import escape_markdown
@@ -52,6 +53,31 @@ _minecraft_player_cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
 
 # Discord avatar cache: discord_id -> (avatar_url, expire_timestamp)
 _avatar_cache: Dict[str, Tuple[str, float]] = {}
+
+# Bot identity cache: ((bot_name, bot_avatar_url), expire_timestamp)
+_bot_identity_cache: Optional[Tuple[Tuple[str, str], float]] = None
+
+DEFAULT_BOT_NAME = "Weihnachtsdorf 7"
+DEFAULT_AVATAR_URL = "https://cdn.discordapp.com/embed/avatars/0.png"
+
+_MC_HEX_COLOR_RE = re.compile(r"§x(?:§[0-9a-fA-F]){6}", re.IGNORECASE)
+_MC_LEGACY_COLOR_RE = re.compile(r"§[0-9a-fA-Fk-orK-ORxX]")
+
+# DiscordSRV German default notification embed specifications
+NOTIFICATION_EMBED_SPECS: Dict[str, Tuple[int, str]] = {
+    "join": (0x00FF00, "{ign} hat den Server betreten"),
+    "first_join": (0xFFD700, "{ign} hat den Server zum ersten Mal betreten"),
+    "quit": (0xFF0000, "{ign} hat den Server verlassen"),
+    "death": (0x000000, "{message}"),
+    "achievement": (0xFFD700, "{ign} hat den Fortschritt {message} erreicht!"),
+}
+
+SERVER_LIFECYCLE_MESSAGES: Dict[str, str] = {
+    "startup": ":white_check_mark: **Server wurde gestartet**",
+    "server_startup": ":white_check_mark: **Server wurde gestartet**",
+    "shutdown": ":octagonal_sign: **Server wurde heruntergefahren**",
+    "server_shutdown": ":octagonal_sign: **Server wurde heruntergefahren**",
+}
 
 ROLE_COLORS = {
     "admin": "red",
@@ -324,6 +350,152 @@ async def get_discord_avatar_url(client: httpx.AsyncClient, discord_id: str) -> 
     return default_avatar
 
 
+def strip_mc_formatting(text: str) -> str:
+    """Strips Minecraft section-sign (§) legacy and hex formatting codes."""
+    if not text:
+        return ""
+    cleaned = _MC_HEX_COLOR_RE.sub("", str(text))
+    return _MC_LEGACY_COLOR_RE.sub("", cleaned)
+
+
+def get_minecraft_avatar_url(ign: str, uuid: str = "") -> str:
+    """
+    Constructs DiscordSRV's default Minecraft head avatar URL (crafthead.net/helm).
+    Uses dashless UUID for online Mojang UUIDs and falls back to username for offline/missing UUIDs.
+    """
+    clean_uuid = re.sub(r"[^0-9a-fA-F]", "", (uuid or "").strip()).lower()
+    if len(clean_uuid) == 32 and clean_uuid != "0" * 32 and clean_uuid[12] != "3":
+        return f"https://crafthead.net/helm/{clean_uuid}/128"
+
+    clean_ign = (ign or "Steve").strip() or "Steve"
+    return f"https://crafthead.net/helm/{quote(clean_ign, safe='')}/128"
+
+
+async def get_bot_identity(client: httpx.AsyncClient) -> Tuple[str, str]:
+    """
+    Fetches the Discord bot's effective guild name and avatar URL (cached 300s).
+    Matches DiscordSRV's %botname% and %botavatarurl% placeholders for notification embeds.
+    """
+    global _bot_identity_cache
+    now = time.time()
+    if _bot_identity_cache is not None:
+        val, exp = _bot_identity_cache
+        if now < exp:
+            return val
+
+    bot_name = DEFAULT_BOT_NAME
+    bot_avatar = DEFAULT_AVATAR_URL
+    token = getattr(settings, "DISCORD_BOT_TOKEN", "")
+    guild_id = getattr(settings, "DISCORD_GUILD_ID", "")
+
+    if not token:
+        _bot_identity_cache = ((bot_name, bot_avatar), now + 300.0)
+        return (bot_name, bot_avatar)
+
+    headers = {"Authorization": f"Bot {token}"}
+    try:
+        me_resp = await _request_with_429_retry(
+            client.get,
+            "https://discord.com/api/v10/users/@me",
+            headers=headers,
+        )
+        if me_resp.status_code == 200:
+            me_data = me_resp.json()
+            bot_id = str(me_data.get("id") or "").strip()
+            bot_name = str(me_data.get("global_name") or me_data.get("username") or bot_name).strip() or bot_name
+            user_av = me_data.get("avatar")
+            if bot_id and user_av:
+                bot_avatar = f"https://cdn.discordapp.com/avatars/{bot_id}/{user_av}.png?size=128"
+            elif bot_id.isdigit():
+                bot_avatar = f"https://cdn.discordapp.com/embed/avatars/{(int(bot_id) >> 22) % 6}.png"
+
+            if guild_id and bot_id:
+                member_resp = await _request_with_429_retry(
+                    client.get,
+                    f"https://discord.com/api/v10/guilds/{guild_id}/members/{bot_id}",
+                    headers=headers,
+                )
+                if member_resp.status_code == 200:
+                    m_data = member_resp.json()
+                    if m_data.get("nick"):
+                        bot_name = str(m_data["nick"]).strip() or bot_name
+                    if m_data.get("avatar"):
+                        bot_avatar = f"https://cdn.discordapp.com/guilds/{guild_id}/users/{bot_id}/avatars/{m_data['avatar']}.png?size=128"
+    except Exception as e:
+        logger.warning(f"Failed to resolve Discord bot identity: {e}")
+
+    identity = (bot_name, bot_avatar)
+    _bot_identity_cache = (identity, now + 300.0)
+    return identity
+
+
+async def _build_webhook_payload(client: httpx.AsyncClient, event: dict) -> Optional[Dict[str, Any]]:
+    """Builds a DiscordSRV-compatible Discord webhook payload for a Minecraft/webchat event."""
+    ev_type = (event.get("type") or "chat").lower()
+    raw_ign = str(event.get("username") or "Spieler").strip() or "Spieler"
+    raw_uuid = str(event.get("uuid") or "")
+    raw_msg = strip_mc_formatting(str(event.get("message") or "")).strip()
+
+    if ev_type in SERVER_LIFECYCLE_MESSAGES:
+        bot_name, bot_avatar = await get_bot_identity(client)
+        return {
+            "username": sanitize_webhook_username(bot_name),
+            "avatar_url": bot_avatar,
+            "content": SERVER_LIFECYCLE_MESSAGES[ev_type],
+            "allowed_mentions": {"parse": []},
+        }
+
+    player_info = await asyncio.to_thread(resolve_player_by_minecraft, raw_ign, raw_uuid)
+    display_ign = str(player_info.get("ign") or raw_ign)
+    resolved_uuid = str(player_info.get("uuid") or raw_uuid)
+
+    if ev_type in NOTIFICATION_EMBED_SPECS:
+        color, template = NOTIFICATION_EMBED_SPECS[ev_type]
+        if ev_type == "death":
+            if len(re.sub(r"[^A-Za-z0-9ÄÖÜäöüß]", "", raw_msg)) < 3:
+                return None
+        elif ev_type == "achievement" and not raw_msg:
+            return None
+
+        author_name = template.format(ign=display_ign, message=raw_msg)[:256]
+        if not author_name.strip():
+            return None
+
+        bot_name, bot_avatar = await get_bot_identity(client)
+        mc_avatar_url = get_minecraft_avatar_url(display_ign, resolved_uuid)
+        return {
+            "username": sanitize_webhook_username(bot_name),
+            "avatar_url": bot_avatar,
+            "embeds": [
+                {
+                    "color": color,
+                    "author": {
+                        "name": author_name,
+                        "icon_url": mc_avatar_url,
+                    },
+                }
+            ],
+            "allowed_mentions": {"parse": []},
+        }
+
+    content = escape_markdown(raw_msg)[:1900]
+    if not content:
+        return None
+
+    discord_id = player_info.get("discord_id", "")
+    if discord_id:
+        avatar_url = await get_discord_avatar_url(client, discord_id)
+    else:
+        avatar_url = get_minecraft_avatar_url(display_ign, resolved_uuid)
+
+    return {
+        "username": sanitize_webhook_username(display_ign),
+        "avatar_url": avatar_url,
+        "content": content,
+        "allowed_mentions": {"parse": []},
+    }
+
+
 async def _send_event_to_webhook(client: httpx.AsyncClient, event: dict) -> None:
     """Dispatches a single formatted game event to Discord via channel webhook."""
     try:
@@ -333,55 +505,9 @@ async def _send_event_to_webhook(client: httpx.AsyncClient, event: dict) -> None
             logger.warning(f"No webhook available for active channel {chan_id}; dropping event.")
             return
 
-        ev_type = (event.get("type") or "chat").lower()
-        ign = event.get("username") or "Spieler"
-        raw_uuid = str(event.get("uuid") or "")
-
-        custom_avatars = {
-            "waldlaufer_rudi": "https://mc-heads.net/avatar/774108455ea34f4e82bf81c894611e61/128",
-        }
-        custom_names = {
-            "waldlaufer_rudi": "🌲 Waldläufer Rudi",
-        }
-        ign_key = ign.strip().lower()
-        display_ign = custom_names.get(ign_key, ign)
-
-        # Resolve player discord_id and avatar
-        if ign_key in custom_avatars:
-            avatar_url = custom_avatars[ign_key]
-        else:
-            player_info = await asyncio.to_thread(resolve_player_by_minecraft, ign, raw_uuid)
-            discord_id = player_info.get("discord_id", "")
-            if discord_id:
-                avatar_url = await get_discord_avatar_url(client, discord_id)
-            else:
-                avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
-
-        raw_msg = str(event.get("message") or "")
-
-        if ev_type in ("webchat", "chat"):
-            content = escape_markdown(raw_msg)[:1900]
-        elif ev_type == "join":
-            shown_ign = display_ign if ign_key in custom_names else escape_markdown(ign)
-            content = f"➕ **{shown_ign}** hat den Server betreten"
-        elif ev_type == "quit":
-            shown_ign = display_ign if ign_key in custom_names else escape_markdown(ign)
-            content = f"➖ **{shown_ign}** hat den Server verlassen"
-        elif ev_type == "death":
-            death_raw = raw_msg.replace(ign, display_ign) if ign_key in custom_names else raw_msg
-            content = f"💀 {escape_markdown(death_raw)}"
-        else:
-            content = escape_markdown(raw_msg)[:1900]
-
-        if not content:
+        payload = await _build_webhook_payload(client, event)
+        if not payload:
             return
-
-        payload = {
-            "username": sanitize_webhook_username(display_ign),
-            "avatar_url": avatar_url,
-            "content": content,
-            "allowed_mentions": {"parse": []},
-        }
 
         resp = await _request_with_429_retry(client.post, webhook_url, json=payload)
 

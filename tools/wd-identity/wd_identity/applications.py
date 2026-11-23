@@ -101,6 +101,10 @@ def init_db(force: bool = False, db_path: Optional[Path] = None):
             conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_discord ON applications (discord_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_status ON applications (status);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_ign ON applications (minecraft_ign);")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_apps_one_pending_per_user "
+                "ON applications (discord_id) WHERE status = 'pending';"
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_discord ON bans (discord_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_ign ON bans (minecraft_ign);")
     finally:
@@ -115,20 +119,28 @@ def create_application(
     message: str,
     minecraft_ign: Optional[str] = None,
 ) -> int:
-    """Creates a new pending application."""
+    """Creates a new pending application (idempotent if one is already pending)."""
     init_db()
     conn = get_connection()
     try:
-        with conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO applications (discord_id, discord_username, app_type, message, minecraft_ign, status, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-                """,
-                (str(discord_id), discord_username, app_type, message, minecraft_ign.strip() if minecraft_ign else None),
-            )
-            app_id = cursor.lastrowid
-        return app_id
+        try:
+            with conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO applications (discord_id, discord_username, app_type, message, minecraft_ign, status, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+                    """,
+                    (str(discord_id), discord_username, app_type, message, minecraft_ign.strip() if minecraft_ign else None),
+                )
+                return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            row = conn.execute(
+                "SELECT id FROM applications WHERE discord_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
+                (str(discord_id),),
+            ).fetchone()
+            if row:
+                return int(row["id"])
+            raise
     finally:
         conn.close()
 

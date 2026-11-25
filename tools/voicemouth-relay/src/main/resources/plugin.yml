@@ -1,0 +1,6 @@
+name: VoiceMouthRelay
+version: 1.0.0
+main: com.tigimax.voicemouthrelay.VoiceMouthRelayPlugin
+api-version: '1.21'
+author: Tigimax
+description: Lightweight Paper/Purpur sync relay for the VoiceMouth Fabric client mod.

@@ -203,6 +203,16 @@
     border-color: var(--border-strong);
   }
 
+  .btn--amber {
+    background: var(--accent-amber);
+    color: #0B1116;
+    font-weight: 700;
+    box-shadow: 0 8px 24px rgba(245, 165, 66, 0.24);
+  }
+  .btn--amber:hover {
+    background: var(--accent-amber-h);
+  }
+
   .btn--pill {
     border-radius: 999px;
     padding: 0.52rem 1rem;
@@ -995,8 +1005,148 @@
   .modal-dialog strong {
     color: var(--text-primary);
   }
-  .modal-dialog a {
+  .modal-dialog a:not(.btn) {
     color: var(--accent-amber);
+  }
+
+  .modal-dialog--wide {
+    max-width: 46rem;
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+  }
+  .modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .modal-head h2 {
+    margin: 0;
+  }
+  .modal-head__sub {
+    margin: 0.25rem 0 0;
+    font-size: 0.86rem;
+    color: var(--text-secondary);
+  }
+  .mp-compare {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin: 1rem 0 1.25rem;
+  }
+  .mp-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 1rem 1.05rem;
+    border-radius: 14px;
+    background: rgba(7, 11, 14, 0.65);
+    border: 1px solid var(--border-subtle);
+  }
+  .mp-card--highlight {
+    border-color: var(--border-accent);
+    background: linear-gradient(180deg, rgba(245, 165, 66, 0.07) 0%, rgba(7, 11, 14, 0.68) 100%);
+  }
+  .mp-card__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .mp-card__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.04rem;
+    font-weight: 700;
+  }
+  .mp-card__badge {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    padding: 0.16rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .mp-card__badge--amber {
+    background: rgba(245, 165, 66, 0.16);
+    color: var(--accent-amber);
+  }
+  .mp-card__badge--green {
+    background: rgba(52, 211, 153, 0.14);
+    color: var(--accent-green);
+  }
+  .mp-card__list {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+  .mp-card__list li {
+    margin-bottom: 0.25rem;
+  }
+  .mp-card__actions {
+    margin-top: auto;
+    padding-top: 0.45rem;
+  }
+  .mp-card__actions .btn {
+    width: 100%;
+    padding: 0.64rem 1rem;
+    font-size: 0.88rem;
+  }
+  .mp-guide {
+    background: rgba(7, 11, 14, 0.55);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 1rem 1.1rem;
+    margin-bottom: 1.15rem;
+  }
+  .mp-guide h3 {
+    margin: 0 0 0.65rem;
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .mp-steps {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: grid;
+    gap: 0.45rem;
+    font-size: 0.87rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+  .mp-steps code {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.07);
+    padding: 0.1rem 0.35rem;
+    border-radius: 5px;
+  }
+  .mp-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .mp-footer__hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .mp-trigger-btn {
+    width: 100%;
+    margin-bottom: 0.85rem;
+    justify-content: space-between;
+    text-align: left;
+  }
+  @media (max-width: 680px) {
+    .mp-compare {
+      grid-template-columns: 1fr;
+    }
   }
 
   .lightbox-dialog {
@@ -1196,6 +1346,11 @@
               <span>tigimax.com</span>
               <span class="ip-copy-btn__badge" data-copy-label>IP kopieren</span>
             </button>
+
+            <button class="btn btn--amber" type="button" data-open-modpacks>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>WD7 Modpacks</span>
+            </button>
           </div>
         </div>
 
@@ -1346,6 +1501,11 @@
         <div class="bento-card bento-card--modpacks">
           <h3 class="bento-card__title">Modpacks &amp; Installation</h3>
           <p class="bento-card__sub">Modrinth-Profile (<code>.mrpack</code>) für Shader, Ambience, Simple VoiceChat &amp; FPS-Boost.</p>
+
+          <button class="btn btn--amber mp-trigger-btn" type="button" data-open-modpacks>
+            <span>Weihnachtsdorf 7 · Modpacks &amp; Anleitung</span>
+            <span>Standard &amp; Performance →</span>
+          </button>
 
           <div class="portal-list">
             <a class="portal-item" href="assets/downloads/Weihnachtsdorf_6_1.0.1.mrpack" download>
@@ -1576,6 +1736,64 @@
 
 </div>
 
+<!-- MODPACKS DIALOG -->
+<dialog class="modal-dialog modal-dialog--wide" id="modpack-dialog" aria-labelledby="modpack-title">
+  <div class="modal-head">
+    <div>
+      <h2 id="modpack-title">Weihnachtsdorf 7 · Modpacks</h2>
+      <p class="modal-head__sub">Minecraft 26.3 (Fabric) · Beide Pakete enthalten VoiceChat, Minimap, World Map &amp; Zoom.</p>
+    </div>
+    <button class="btn btn--glass btn--pill" type="button" id="close-modpacks-top" aria-label="Dialog schließen">✕</button>
+  </div>
+
+  <div class="mp-compare">
+    <div class="mp-card mp-card--highlight">
+      <div class="mp-card__top">
+        <h3 class="mp-card__title">Weihnachtsdorf 7</h3>
+        <span class="mp-card__badge mp-card__badge--amber">Standard · v1.0.1</span>
+      </div>
+      <ul class="mp-card__list">
+        <li><strong>Leistung:</strong> Für normale bis starke PCs (mit eigener Grafikkarte).</li>
+        <li><strong>Optik &amp; Atmosphäre:</strong> Mit Shadern, Better Clouds, AmbientSounds, Presence Footsteps, Falling Leaves &amp; 3D-Skins.</li>
+        <li><strong>Hinweis:</strong> Braucht durch Shader &amp; Effekte spürbar mehr Leistung (Shader lassen sich im Spiel auch ausschalten).</li>
+      </ul>
+      <div class="mp-card__actions">
+        <a class="btn btn--amber" href="assets/downloads/Weihnachtsdorf_7_1.0.1.mrpack" download="Weihnachtsdorf_7_1.0.1.mrpack">Standard herunterladen (.mrpack)</a>
+      </div>
+    </div>
+
+    <div class="mp-card">
+      <div class="mp-card__top">
+        <h3 class="mp-card__title">Weihnachtsdorf 7 Performance</h3>
+        <span class="mp-card__badge mp-card__badge--green">Max. FPS · v1.0.3</span>
+      </div>
+      <ul class="mp-card__list">
+        <li><strong>Leistung:</strong> Ideal für Laptops, ältere PCs oder wenn du einfach maximale FPS willst.</li>
+        <li><strong>Ohne Ballast:</strong> Keine Shader und keine schweren Grafik-/Sound-Effekte, dafür extra FPS-Mods.</li>
+        <li><strong>Voll spielbar:</strong> Alle wichtigen Mods (VoiceChat, Minimap, World Map, JEI, Litematica, MiniHUD, Mouse Tweaks) sind dabei.</li>
+      </ul>
+      <div class="mp-card__actions">
+        <a class="btn btn--glass" href="assets/downloads/Weihnachtsdorf_7_Performance_1.0.3.mrpack" download="Weihnachtsdorf_7_Performance_1.0.3.mrpack">Performance herunterladen (.mrpack)</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="mp-guide">
+    <h3>So installierst du die Mods (in 1 Minute)</h3>
+    <ol class="mp-steps">
+      <li>Lade dir die kostenlose <a href="https://modrinth.com/app" target="_blank" rel="noopener noreferrer">Modrinth App</a> herunter, installiere sie und melde dich mit deinem Minecraft-Konto an.</li>
+      <li>Lade oben eines der beiden Modpacks (<code>.mrpack</code>) herunter.</li>
+      <li>Klicke in der Modrinth App links auf das <code>+</code> → <strong>„Aus Datei importieren“</strong> (<em>Import from file</em>) und wähle die heruntergeladene Datei aus.</li>
+      <li>Kurz warten bis alles installiert ist, auf <strong>Spielen</strong> klicken und mit <code>tigimax.com</code> verbinden – fertig!</li>
+    </ol>
+  </div>
+
+  <div class="mp-footer">
+    <span class="mp-footer__hint">Lieber als Video? <a href="https://www.youtube.com/watch?v=ixouqEEr00Y" target="_blank" rel="noopener noreferrer">Kurze YouTube-Anleitung ansehen</a></span>
+    <button class="btn btn--glass btn--pill" type="button" id="close-modpacks">Schließen</button>
+  </div>
+</dialog>
+
 <!-- IMPRESSUM DIALOG -->
 <dialog class="modal-dialog" id="impressum-dialog" aria-labelledby="impressum-title">
   <h2 id="impressum-title">Impressum &amp; Datenschutzhinweis</h2>
@@ -1685,6 +1903,19 @@
       closeImp.addEventListener('click', function () { impDlg.close(); });
       impDlg.addEventListener('click', function (e) { if (e.target === impDlg) impDlg.close(); });
       if (window.location.hash === '#impressum') impDlg.showModal();
+    }
+
+    var mpDlg = document.getElementById('modpack-dialog');
+    var closeMp = document.getElementById('close-modpacks');
+    var closeMpTop = document.getElementById('close-modpacks-top');
+    if (mpDlg) {
+      document.querySelectorAll('[data-open-modpacks]').forEach(function (btn) {
+        btn.addEventListener('click', function () { mpDlg.showModal(); });
+      });
+      if (closeMp) closeMp.addEventListener('click', function () { mpDlg.close(); });
+      if (closeMpTop) closeMpTop.addEventListener('click', function () { mpDlg.close(); });
+      mpDlg.addEventListener('click', function (e) { if (e.target === mpDlg) mpDlg.close(); });
+      if (window.location.hash === '#modpacks') mpDlg.showModal();
     }
 
     var lbDlg = document.getElementById('lightbox-dialog');

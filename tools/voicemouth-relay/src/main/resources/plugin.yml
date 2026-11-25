@@ -1,6 +1,11 @@
 name: VoiceMouthRelay
-version: 1.0.0
+version: 1.1.0
 main: com.tigimax.voicemouthrelay.VoiceMouthRelayPlugin
 api-version: '1.21'
 author: Tigimax
-description: Lightweight Paper/Purpur sync relay for the VoiceMouth Fabric client mod.
+description: Lightweight Paper/Purpur sync relay and /mouth toggle for the VoiceMouth Fabric client mod.
+commands:
+  mouth:
+    description: Schaltet den sprechenden Mund (VoiceMouth) an oder aus.
+    usage: /mouth [an|aus]
+    aliases: [maul, mund]

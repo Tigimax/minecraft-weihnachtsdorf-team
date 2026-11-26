@@ -399,6 +399,28 @@ class TestMinecraftSyncLogic(unittest.TestCase):
             self.assertTrue(res["success"])
             self.assertEqual(self.client.get_active_mod_grants(), {})
 
+    def test_execute_commands_batches_large_lists(self):
+        """execute_commands() splits large command bursts (e.g. /projekt-start) into batches of 30."""
+        cmds = [f"whitelist add Player{i}" for i in range(75)]
+        mock_res = MagicMock()
+        mock_res.status_code = 204
+        with patch("wd_identity.mc_sync.requests.post", return_value=mock_res) as mock_post:
+            ok = self.client.execute_commands(cmds)
+        self.assertTrue(ok)
+        self.assertEqual(mock_post.call_count, 3)
+        batch_sizes = [len(call.kwargs["json"]["commands"]) for call in mock_post.call_args_list]
+        self.assertEqual(batch_sizes, [30, 30, 15])
+
+    def test_execute_commands_stops_on_batch_failure(self):
+        """execute_commands() returns False immediately if a Wings batch fails."""
+        cmds = [f"whitelist add Player{i}" for i in range(65)]
+        ok_res = MagicMock(status_code=204)
+        fail_res = MagicMock(status_code=502, text="Bad Gateway")
+        with patch("wd_identity.mc_sync.requests.post", side_effect=[ok_res, fail_res]) as mock_post:
+            ok = self.client.execute_commands(cmds)
+        self.assertFalse(ok)
+        self.assertEqual(mock_post.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

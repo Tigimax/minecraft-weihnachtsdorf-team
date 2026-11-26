@@ -516,23 +516,25 @@ class MinecraftSyncClient:
             "Accept": "application/json",
         }
 
-    def execute_commands(self, commands: List[str]) -> bool:
-        """Sends console commands to the Minecraft server via Wings API."""
+    def execute_commands(self, commands: List[str], batch_size: int = 30) -> bool:
+        """Sends console commands to the Minecraft server via Wings API in bounded batches."""
         if not commands:
             return True
         url = f"{self.api_url}/api/servers/{self.server_uuid}/commands"
-        payload = {"commands": commands}
-        try:
-            res = requests.post(url, headers=self._headers, json=payload, timeout=10)
-            if res.status_code in (200, 204):
-                return True
-            logger.error(
-                f"Wings API returned status {res.status_code}: {res.text}"
-            )
-            return False
-        except Exception as e:
-            logger.error(f"Failed to communicate with Wings API at {url}: {e}")
-            return False
+        step = max(1, int(batch_size))
+        for i in range(0, len(commands), step):
+            batch = commands[i : i + step]
+            try:
+                res = requests.post(url, headers=self._headers, json={"commands": batch}, timeout=10)
+                if res.status_code not in (200, 204):
+                    logger.error(
+                        f"Wings API returned status {res.status_code} on batch {i // step + 1}: {res.text}"
+                    )
+                    return False
+            except Exception as e:
+                logger.error(f"Failed to communicate with Wings API at {url} on batch {i // step + 1}: {e}")
+                return False
+        return True
 
     def _build_set_role_commands(
         self, ign: str, role: str, mc_uuid: Optional[str] = None

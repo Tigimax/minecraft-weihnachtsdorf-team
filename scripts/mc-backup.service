@@ -1,0 +1,12 @@
+[Unit]
+Description=Minecraft Hourly World Backup
+After=wings.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/mc-backup.sh
+Nice=19
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

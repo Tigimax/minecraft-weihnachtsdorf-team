@@ -1,0 +1,10 @@
+[Unit]
+Description=Minecraft Hourly World Backup Timer (offset to :30 to avoid Pterodactyl :00 overlap)
+After=wings.service
+
+[Timer]
+OnCalendar=*-*-* *:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
